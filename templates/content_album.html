@@ -98,7 +98,7 @@
         const folderInput = uploadForm.querySelector('input[name="photo_folder"]');
         const requestByteLimit = 48 * 1024 * 1024;
         const maxFilesPerBatch = 60;
-        const uploadConcurrency = 4;
+        const uploadConcurrency = 2;
 
         const setButtonState = (label, disabled) => {
           if (!submitButton) return;
@@ -106,26 +106,59 @@
           submitButton.textContent = label;
         };
 
-        const ensureNotice = (type) => {
-          let notice = uploadForm.previousElementSibling;
-          if (!notice || !notice.classList || !notice.classList.contains("upload-progress-notice")) {
-            notice = document.createElement("section");
-            notice.className = "notice upload-progress-notice";
-            uploadForm.parentNode.insertBefore(notice, uploadForm);
+        const formatBytes = (bytes) => {
+          if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+          const units = ["B", "KB", "MB", "GB"];
+          let value = bytes;
+          let unitIndex = 0;
+          while (value >= 1024 && unitIndex < units.length - 1) {
+            value /= 1024;
+            unitIndex += 1;
           }
-          notice.className = `notice upload-progress-notice trainers-notice trainers-notice-${type}`;
-          return notice;
+          const digits = value >= 100 || unitIndex === 0 ? 0 : 1;
+          return `${value.toFixed(digits)} ${units[unitIndex]}`;
         };
 
-        const updateProgress = (message, type = "success") => {
-          const notice = ensureNotice(type);
-          notice.textContent = message;
+        const ensureProgressCard = (type = "success") => {
+          let card = uploadForm.previousElementSibling;
+          if (!card || !card.classList || !card.classList.contains("upload-progress-card")) {
+            card = document.createElement("section");
+            card.className = "notice upload-progress-card";
+            card.innerHTML = `
+              <div class="upload-progress-head">
+                <p class="upload-progress-title">Upload voorbereiden...</p>
+                <span class="upload-progress-percent">0%</span>
+              </div>
+              <div class="upload-progress-bar" aria-hidden="true">
+                <div class="upload-progress-fill"></div>
+              </div>
+              <p class="upload-progress-meta">Wachten op upload...</p>
+            `;
+            uploadForm.parentNode.insertBefore(card, uploadForm);
+          }
+          card.className = `notice upload-progress-card trainers-notice trainers-notice-${type}`;
+          return {
+            card,
+            title: card.querySelector(".upload-progress-title"),
+            percent: card.querySelector(".upload-progress-percent"),
+            fill: card.querySelector(".upload-progress-fill"),
+            meta: card.querySelector(".upload-progress-meta"),
+          };
+        };
+
+        const updateProgress = ({ title, detail, percent, type = "success" }) => {
+          const ui = ensureProgressCard(type);
+          const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+          ui.title.textContent = title;
+          ui.percent.textContent = `${Math.round(safePercent)}%`;
+          ui.fill.style.width = `${safePercent}%`;
+          ui.meta.textContent = detail;
         };
 
         const clearProgress = () => {
-          const notice = uploadForm.previousElementSibling;
-          if (notice && notice.classList && notice.classList.contains("upload-progress-notice")) {
-            notice.remove();
+          const card = uploadForm.previousElementSibling;
+          if (card && card.classList && card.classList.contains("upload-progress-card")) {
+            card.remove();
           }
         };
 
@@ -154,6 +187,8 @@
 
           return formData;
         };
+
+        const sumBatchBytes = (batch) => batch.reduce((total, item) => total + item.file.size, 0);
 
         const createBatches = (files) => {
           const batches = [];
@@ -188,20 +223,33 @@
           return batches;
         };
 
-        const uploadBatch = async ({ batch, index, totalBatches }) => {
-          const response = await fetch(formActionUrl, {
-            method: "POST",
-            body: buildBatchFormData(batch),
-            credentials: "same-origin",
-            redirect: "follow",
+        const uploadBatch = ({ batch, index, onProgress }) => new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", formActionUrl, true);
+          xhr.withCredentials = true;
+          xhr.responseType = "document";
+
+          xhr.upload.addEventListener("progress", (event) => {
+            if (event.lengthComputable) {
+              onProgress(event.loaded, event.total);
+            }
           });
 
-          if (!response.ok) {
-            throw new Error(`Batch ${index + 1} mislukt met status ${response.status}.`);
-          }
+          xhr.addEventListener("load", () => {
+            if (xhr.status >= 200 && xhr.status < 400) {
+              onProgress(sumBatchBytes(batch), sumBatchBytes(batch));
+              resolve({ responseUrl: xhr.responseURL || formActionUrl, status: xhr.status });
+              return;
+            }
+            reject(new Error(`Batch ${index + 1} mislukt met status ${xhr.status}.`));
+          });
 
-          return response;
-        };
+          xhr.addEventListener("error", () => {
+            reject(new Error(`Batch ${index + 1} kon niet worden geupload.`));
+          });
+
+          xhr.send(buildBatchFormData(batch));
+        });
 
         const runConcurrentUploads = async (jobs, concurrency, onProgress) => {
           let nextIndex = 0;
@@ -229,22 +277,37 @@
 
           const batches = createBatches(files);
           let totalUploaded = 0;
+          const totalBytes = files.reduce((sum, item) => sum + item.file.size, 0);
+          const batchLoadedBytes = batches.map(() => 0);
+          const renderUploadProgress = (detailPrefix = "Upload bezig...") => {
+            const uploadedBytes = batchLoadedBytes.reduce((sum, value) => sum + value, 0);
+            const percent = totalBytes ? (uploadedBytes / totalBytes) * 100 : 0;
+            updateProgress({
+              title: "Foto's uploaden",
+              detail: `${detailPrefix} ${formatBytes(uploadedBytes)} van ${formatBytes(totalBytes)} verzonden.`,
+              percent,
+            });
+          };
 
           try {
+            renderUploadProgress("Upload gestart.");
+
             const jobs = batches.map((batch, index) => async () => uploadBatch({
               batch,
               index,
-              totalBatches: batches.length,
+              onProgress: (loaded) => {
+                batchLoadedBytes[index] = Math.min(sumBatchBytes(batch), loaded);
+                renderUploadProgress(`Batch ${index + 1} actief.`);
+              },
             }));
 
             let completedBatches = 0;
             await runConcurrentUploads(jobs, uploadConcurrency, (jobIndex) => {
               completedBatches += 1;
               totalUploaded += batches[jobIndex].length;
+              batchLoadedBytes[jobIndex] = sumBatchBytes(batches[jobIndex]);
               setButtonState(`Uploaden ${completedBatches}/${batches.length}...`, true);
-              updateProgress(
-                `${totalUploaded} foto's geupload. Batch ${completedBatches} van ${batches.length} klaar.`
-              );
+              renderUploadProgress(`Batch ${completedBatches} van ${batches.length} afgerond.`);
             });
 
             if (!completedBatches) {
@@ -254,10 +317,12 @@
             const successMessage = encodeURIComponent(`${totalUploaded} foto's geupload.`);
             window.location.assign(`/content/{{ album.id }}?success=${successMessage}`);
           } catch (error) {
-            updateProgress(
-              "De upload is gestopt voordat alle batches klaar waren. Probeer het opnieuw met dezelfde map; reeds geuploade foto's blijven bewaard.",
-              "error"
-            );
+            updateProgress({
+              title: "Upload onderbroken",
+              detail: "De upload is gestopt voordat alle batches klaar waren. Probeer het opnieuw met dezelfde map; reeds geuploade foto's blijven bewaard.",
+              percent: batchLoadedBytes.reduce((sum, value) => sum + value, 0) / Math.max(totalBytes, 1) * 100,
+              type: "error",
+            });
             setButtonState("Foto’s uploaden", false);
           }
         });

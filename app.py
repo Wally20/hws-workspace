@@ -496,7 +496,7 @@ def get_default_dashboard_events() -> List[Dict[str, Any]]:
 
 def get_db_connection() -> sqlite3.Connection:
     os.makedirs(DATA_DIR, exist_ok=True)
-    connection = sqlite3.connect(DATABASE_PATH)
+    connection = sqlite3.connect(DATABASE_PATH, timeout=30)
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -1738,7 +1738,7 @@ def upload_files_to_content_album(album_id: int, uploaded_files: List[Any]) -> i
     if not prepared_entries:
         raise ValueError("Selecteer minimaal één foto om te uploaden.")
 
-    max_workers = min(8, len(prepared_entries))
+    max_workers = min(4, len(prepared_entries))
     uploaded_items: List[Dict[str, Any]] = []
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
