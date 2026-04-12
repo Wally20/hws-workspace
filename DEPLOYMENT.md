@@ -129,7 +129,7 @@ server {
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    client_max_body_size 20M;
+    client_max_body_size 250M;
 
     location /static/ {
         alias /srv/overzicht/staticfiles/;
@@ -158,6 +158,7 @@ server {
 - Uploads/media-achtig pad: `/srv/overzicht/static/uploads/`
 - SQLite data: `/srv/overzicht/data/`
 - Databasebestand: `/srv/overzicht/data/app.db`
+- Aanbevolen limiet voor mapuploads: `CONTENT_UPLOAD_MAX_REQUEST_MB=250` en `CONTENT_UPLOAD_MAX_FILES=500`
 
 Gebruik in productie bij voorkeur `collectstatic`, zodat `nginx` uit `staticfiles/` kan serveren.
 

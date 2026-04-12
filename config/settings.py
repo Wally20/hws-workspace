@@ -35,6 +35,16 @@ def env_bool(name: str, default: bool = False) -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
 
+def env_int(name: str, default: int) -> int:
+    value = env(name)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 SECRET_KEY = env("DJANGO_SECRET_KEY") or env("FLASK_SECRET_KEY") or "django-dev-secret-change-me"
 DEBUG = env_bool("DJANGO_DEBUG", default=env("FLASK_DEBUG", "0") != "0")
 ALLOWED_HOSTS = [item.strip() for item in env("DJANGO_ALLOWED_HOSTS", env("TRUSTED_HOSTS", "127.0.0.1,localhost,testserver")).split(",") if item.strip()]
@@ -91,3 +101,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
+
+CONTENT_UPLOAD_MAX_REQUEST_MB = max(15, env_int("CONTENT_UPLOAD_MAX_REQUEST_MB", 250))
+CONTENT_UPLOAD_MAX_FILES = max(1, env_int("CONTENT_UPLOAD_MAX_FILES", 500))
+
+DATA_UPLOAD_MAX_MEMORY_SIZE = CONTENT_UPLOAD_MAX_REQUEST_MB * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FILES = CONTENT_UPLOAD_MAX_FILES

@@ -27,6 +27,7 @@
       <div class="feature-record-pills">
         <span class="pill">{{ content_storage.base_path }}</span>
         <span class="pill">{{ content_storage.max_upload_mb }} MB max</span>
+        <span class="pill">{{ content_storage.max_request_mb }} MB per upload</span>
       </div>
     </div>
 
@@ -74,7 +75,7 @@
         <label class="field">
           <span>Of kies een map</span>
           <input type="file" name="photo_folder" accept="{{ content_storage.allowed_types|join(',') }}" webkitdirectory directory multiple>
-          <small class="field-hint">Selecteer een volledige fotomap om alle afbeeldingen in één keer te uploaden.</small>
+          <small class="field-hint">Selecteer een volledige fotomap om alle afbeeldingen in één keer te uploaden. Maximaal {{ content_storage.max_request_mb }} MB en {{ content_storage.max_upload_files }} bestanden per upload.</small>
         </label>
         <div class="feature-actions">
           <button type="submit" class="team-primary-button">Upload foto’s</button>

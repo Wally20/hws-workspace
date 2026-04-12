@@ -63,5 +63,9 @@ services:
         value: content
       - key: BUNNY_IMAGE_MAX_UPLOAD_MB
         value: "15"
+      - key: CONTENT_UPLOAD_MAX_REQUEST_MB
+        value: "250"
+      - key: CONTENT_UPLOAD_MAX_FILES
+        value: "500"
       - key: BUNNY_IMAGE_ALLOWED_TYPES
         value: image/jpeg,image/png,image/webp,image/avif

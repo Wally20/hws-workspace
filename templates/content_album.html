@@ -32,7 +32,10 @@
           <p class="panel-title">Foto’s toevoegen</p>
           <p class="feature-list-subtitle">Nieuwe uploads voor dit album gaan naar {{ content_storage.mode_label }}.</p>
         </div>
-        <span class="pill">{{ content_storage.max_upload_mb }} MB max</span>
+        <div class="feature-record-pills">
+          <span class="pill">{{ content_storage.max_upload_mb }} MB max</span>
+          <span class="pill">{{ content_storage.max_request_mb }} MB per upload</span>
+        </div>
       </div>
       <form class="feature-form" method="post" action="/content/{{ album.id }}" enctype="multipart/form-data">
         <input type="hidden" name="action" value="upload_album_photos">
@@ -43,7 +46,7 @@
         <label class="field">
           <span>Of kies een map</span>
           <input type="file" name="photo_folder" accept="{{ content_storage.allowed_types|join(',') }}" webkitdirectory directory multiple>
-          <small class="field-hint">Alle foto’s uit de gekozen map worden direct aan dit album toegevoegd.</small>
+          <small class="field-hint">Alle foto’s uit de gekozen map worden direct aan dit album toegevoegd. Maximaal {{ content_storage.max_request_mb }} MB en {{ content_storage.max_upload_files }} bestanden per upload.</small>
         </label>
         <div class="feature-actions">
           <button type="submit" class="team-primary-button">Foto’s uploaden</button>

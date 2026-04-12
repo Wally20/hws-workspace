@@ -84,6 +84,16 @@ def get_env(name: str) -> str:
     return os.getenv(name, "").strip()
 
 
+def get_env_int(name: str, default: int) -> int:
+    value = get_env(name)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 def is_placeholder_value(value: str) -> bool:
     normalized = (value or "").strip()
     if not normalized:
@@ -188,11 +198,9 @@ def get_content_storage_config() -> Dict[str, Any]:
     if not allowed_types:
         allowed_types = ["image/jpeg", "image/png", "image/webp", "image/avif"]
 
-    max_upload_raw = get_env("BUNNY_IMAGE_MAX_UPLOAD_MB") or "15"
-    try:
-        max_upload_mb = max(1, int(max_upload_raw))
-    except ValueError:
-        max_upload_mb = 15
+    max_upload_mb = max(1, get_env_int("BUNNY_IMAGE_MAX_UPLOAD_MB", 15))
+    max_request_mb = max(max_upload_mb, get_env_int("CONTENT_UPLOAD_MAX_REQUEST_MB", 250))
+    max_upload_files = max(1, get_env_int("CONTENT_UPLOAD_MAX_FILES", 500))
 
     region = get_env("BUNNY_STORAGE_REGION") or "storage"
     zone = get_env("BUNNY_STORAGE_ZONE")
@@ -225,11 +233,16 @@ def get_content_storage_config() -> Dict[str, Any]:
         "public_base": public_base,
         "base_path": base_path,
         "max_upload_mb": max_upload_mb,
+        "max_request_mb": max_request_mb,
+        "max_upload_files": max_upload_files,
         "allowed_types": allowed_types,
         "missing_config": missing_config,
         "bunny_enabled": not missing_config,
         "local_upload_root": local_upload_root,
     }
+
+
+app.config["MAX_CONTENT_LENGTH"] = get_content_storage_config()["max_request_mb"] * 1024 * 1024
 
 
 def is_public_path(path: str) -> bool:
@@ -1207,6 +1220,8 @@ def build_content_storage_status() -> Dict[str, Any]:
         "missing_config": config["missing_config"],
         "base_path": config["base_path"],
         "max_upload_mb": config["max_upload_mb"],
+        "max_request_mb": config["max_request_mb"],
+        "max_upload_files": config["max_upload_files"],
         "allowed_types": config["allowed_types"],
     }
 
