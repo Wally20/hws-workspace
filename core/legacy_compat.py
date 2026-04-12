@@ -117,6 +117,10 @@ class LegacyRequestProxy:
     def files(self) -> LegacyFilesSource:
         return LegacyFilesSource(get_current_request().FILES)
 
+    @property
+    def headers(self):
+        return get_current_request().headers
+
     def get_json(self, silent: bool = False):
         request = get_current_request()
         if not request.body:

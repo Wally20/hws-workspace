@@ -141,7 +141,7 @@
         const albumTitleInput = uploadForm.querySelector('input[name="album_title"]');
         const requestByteLimit = 48 * 1024 * 1024;
         const maxFilesPerBatch = 60;
-        const uploadConcurrency = 4;
+        const uploadConcurrency = 6;
 
         const setButtonState = (label, disabled) => {
           if (!submitButton) return;
@@ -203,6 +203,34 @@
           }
 
           return formData;
+        };
+
+        const createAlbum = async (existingAlbumId, albumTitle) => {
+          const formData = new FormData();
+          formData.append("action", "create_album");
+          formData.append("album_id", existingAlbumId ? String(existingAlbumId) : "0");
+          formData.append("album_title", albumTitle || "");
+
+          const response = await fetch(formActionUrl, {
+            method: "POST",
+            body: formData,
+            credentials: "same-origin",
+            headers: {
+              "Accept": "application/json",
+              "X-Requested-With": "XMLHttpRequest",
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error(`Album aanmaken mislukt met status ${response.status}.`);
+          }
+
+          const payload = await response.json();
+          if (!payload || !payload.ok || !payload.albumId || !payload.albumUrl) {
+            throw new Error("Album aanmaken gaf een onvolledige reactie terug.");
+          }
+
+          return payload;
         };
 
         const createBatches = (files) => {
@@ -306,49 +334,37 @@
           let totalUploaded = 0;
 
           try {
-            const firstBatch = batches[0];
-            setButtonState(`Uploaden 1/${batches.length}...`, true);
-            updateProgress(`Batch 1 van ${batches.length} wordt geupload...`);
+            let targetUrl = currentAlbumId ? `/content/${currentAlbumId}` : formActionUrl;
+            if (!currentAlbumId) {
+              setButtonState("Album aanmaken...", true);
+              updateProgress("Nieuw album wordt aangemaakt...");
+              const albumPayload = await createAlbum(existingAlbumId, newAlbumTitle);
+              currentAlbumId = Number(albumPayload.albumId);
+              targetUrl = albumPayload.albumUrl;
+            }
 
-            const firstResponse = await uploadBatch({
-              batch: firstBatch,
-              index: 0,
+            const jobs = batches.map((batch, index) => async () => uploadBatch({
+              batch,
+              index,
               totalBatches: batches.length,
-              url: formActionUrl,
+              url: targetUrl,
               albumId: currentAlbumId,
-              albumTitle: newAlbumTitle,
-            });
+              albumTitle: "",
+            }));
 
-            totalUploaded += firstBatch.length;
-            const albumPageUrl = getAlbumPageUrl(firstResponse.url, currentAlbumId);
-            if (albumPageUrl) {
-              const match = albumPageUrl.match(/^\/content\/(\d+)$/);
-              if (match) {
-                currentAlbumId = Number(match[1]);
+            let completedBatches = 0;
+            await runConcurrentUploads(jobs, uploadConcurrency, (jobIndex, response) => {
+              completedBatches += 1;
+              totalUploaded += batches[jobIndex].length;
+              const resolvedAlbumPageUrl = getAlbumPageUrl(response.url, currentAlbumId);
+              if (resolvedAlbumPageUrl) {
+                targetUrl = resolvedAlbumPageUrl;
               }
-            }
-
-            const remainingBatches = batches.slice(1);
-            let completedBatches = 1;
-            if (remainingBatches.length) {
-              const jobs = remainingBatches.map((batch, offset) => async () => uploadBatch({
-                batch,
-                index: offset + 1,
-                totalBatches: batches.length,
-                url: currentAlbumId ? `/content/${currentAlbumId}` : formActionUrl,
-                albumId: currentAlbumId,
-                albumTitle: newAlbumTitle,
-              }));
-
-              await runConcurrentUploads(jobs, uploadConcurrency, (jobIndex) => {
-                completedBatches += 1;
-                totalUploaded += remainingBatches[jobIndex].length;
-                setButtonState(`Uploaden ${completedBatches}/${batches.length}...`, true);
-                updateProgress(
-                  `${totalUploaded} foto's geupload. Batch ${completedBatches} van ${batches.length} klaar.`
-                );
-              });
-            }
+              setButtonState(`Uploaden ${completedBatches}/${batches.length}...`, true);
+              updateProgress(
+                `${totalUploaded} foto's geupload. Batch ${completedBatches} van ${batches.length} klaar.`
+              );
+            });
 
             if (currentAlbumId) {
               const successMessage = encodeURIComponent(`${totalUploaded} foto's geupload.`);

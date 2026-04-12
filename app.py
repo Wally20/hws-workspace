@@ -1226,6 +1226,12 @@ def build_content_storage_status() -> Dict[str, Any]:
     }
 
 
+def request_prefers_json() -> bool:
+    accept = str(request.headers.get("Accept", "") or "").lower()
+    requested_with = str(request.headers.get("X-Requested-With", "") or "").lower()
+    return "application/json" in accept or requested_with == "xmlhttprequest"
+
+
 def get_bunny_storage_host(region: str) -> str:
     normalized_region = (region or "storage").strip().lower()
     if normalized_region == "storage":
@@ -4082,6 +4088,21 @@ def content_page() -> str:
             return redirect(url_for("content_page", error="Je hebt geen rechten om content te beheren."))
 
         action = request.form.get("action", "").strip()
+        if action == "create_album":
+            existing_album_id = request.form.get("album_id", default=0, type=int)
+            new_album_title = request.form.get("album_title", "").strip()
+            album_id = resolve_content_album_id(existing_album_id, new_album_title)
+            if album_id is None:
+                error_message = "Kies een bestaand album of vul een nieuwe albumtitel in."
+                if request_prefers_json():
+                    return jsonify({"ok": False, "error": error_message}), 400
+                return redirect(url_for("content_page", error=error_message))
+
+            album_url = url_for("content_album_page", album_id=album_id)
+            if request_prefers_json():
+                return jsonify({"ok": True, "albumId": album_id, "albumUrl": album_url})
+            return redirect(album_url)
+
         if action == "upload_album_photos":
             existing_album_id = request.form.get("album_id", default=0, type=int)
             new_album_title = request.form.get("album_title", "").strip()
