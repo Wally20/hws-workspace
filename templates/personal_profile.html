@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Persoonlijk Profiel | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Persoonlijk Profiel</h1>
+      <p class="welcome-line">Beheer je persoonlijke gegevens en kwalificaties.</p>
+    </div>
+  </header>
+
+  {% if form_error %}
+    <section class="notice trainers-notice trainers-notice-error">{{ form_error }}</section>
+  {% endif %}
+
+  {% if form_success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ form_success }}</section>
+  {% endif %}
+
+  <div class="personal-profile-shell">
+    <section class="summary-card personal-profile-hero">
+      <div class="team-modal-identity">
+        <div class="team-modal-avatar-wrap">
+          <div class="team-modal-avatar">{{ profile.initials }}</div>
+        </div>
+        <div>
+          <h2>{{ profile.fullName }}</h2>
+          <p class="personal-profile-role">{{ profile.systemRole or profile.role }}</p>
+        </div>
+      </div>
+    </section>
+
+    <form method="post" action="/profiel" class="team-member-form personal-profile-form">
+      <section class="team-form-grid">
+        <article class="team-form-section">
+        <h3>Gegevens</h3>
+
+        <div class="team-field-grid">
+          <label class="field">
+            <span>Voornaam</span>
+            <input type="text" name="first_name" value="{{ profile.firstName }}" required>
+          </label>
+
+          <label class="field">
+            <span>Achternaam</span>
+            <input type="text" name="last_name" value="{{ profile.lastName }}" required>
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Rol</span>
+          {% if can_edit_role %}
+          <select name="system_role" required>
+            {% for option in ["Admin", "Social media beheerder"] %}
+              <option value="{{ option }}" {% if (profile.systemRole or profile.role or "") == option %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+          {% else %}
+          <input type="text" value="{{ profile.systemRole or profile.role }}" disabled>
+          {% endif %}
+        </label>
+
+        <div class="team-field-grid">
+          <label class="field">
+            <span>Email</span>
+            <input type="email" name="email" value="{{ profile.email }}" required>
+          </label>
+
+          <label class="field">
+            <span>Telefoon</span>
+            <input type="text" name="phone" value="{{ profile.phone }}">
+          </label>
+        </div>
+        </article>
+      </section>
+
+      <div class="team-form-actions personal-profile-actions">
+        <button type="submit" class="team-primary-button personal-profile-save">Profiel Opslaan</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

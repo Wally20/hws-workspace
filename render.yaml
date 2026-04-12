@@ -1,0 +1,67 @@
+services:
+  - type: web
+    name: hws-workspace
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+    healthCheckPath: /login
+    disk:
+      name: workspace-storage
+      mountPath: /opt/render/project/src/storage
+      sizeGB: 1
+    envVars:
+      - key: DJANGO_DEBUG
+        value: "0"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: www.workspace.hwsvoetbalschool.nl
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: https://www.workspace.hwsvoetbalschool.nl
+      - key: TRUSTED_HOSTS
+        value: www.workspace.hwsvoetbalschool.nl
+      - key: SESSION_COOKIE_NAME
+        value: overzicht_session
+      - key: SESSION_COOKIE_SECURE
+        value: "1"
+      - key: SESSION_COOKIE_SAMESITE
+        value: Lax
+      - key: PREFERRED_URL_SCHEME
+        value: https
+      - key: DATA_DIR
+        value: /opt/render/project/src/storage/data
+      - key: LOCAL_UPLOAD_ROOT
+        value: /opt/render/project/src/storage/uploads
+      - key: REVERSE_PROXY_HOPS
+        value: "1"
+      - key: DJANGO_SECRET_KEY
+        sync: false
+      - key: FLASK_SECRET_KEY
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ECWID_STORE_ID
+        sync: false
+      - key: ECWID_SECRET_TOKEN
+        sync: false
+      - key: MONEYBIRD_API_TOKEN
+        sync: false
+      - key: MONEYBIRD_ADMINISTRATION_ID
+        sync: false
+      - key: BUNNY_STORAGE_REGION
+        sync: false
+      - key: BUNNY_STORAGE_ZONE
+        sync: false
+      - key: BUNNY_STORAGE_ACCESS_KEY
+        sync: false
+      - key: BUNNY_API_ACCESS_KEY
+        sync: false
+      - key: BUNNY_IMAGE_PUBLIC_BASE
+        sync: false
+      - key: BUNNY_IMAGE_BASE_PATH
+        value: content
+      - key: BUNNY_IMAGE_MAX_UPLOAD_MB
+        value: "15"
+      - key: BUNNY_IMAGE_ALLOWED_TYPES
+        value: image/jpeg,image/png,image/webp,image/avif

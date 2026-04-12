@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Omzet | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Omzet</h1>
+      <p class="welcome-line">
+        Kies welk omzetoverzicht je wilt bekijken
+      </p>
+    </div>
+  </header>
+
+  <section class="orders-toolbar">
+    <div class="orders-toolbar-copy">
+      <p class="orders-toolbar-title">Overzicht</p>
+      <p class="orders-toolbar-text">
+        Open totale omzet, maandcijfers, seizoenscijfers of het winstoverzicht · Laatst bijgewerkt: {{ last_updated }}
+      </p>
+    </div>
+  </section>
+
+  {% if message %}
+    <section class="notice">{{ message }}</section>
+  {% endif %}
+
+  <section class="revenue-entry-grid">
+    <a href="/omzet/totaal" class="summary-card revenue-entry-card">
+      <p class="panel-title">Totale omzet</p>
+      <h2>Bekijk het volledige totaal</h2>
+      <p class="revenue-entry-copy">Open de totaalcijfers van Ecwid, Moneybird en het gecombineerde totaal, inclusief de omzetgrafiek over alle maanden.</p>
+      <span class="revenue-entry-link">Open totale omzet</span>
+    </a>
+
+    <a href="/omzet/per-maand" class="summary-card revenue-entry-card">
+      <p class="panel-title">Filter per maand</p>
+      <h2>Bekijk omzet per maand</h2>
+      <p class="revenue-entry-copy">Filter op een specifieke maand en zie direct hoeveel omzet, kosten en winst er in die periode zijn geboekt.</p>
+      <span class="revenue-entry-link">Open maandfilter</span>
+    </a>
+
+    <a href="/omzet/winst" class="summary-card revenue-entry-card">
+      <p class="panel-title">Winst</p>
+      <h2>Bekijk winst en kosten</h2>
+      <p class="revenue-entry-copy">Open het overzicht met totale winst, uitgaande Moneybird-banktransacties als kosten en je winst per geselecteerde maand.</p>
+      <span class="revenue-entry-link">Open winstoverzicht</span>
+    </a>
+
+    <a href="/omzet/per-seizoen" class="summary-card revenue-entry-card">
+      <p class="panel-title">Voetbalseizoen</p>
+      <h2>Bekijk omzet per seizoen</h2>
+      <p class="revenue-entry-copy">Filter vanaf seizoen 2022/2023 en bekijk omzet, kosten en winst per voetbalseizoen van 1 juli tot en met 30 juni.</p>
+      <span class="revenue-entry-link">Open seizoenfilter</span>
+    </a>
+  </section>
+{% endblock %}

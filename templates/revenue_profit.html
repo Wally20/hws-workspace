@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Winst | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Winst</h1>
+      <p class="welcome-line">
+        Bekijk je totale winst en je winst per maand op basis van omzet minus uitgaande Moneybird-banktransacties
+      </p>
+    </div>
+  </header>
+
+  <section class="orders-toolbar">
+    <div class="orders-toolbar-copy">
+      <p class="orders-toolbar-title">Winstoverzicht</p>
+      <p class="orders-toolbar-text">
+        Kosten worden berekend uit uitgaande banktransacties in Moneybird · Laatst bijgewerkt: {{ last_updated }}
+      </p>
+    </div>
+    <form method="get" action="/omzet/winst" class="revenue-filter-form">
+      <label for="profitMonthSelect" class="visually-hidden">Kies maand</label>
+      <select id="profitMonthSelect" name="month" class="revenue-select" onchange="this.form.submit()">
+        {% for option in month_options %}
+          <option value="{{ option.value }}" {% if option.value == monthly_summary.selectedMonth %}selected{% endif %}>
+            {{ option.label }}
+          </option>
+        {% endfor %}
+      </select>
+    </form>
+  </section>
+
+  {% if message %}
+    <section class="notice">{{ message }}</section>
+  {% endif %}
+
+  <section class="revenue-grid">
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Totale omzet</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(total_summary.combinedRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Ecwid + ontvangen Moneybird-betalingen</p>
+    </article>
+
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Totale kosten</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(total_summary.expenses).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Uitgaande banktransacties uit Moneybird</p>
+    </article>
+
+    <article class="summary-card revenue-card revenue-card-strong">
+      <p class="panel-title">Totale winst</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(total_summary.profit).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Omzet minus kosten · {{ "{:.1f}".format(total_summary.profitMarginPercentage).replace(".", ",") }}% van de omzet</p>
+    </article>
+  </section>
+
+  <section class="revenue-grid">
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Geselecteerde maand</p>
+      <p class="revenue-month-label">{{ monthly_summary.selectedMonthLabel }}</p>
+      <p class="revenue-month-copy">Winstberekening voor deze maand</p>
+    </article>
+
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Omzet deze maand</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(monthly_summary.combinedRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Ecwid + ontvangen Moneybird-betalingen</p>
+    </article>
+
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Kosten deze maand</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(monthly_summary.expenses).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Uitgaande banktransacties</p>
+    </article>
+
+    <article class="summary-card revenue-card revenue-card-strong">
+      <p class="panel-title">Winst deze maand</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(monthly_summary.profit).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Omzet minus kosten · {{ "{:.1f}".format(monthly_summary.profitMarginPercentage).replace(".", ",") }}% van de omzet</p>
+    </article>
+  </section>
+{% endblock %}

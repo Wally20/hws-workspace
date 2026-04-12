@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}HWS Voetbalschool Workspace{% endblock %}</title>
+    <link rel="icon" type="image/png" href="../static/assets/hws-logo.png">
+    <link rel="stylesheet" href="../static/styles.css?v={{ asset_version }}">
+  </head>
+  <body>
+    <div class="app-layout">
+      <aside class="sidebar">
+        <div class="brand-panel">
+          <div class="brand-mark">
+            <img src="../static/assets/hws-logo.png" alt="HWS Voetbalschool logo">
+          </div>
+          <div class="brand-copy">
+            <p class="brand-subtitle" style="color: #111111;">WORKSPACE</p>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav" aria-label="Hoofdmenu">
+          {% if 'dashboard' in visible_pages %}
+          <a class="nav-item {% if active_page == 'dashboard' %}nav-item-active{% endif %}" href="/">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-5.5h-5V21H5a1 1 0 0 1-1-1z"></path>
+              </svg>
+            </span>
+            <span>Dashboard</span>
+          </a>
+          {% endif %}
+          {% if 'agenda' in visible_pages %}
+          <a class="nav-item {% if active_page == 'agenda' %}nav-item-active{% endif %}" href="/agenda">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect x="4" y="5" width="16" height="15" rx="2"></rect>
+                <path d="M8 3v4M16 3v4M4 10h16M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01M16 17h.01"></path>
+              </svg>
+            </span>
+            <span>Agenda</span>
+          </a>
+          {% endif %}
+          {% if 'tasks' in visible_pages %}
+          <a class="nav-item {% if active_page == 'tasks' %}nav-item-active{% endif %}" href="/taken">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M9 7h10M9 12h10M9 17h10M5 7l1.5 1.5L8.5 6M5 12l1.5 1.5L8.5 11M5 17l1.5 1.5L8.5 16"></path>
+              </svg>
+            </span>
+            <span>Taken</span>
+          </a>
+          {% endif %}
+          {% if 'orders' in visible_pages %}
+          <a class="nav-item {% if active_page == 'orders' %}nav-item-active{% endif %}" href="/bestellingen">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M6 7h12l-1.2 7H7.2z"></path>
+                <path d="M9 7a3 3 0 0 1 6 0M9 18.5h.01M15 18.5h.01"></path>
+              </svg>
+            </span>
+            <span>Bestellingen</span>
+          </a>
+          {% endif %}
+          {% if 'revenue' in visible_pages %}
+          <a class="nav-item {% if active_page == 'revenue' %}nav-item-active{% endif %}" href="/omzet">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M5 19h14"></path>
+                <path d="M7.5 16V11M12 16V7M16.5 16V9"></path>
+              </svg>
+            </span>
+            <span>Omzet</span>
+          </a>
+          {% endif %}
+          {% if 'trainer-fees' in visible_pages %}
+          <a class="nav-item {% if active_page == 'trainer-fees' %}nav-item-active{% endif %}" href="/trainersvergoedingen">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M12 4v16M4 12h16"></path>
+                <path d="M7.5 7.5h9v9h-9z"></path>
+              </svg>
+            </span>
+            <span>Trainersvergoedingen</span>
+          </a>
+          {% endif %}
+          {% if 'social-media' in visible_pages %}
+          <a class="nav-item {% if active_page == 'social-media' %}nav-item-active{% endif %}" href="/social-media">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M8 5v14M16 5v14M5 8h14M5 16h14"></path>
+              </svg>
+            </span>
+            <span>Social Media</span>
+          </a>
+          {% endif %}
+          {% if 'content' in visible_pages %}
+          <a class="nav-item {% if active_page == 'content' %}nav-item-active{% endif %}" href="/content">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect x="4" y="5" width="16" height="14" rx="2"></rect>
+                <circle cx="9" cy="10" r="1.6"></circle>
+                <path d="m6.5 17 4.5-4.5 2.8 2.8 2.2-2.2 2.5 3.9"></path>
+              </svg>
+            </span>
+            <span>Content</span>
+          </a>
+          {% endif %}
+          {% if 'trainers' in visible_pages %}
+          <a class="nav-item {% if active_page == 'trainers' %}nav-item-active{% endif %}" href="/trainers">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM16.5 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"></path>
+                <path d="M3.5 19a4.5 4.5 0 0 1 9 0M13 19a3.5 3.5 0 0 1 7 0"></path>
+              </svg>
+            </span>
+            <span>Team</span>
+          </a>
+          {% endif %}
+          {% if 'profile' in visible_pages %}
+          <a class="nav-item {% if active_page == 'profile' %}nav-item-active{% endif %}" href="/profiel">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"></path>
+                <path d="M4 20a8 8 0 0 1 16 0"></path>
+              </svg>
+            </span>
+            <span>Persoonlijk Profiel</span>
+          </a>
+          {% endif %}
+        </nav>
+
+        <div class="sidebar-footer">
+          <a class="sidebar-logout-button" href="/logout">Uitloggen</a>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </body>
+</html>

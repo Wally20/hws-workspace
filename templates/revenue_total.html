@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Totale Omzet | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Totale omzet</h1>
+      <p class="welcome-line">
+        Volledige omzet uit Ecwid, Moneybird en het gecombineerde totaal
+      </p>
+    </div>
+  </header>
+
+  <section class="orders-toolbar">
+    <div class="orders-toolbar-copy">
+      <p class="orders-toolbar-title">Totaaloverzicht</p>
+      <p class="orders-toolbar-text">
+        Dit zijn dezelfde totaalcijfers als op het dashboard · Laatst bijgewerkt: {{ last_updated }}
+      </p>
+    </div>
+    <a href="/omzet/per-maand" class="refresh-button orders-toolbar-button">Naar per maand</a>
+  </section>
+
+  {% if message %}
+    <section class="notice">{{ message }}</section>
+  {% endif %}
+
+  <section class="revenue-grid revenue-grid-total">
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Ecwid</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(report_summary.ecwidRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Totale omzet uit Ecwid</p>
+    </article>
+
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Moneybird</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(report_summary.moneybirdRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Totale ontvangen omzet uit Moneybird op betaaldatum</p>
+    </article>
+
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Kosten</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(report_summary.expensesTotal).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Uitgaande banktransacties uit Moneybird</p>
+    </article>
+
+    <article class="summary-card revenue-card revenue-card-strong">
+      <p class="panel-title">Winst</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(report_summary.profitTotal).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Omzet minus kosten · {{ "{:.1f}".format(report_summary.profitMarginPercentage).replace(".", ",") }}% van de omzet</p>
+    </article>
+
+    <article class="summary-card revenue-card revenue-card-accent">
+      <p class="panel-title">Totaal omzet</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(report_summary.combinedRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Ecwid + Moneybird samen</p>
+    </article>
+  </section>
+
+  <section class="summary-card revenue-chart-panel">
+    <div class="chart-card-head">
+      <div>
+        <p class="panel-title">Omzetgrafiek</p>
+        <p class="chart-card-subtitle">Alle maanden met omzet uit Ecwid, Moneybird en het totaal</p>
+      </div>
+    </div>
+    <div
+      class="revenue-chart revenue-chart-full"
+      data-chart-series='{{ monthly_revenue_series|tojson }}'
+      data-chart-height="360"
+      data-chart-mode="full"
+    ></div>
+  </section>
+
+  <script src="../static/revenue-charts.js?v={{ asset_version }}" defer></script>
+{% endblock %}

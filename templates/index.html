@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <section class="hero-home-look">
+    <article class="hero-home-panel">
+      <h1>HWS Voetbalschool Workspace</h1>
+      <p>Welkom terug, {{ current_user.fullName if current_user else "trainer" }}.</p>
+    </article>
+  </section>
+
+  <section class="dashboard-panels dashboard-panels-triple">
+    {% if can_view_revenue %}
+    <article class="summary-card compact-summary-card">
+      <p class="panel-title">Rapporten</p>
+      <div class="compact-stat-list" id="reportSummaryList">
+        <div class="compact-stat-row">
+          <span class="summary-label">Totale omzet Ecwid:</span>
+          <span class="compact-stat-value" data-report-field="ecwidRevenue">€ {{ "{:,.2f}".format(report_summary.ecwidRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
+        </div>
+        <div class="compact-stat-row">
+          <span class="summary-label">Totale omzet Moneybird:</span>
+          <span class="compact-stat-value" data-report-field="moneybirdRevenue">€ {{ "{:,.2f}".format(report_summary.moneybirdRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
+        </div>
+        <div class="compact-stat-row">
+          <span class="summary-label">Totale omzet totaal:</span>
+          <span class="compact-stat-value" data-report-field="combinedRevenue">€ {{ "{:,.2f}".format(report_summary.combinedRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
+        </div>
+      </div>
+    </article>
+    {% endif %}
+
+    <article class="summary-card compact-summary-card" id="eventsSummaryCard">
+      <p class="panel-title">Inschrijvingen Aankomende Events</p>
+      <div class="panel-actions">
+        <button type="button" id="editEventsButton" class="subtle-button">Bewerk</button>
+      </div>
+      <div class="compact-stat-list" id="eventsStatList">
+        {% for product in product_summary %}
+          <div class="compact-stat-row event-row" data-product-label="{{ product.label }}" data-product-id="{{ product.productId or '' }}">
+            <span class="summary-label">{{ product.label }}</span>
+            <span class="compact-stat-value">{{ product.soldCount }}</span>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div id="eventEditor" class="event-editor" hidden>
+        <div id="selectedEvents" class="selected-events"></div>
+        <div class="event-search">
+          <div class="event-search-row">
+            <input id="eventSearchInput" type="search" placeholder="Zoek event in Ecwid-producten">
+            <button type="button" id="eventSearchButton" class="subtle-button">+</button>
+          </div>
+          <div id="eventSearchResults" class="event-search-results"></div>
+        </div>
+        <div class="editor-actions">
+          <button type="button" id="saveEventsButton" class="subtle-button subtle-button-strong">Opslaan</button>
+        </div>
+      </div>
+    </article>
+
+    <article
+      class="summary-card compact-summary-card weather-card"
+      id="weatherCard"
+      data-weather-lat="{{ dashboard_weather.weather_lat }}"
+      data-weather-lon="{{ dashboard_weather.weather_lon }}"
+      data-weather-name="{{ dashboard_weather.weather_name }}"
+    >
+      <p class="panel-title">Actueel Weer</p>
+      <div class="weather-card-body">
+        <div class="weather-icon" id="weatherIcon">
+          <span class="weather-icon-glyph">◌</span>
+        </div>
+        <div>
+          <p class="weather-temperature" id="weatherTemperature">--°C</p>
+          <p class="weather-condition" id="weatherCondition">Weer wordt geladen...</p>
+          <p class="weather-location" id="weatherLocation">{{ dashboard_weather.weather_name }}</p>
+        </div>
+      </div>
+      <p class="weather-meta" id="weatherMeta">Even geduld, de tegel wordt bijgewerkt.</p>
+      <p class="weather-warning" id="weatherWarning" hidden>Let op: slecht weer voor buitentraining.</p>
+    </article>
+  </section>
+
+  <script src="../static/dashboard.js?v={{ asset_version }}" defer></script>
+  <script src="../static/trainer-tools.js?v={{ asset_version }}" defer></script>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Trainersvergoedingen | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Trainersvergoedingen</h1>
+      <p class="welcome-line">
+        Kies welk overzicht van trainersvergoedingen je wilt openen
+      </p>
+    </div>
+  </header>
+
+  <section class="orders-toolbar">
+    <div class="orders-toolbar-copy">
+      <p class="orders-toolbar-title">Overzicht</p>
+      <p class="orders-toolbar-text">
+        Open vergoeding per training of per maand · Laatst bijgewerkt: {{ last_updated }}
+      </p>
+    </div>
+  </section>
+
+  {% if message %}
+    <section class="notice">{{ message }}</section>
+  {% endif %}
+
+  <section class="revenue-entry-grid">
+    <a href="/trainersvergoedingen/per-training" class="summary-card revenue-entry-card">
+      <p class="panel-title">Per training</p>
+      <h2>Bekijk vergoeding per training</h2>
+      <p class="revenue-entry-copy">Open een aparte pagina voor het overzicht van trainersvergoedingen per training.</p>
+      <span class="revenue-entry-link">Open per training</span>
+    </a>
+
+    <a href="/trainersvergoedingen/per-maand" class="summary-card revenue-entry-card">
+      <p class="panel-title">Per maand</p>
+      <h2>Bekijk vergoeding per maand</h2>
+      <p class="revenue-entry-copy">Open een aparte pagina voor het overzicht van trainersvergoedingen per maand.</p>
+      <span class="revenue-entry-link">Open per maand</span>
+    </a>
+  </section>
+{% endblock %}

@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+
+{% block title %}Social Media | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Social Media</h1>
+      <p class="welcome-line">Werk contentideeën uit en plan posts centraal in voor jullie kanalen.</p>
+    </div>
+  </header>
+
+  {% if success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+  {% endif %}
+
+  {% if error %}
+    <section class="notice trainers-notice trainers-notice-error">{{ error }}</section>
+  {% endif %}
+
+  <section class="summary-card feature-list-card old-function-tile social-ideas-overview">
+      <div class="feature-list-head">
+        <div>
+          <p class="panel-title">Contentoverzicht</p>
+          <p class="feature-list-subtitle">{{ ideas|length }} ideeën opgeslagen</p>
+        </div>
+        <button type="button" id="openSocialIdeaModal" class="team-primary-button">Nieuw contentidee</button>
+      </div>
+
+      <div class="feature-record-list social-ideas-list">
+        {% for idea in ideas %}
+          <article
+            class="feature-record-card old-function-card social-idea-row"
+            role="button"
+            tabindex="0"
+            data-open-social-idea-edit="1"
+            data-idea-id="{{ idea.id }}"
+            data-idea-title="{{ idea.title }}"
+            data-idea-platform="{{ idea.platform }}"
+            data-idea-content-type="{{ idea.contentType }}"
+            data-idea-priority="{{ idea.priority }}"
+            data-idea-notes="{{ idea.notes }}"
+          >
+            <div class="social-idea-main">
+              <div class="social-idea-cell social-idea-title">
+                <strong>{{ idea.title }}</strong>
+              </div>
+              <div class="social-idea-cell">
+                <span class="social-idea-label">Platform</span>
+                <span>{{ idea.platform }}</span>
+              </div>
+              <div class="social-idea-cell">
+                <span class="social-idea-label">Type</span>
+                <span>{{ idea.contentType }}</span>
+              </div>
+              <div class="social-idea-cell">
+                <span class="social-idea-label">Prioriteit</span>
+                <span class="pill social-priority-pill social-priority-{{ idea.priority|lower }}">{{ idea.priority }}</span>
+              </div>
+              <div class="social-idea-cell social-idea-notes">
+                <span class="social-idea-label">Notitie</span>
+                <span>{{ idea.notes or "-" }}</span>
+              </div>
+            </div>
+
+            <div class="feature-inline-actions social-idea-actions">
+              <form method="post" action="/social-media" class="social-idea-check-form">
+                <input type="hidden" name="action" value="toggle_idea_scheduled">
+                <input type="hidden" name="idea_id" value="{{ idea.id }}">
+                <input type="hidden" name="week_offset" value="{{ week_offset }}">
+                <input type="hidden" name="is_scheduled" value="{{ '1' if idea.isScheduled else '0' }}">
+                <label class="social-idea-checkbox">
+                  <input
+                    type="checkbox"
+                    {% if idea.isScheduled %}checked{% endif %}
+                    onchange="this.form.querySelector('input[name=is_scheduled]').value = this.checked ? '1' : '0'; this.form.submit();"
+                  >
+                  <span>Ingepland</span>
+                </label>
+              </form>
+
+              <button
+                type="button"
+                class="subtle-button action-small social-idea-plan-button"
+                data-open-social-plan="1"
+                data-idea-id="{{ idea.id }}"
+                data-idea-title="{{ idea.title }}"
+                data-idea-platform="{{ idea.platform }}"
+                data-idea-notes="{{ idea.notes }}"
+              >
+                Inplannen
+              </button>
+
+              <form method="post" action="/social-media">
+                <input type="hidden" name="action" value="delete_idea">
+                <input type="hidden" name="idea_id" value="{{ idea.id }}">
+                <input type="hidden" name="week_offset" value="{{ week_offset }}">
+                <button type="submit" class="subtle-button action-small">Verwijder</button>
+              </form>
+            </div>
+          </article>
+        {% else %}
+          <div class="empty-state">Nog geen contentideeën opgeslagen.</div>
+        {% endfor %}
+      </div>
+  </section>
+
+  <section class="agenda-calendar-card">
+    <div class="agenda-toolbar">
+      <div class="agenda-toolbar-left">
+        <a href="/social-media?week={{ week_offset - 1 }}" class="subtle-button agenda-nav-button">&#8249;</a>
+        <a href="/social-media?week={{ week_offset + 1 }}" class="subtle-button agenda-nav-button">&#8250;</a>
+        <a href="/social-media?week=0" class="subtle-button agenda-today-button">Vandaag</a>
+      </div>
+      <h2 class="agenda-week-label">{{ week_label }}</h2>
+      <div class="agenda-toolbar-right">
+        <button type="button" id="openSocialPlanModal" class="refresh-button">Inplannen</button>
+      </div>
+    </div>
+
+    <div class="agenda-board">
+      <div class="agenda-grid">
+        <div class="agenda-grid-corner"></div>
+        {% for day in week_days %}
+          <div class="agenda-day-header {% if day.isToday %}agenda-day-header-today{% endif %}">
+            {{ day.shortLabel }}
+          </div>
+        {% endfor %}
+
+        {% for slot in time_slots %}
+          <div class="agenda-time-label">{{ slot }}</div>
+          {% for day in week_days %}
+            <div class="agenda-cell {% if day.isToday %}agenda-cell-today{% endif %}"></div>
+          {% endfor %}
+        {% endfor %}
+
+        {% for event in calendar_events %}
+          <button
+            type="button"
+            class="agenda-event social-agenda-event"
+            data-open-social-edit="1"
+            data-plan-id="{{ event.id }}"
+            data-plan-title="{{ event.title }}"
+            data-plan-platform="{{ event.location }}"
+            data-plan-status="{{ event.status }}"
+            data-plan-date="{{ event.date }}"
+            data-plan-time="{{ event.time }}"
+            data-plan-notes="{{ event.notes }}"
+            style="--day-index: {{ event.dayIndex }}; --event-top: {{ event.top }}px; --event-height: {{ event.height }}px;"
+          >
+            <p class="agenda-event-time">{{ event.time }} - {{ event.endTime }}</p>
+            <p class="agenda-event-title">{{ event.title }}</p>
+            <p class="agenda-event-location">{{ event.location }} · {{ event.status }}</p>
+          </button>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <div id="socialIdeaModal" class="agenda-modal" hidden>
+    <div class="agenda-modal-backdrop" data-close-social-idea="1"></div>
+    <div class="agenda-modal-dialog social-plan-dialog">
+      <div class="agenda-modal-header">
+        <h2>Nieuw contentidee</h2>
+        <button type="button" class="subtle-button" data-close-social-idea="1">Sluiten</button>
+      </div>
+
+      <form class="feature-form" method="post" action="/social-media">
+        <input type="hidden" name="action" value="create_idea">
+        <input type="hidden" name="week_offset" value="{{ week_offset }}">
+        <label class="field">
+          <span>Titel of onderwerp</span>
+          <input type="text" name="title" placeholder="Bijvoorbeeld: Highlightvideo van de training" required>
+        </label>
+        <div class="agenda-form-grid">
+          <label class="field">
+            <span>Platform</span>
+            <select name="platform" required>
+              <option value="">Kies platform</option>
+              <option value="Instagram">Instagram</option>
+              <option value="TikTok">TikTok</option>
+              <option value="Facebook">Facebook</option>
+              <option value="LinkedIn">LinkedIn</option>
+              <option value="YouTube">YouTube</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Type content</span>
+            <select name="content_type" required>
+              <option value="">Kies type</option>
+              <option value="Foto">Foto</option>
+              <option value="Reel">Reel</option>
+              <option value="Carousel">Carousel</option>
+              <option value="Story">Story</option>
+              <option value="Tekstpost">Tekstpost</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Prioriteit</span>
+            <select name="priority" required>
+              <option value="Hoog">Hoog</option>
+              <option value="Midden" selected>Midden</option>
+              <option value="Laag">Laag</option>
+            </select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Wat moet er gepost worden?</span>
+          <textarea name="notes" rows="5" placeholder="Schrijf hier de inhoud, caption, call-to-action of briefing"></textarea>
+        </label>
+        <div class="feature-actions">
+          <button type="submit" class="subtle-button subtle-button-strong">Idee opslaan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="socialIdeaEditModal" class="agenda-modal" hidden>
+    <div class="agenda-modal-backdrop" data-close-social-idea-edit="1"></div>
+    <div class="agenda-modal-dialog social-plan-dialog">
+      <div class="agenda-modal-header">
+        <h2>Contentidee aanpassen</h2>
+        <button type="button" class="subtle-button" data-close-social-idea-edit="1">Sluiten</button>
+      </div>
+
+      <form class="feature-form" method="post" action="/social-media">
+        <input type="hidden" name="action" value="update_idea">
+        <input type="hidden" name="idea_id" id="socialIdeaEditId">
+        <input type="hidden" name="week_offset" value="{{ week_offset }}">
+        <label class="field">
+          <span>Titel of onderwerp</span>
+          <input type="text" name="title" id="socialIdeaEditTitle" required>
+        </label>
+        <div class="agenda-form-grid">
+          <label class="field">
+            <span>Platform</span>
+            <select name="platform" id="socialIdeaEditPlatform" required>
+              <option value="">Kies platform</option>
+              <option value="Instagram">Instagram</option>
+              <option value="TikTok">TikTok</option>
+              <option value="Facebook">Facebook</option>
+              <option value="LinkedIn">LinkedIn</option>
+              <option value="YouTube">YouTube</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Type content</span>
+            <select name="content_type" id="socialIdeaEditContentType" required>
+              <option value="">Kies type</option>
+              <option value="Foto">Foto</option>
+              <option value="Reel">Reel</option>
+              <option value="Carousel">Carousel</option>
+              <option value="Story">Story</option>
+              <option value="Tekstpost">Tekstpost</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Prioriteit</span>
+            <select name="priority" id="socialIdeaEditPriority" required>
+              <option value="Hoog">Hoog</option>
+              <option value="Midden">Midden</option>
+              <option value="Laag">Laag</option>
+            </select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Wat moet er gepost worden?</span>
+          <textarea name="notes" id="socialIdeaEditNotes" rows="5"></textarea>
+        </label>
+        <div class="feature-actions">
+          <button type="submit" class="subtle-button subtle-button-strong">Opslaan</button>
+        </div>
+      </form>
+
+      <form method="post" action="/social-media" class="social-plan-delete-form" id="socialIdeaDeleteForm">
+        <input type="hidden" name="action" value="delete_idea">
+        <input type="hidden" name="idea_id" id="socialIdeaDeleteId">
+        <input type="hidden" name="week_offset" value="{{ week_offset }}">
+        <button type="submit" class="subtle-button action-small action-danger">Verwijderen</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="socialPlanModal" class="agenda-modal" hidden>
+    <div class="agenda-modal-backdrop" data-close-social-plan="1"></div>
+    <div class="agenda-modal-dialog social-plan-dialog">
+      <div class="agenda-modal-header">
+        <h2>Post inplannen</h2>
+        <button type="button" class="subtle-button" data-close-social-plan="1">Sluiten</button>
+      </div>
+
+      <form class="feature-form" method="post" action="/social-media">
+        <input type="hidden" name="action" value="create_plan">
+        <input type="hidden" name="idea_id" id="socialPlanIdeaId">
+        <input type="hidden" name="week_offset" value="{{ week_offset }}">
+        <label class="field">
+          <span>Wat ga je posten?</span>
+          <input type="text" name="title" id="socialPlanTitle" placeholder="Bijvoorbeeld: Promo voor voetbaldag Harfsen" required>
+        </label>
+        <div class="agenda-form-grid">
+          <label class="field">
+            <span>Platform</span>
+            <select name="platform" id="socialPlanPlatform" required>
+              <option value="">Kies platform</option>
+              <option value="Instagram">Instagram</option>
+              <option value="TikTok">TikTok</option>
+              <option value="Facebook">Facebook</option>
+              <option value="LinkedIn">LinkedIn</option>
+              <option value="YouTube">YouTube</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Status</span>
+            <select name="status" id="socialPlanStatus">
+              <option value="Gepland">Gepland</option>
+              <option value="In voorbereiding">In voorbereiding</option>
+              <option value="Klaar om te posten">Klaar om te posten</option>
+              <option value="Gepubliceerd">Gepubliceerd</option>
+            </select>
+          </label>
+        </div>
+        <div class="agenda-form-grid">
+          <label class="field">
+            <span>Datum</span>
+            <input type="date" name="publish_date" id="socialPlanDate" required>
+          </label>
+          <label class="field">
+            <span>Tijd</span>
+            <input type="time" name="publish_time" id="socialPlanTime" required>
+          </label>
+        </div>
+        <label class="field">
+          <span>Notities</span>
+          <textarea name="notes" id="socialPlanNotes" rows="5" placeholder="Bijvoorbeeld: gebruik reel-cover, tag locatie en zet CTA in caption"></textarea>
+        </label>
+        <div class="feature-actions social-plan-actions">
+          <button type="submit" class="subtle-button subtle-button-strong">Planning opslaan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="socialEditModal" class="agenda-modal" hidden>
+    <div class="agenda-modal-backdrop" data-close-social-edit="1"></div>
+    <div class="agenda-modal-dialog social-plan-dialog">
+      <div class="agenda-modal-header">
+        <h2>Afspraak aanpassen</h2>
+        <button type="button" class="subtle-button" data-close-social-edit="1">Sluiten</button>
+      </div>
+
+      <form class="feature-form" method="post" action="/social-media">
+        <input type="hidden" name="action" value="update_plan">
+        <input type="hidden" name="plan_id" id="socialEditPlanId">
+        <input type="hidden" name="week_offset" value="{{ week_offset }}">
+        <label class="field">
+          <span>Wat ga je posten?</span>
+          <input type="text" name="title" id="socialEditTitle" required>
+        </label>
+        <div class="agenda-form-grid">
+          <label class="field">
+            <span>Platform</span>
+            <select name="platform" id="socialEditPlatform" required>
+              <option value="">Kies platform</option>
+              <option value="Instagram">Instagram</option>
+              <option value="TikTok">TikTok</option>
+              <option value="Facebook">Facebook</option>
+              <option value="LinkedIn">LinkedIn</option>
+              <option value="YouTube">YouTube</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Status</span>
+            <select name="status" id="socialEditStatus">
+              <option value="Gepland">Gepland</option>
+              <option value="In voorbereiding">In voorbereiding</option>
+              <option value="Klaar om te posten">Klaar om te posten</option>
+              <option value="Gepubliceerd">Gepubliceerd</option>
+            </select>
+          </label>
+        </div>
+        <div class="agenda-form-grid">
+          <label class="field">
+            <span>Datum</span>
+            <input type="date" name="publish_date" id="socialEditDate" required>
+          </label>
+          <label class="field">
+            <span>Tijd</span>
+            <input type="time" name="publish_time" id="socialEditTime" required>
+          </label>
+        </div>
+        <label class="field">
+          <span>Notities</span>
+          <textarea name="notes" id="socialEditNotes" rows="5"></textarea>
+        </label>
+        <div class="feature-actions social-plan-actions">
+          <button type="submit" class="subtle-button subtle-button-strong">Opslaan</button>
+        </div>
+      </form>
+
+      <form method="post" action="/social-media" class="social-plan-delete-form">
+        <input type="hidden" name="action" value="delete_plan">
+        <input type="hidden" name="plan_id" id="socialDeletePlanId">
+        <input type="hidden" name="week_offset" value="{{ week_offset }}">
+        <button type="submit" class="subtle-button action-small action-danger">Verwijderen</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="../static/social_media.js?v={{ asset_version }}" defer></script>
+{% endblock %}

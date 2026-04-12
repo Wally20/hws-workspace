@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Bestellingen | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Bestellingen</h1>
+      <p class="welcome-line">
+        Nieuw naar oud, {{ total_orders }} bestellingen in totaal
+      </p>
+    </div>
+  </header>
+
+  <section class="orders-toolbar">
+    <div class="orders-toolbar-copy">
+      <p class="orders-toolbar-title">Paginainfo</p>
+      <p class="orders-toolbar-text">
+        Pagina {{ current_page }} van {{ total_pages }} · Laatst bijgewerkt: {{ last_updated }}
+      </p>
+    </div>
+    <a href="/bestellingen?page={{ current_page }}" class="refresh-button orders-toolbar-button">Nu verversen</a>
+  </section>
+
+  {% if message %}
+    <section class="notice">{{ message }}</section>
+  {% endif %}
+
+  <section class="orders-panel">
+    <div class="section-head">
+      <div>
+        <h2>Orderlijst</h2>
+        <p class="section-subtitle">{{ start_number }} t/m {{ end_number }} van {{ total_orders }} bestellingen</p>
+      </div>
+    </div>
+
+    <div class="orders-list">
+      <div class="orders-list-head">
+        <span>Datum</span>
+        <span>Tijd</span>
+        <span>Ordernummer</span>
+        <span>Item</span>
+        <span>E-mailadres</span>
+        <span>Totaal</span>
+      </div>
+
+      {% for order in orders %}
+        <article class="order-row">
+          <span data-label="Datum">{{ order.displayDate }}</span>
+          <span data-label="Tijd">{{ order.displayTime }}</span>
+          <span data-label="Ordernummer">{{ order.orderNumber }}</span>
+          <span data-label="Item" class="order-item-cell">{{ order.itemNames }}</span>
+          <span data-label="E-mailadres">{{ order.email or "-" }}</span>
+          <span data-label="Totaal">€ {{ "{:,.2f}".format(order.total).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
+        </article>
+      {% else %}
+        <div class="empty-state">Er zijn geen bestellingen om te tonen.</div>
+      {% endfor %}
+    </div>
+
+    <nav class="pagination" aria-label="Paginering bestellingen">
+      {% if current_page > 1 %}
+        <a class="pagination-link" href="/bestellingen?page={{ current_page - 1 }}">Vorige</a>
+      {% else %}
+        <span class="pagination-link pagination-link-disabled">Vorige</span>
+      {% endif %}
+
+      {% for page_number in range(1, total_pages + 1) %}
+        {% if page_number == current_page %}
+          <span class="pagination-link pagination-link-active">{{ page_number }}</span>
+        {% elif page_number <= 2 or page_number > total_pages - 2 or (page_number >= current_page - 1 and page_number <= current_page + 1) %}
+          <a class="pagination-link" href="/bestellingen?page={{ page_number }}">{{ page_number }}</a>
+        {% elif page_number == 3 and current_page > 4 %}
+          <span class="pagination-ellipsis">...</span>
+        {% elif page_number == total_pages - 2 and current_page < total_pages - 3 %}
+          <span class="pagination-ellipsis">...</span>
+        {% endif %}
+      {% endfor %}
+
+      {% if current_page < total_pages %}
+        <a class="pagination-link" href="/bestellingen?page={{ current_page + 1 }}">Volgende</a>
+      {% else %}
+        <span class="pagination-link pagination-link-disabled">Volgende</span>
+      {% endif %}
+    </nav>
+  </section>
+{% endblock %}

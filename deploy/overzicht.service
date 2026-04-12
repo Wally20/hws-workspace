@@ -1,0 +1,22 @@
+[Unit]
+Description=Overzicht Django app via Gunicorn
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/overzicht
+EnvironmentFile=/srv/overzicht/.env
+ExecStart=/srv/overzicht/.venv/bin/gunicorn \
+    --workers 2 \
+    --threads 4 \
+    --bind 127.0.0.1:8011 \
+    --access-logfile - \
+    --error-logfile - \
+    --timeout 120 \
+    config.wsgi:application
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Omzet Per Seizoen | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Omzet per voetbalseizoen</h1>
+      <p class="welcome-line">
+        Filter op een voetbalseizoen en bekijk omzet, kosten en winst van 1 juli tot en met 30 juni
+      </p>
+    </div>
+  </header>
+
+  <section class="orders-toolbar">
+    <div class="orders-toolbar-copy">
+      <p class="orders-toolbar-title">Seizoensfilter</p>
+      <p class="orders-toolbar-text">
+        Kies een seizoen vanaf 2022/2023 · Laatst bijgewerkt: {{ last_updated }}
+      </p>
+    </div>
+    <form method="get" action="/omzet/per-seizoen" class="revenue-filter-form">
+      <label for="seasonSelect" class="visually-hidden">Kies seizoen</label>
+      <select id="seasonSelect" name="season" class="revenue-select" onchange="this.form.submit()">
+        {% for option in season_options %}
+          <option value="{{ option.value }}" {% if option.value == season_summary.selectedPeriod %}selected{% endif %}>
+            {{ option.label }}
+          </option>
+        {% endfor %}
+      </select>
+    </form>
+  </section>
+
+  {% if message %}
+    <section class="notice">{{ message }}</section>
+  {% endif %}
+
+  <section class="revenue-grid">
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Geselecteerd seizoen</p>
+      <p class="revenue-month-label">{{ season_summary.selectedPeriodLabel }}</p>
+      <p class="revenue-month-copy">{{ season_summary.periodStart }} t/m {{ season_summary.periodEnd }}</p>
+    </article>
+
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Ecwid</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(season_summary.ecwidRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">{{ season_summary.ecwidOrderCount }} bestellingen</p>
+    </article>
+
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Moneybird</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(season_summary.moneybirdRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">{{ season_summary.moneybirdPaymentCount }} ontvangen betalingen</p>
+    </article>
+
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Kosten</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(season_summary.expenses).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Uitgaande banktransacties uit Moneybird</p>
+    </article>
+
+    <article class="summary-card revenue-card revenue-card-strong">
+      <p class="panel-title">Winst</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(season_summary.profit).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Omzet minus kosten · {{ "{:.1f}".format(season_summary.profitMarginPercentage).replace(".", ",") }}% van de omzet</p>
+    </article>
+
+    <article class="summary-card revenue-card revenue-card-accent">
+      <p class="panel-title">Totaal omzet</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(season_summary.combinedRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Ecwid + Moneybird samen</p>
+    </article>
+  </section>
+{% endblock %}

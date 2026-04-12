@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Taken | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Taken</h1>
+      <p class="welcome-line">Werk met een centrale takenlijst die niet meer afhankelijk is van browseropslag.</p>
+    </div>
+  </header>
+
+  {% if success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+  {% endif %}
+
+  <section class="feature-layout">
+    <article class="summary-card feature-form-card old-function-tile">
+      <p class="panel-title">Nieuwe taak</p>
+      <form class="feature-form" method="post" action="/taken">
+        <input type="hidden" name="action" value="create">
+        <label class="field">
+          <span>Taak</span>
+          <input type="text" name="title" placeholder="Bijvoorbeeld: Trainingsmateriaal klaarzetten" required>
+        </label>
+        <label class="field">
+          <span>Deadline</span>
+          <input type="date" name="due_date" required>
+        </label>
+        <div class="feature-actions">
+          <button type="submit" class="subtle-button subtle-button-strong">Taak opslaan</button>
+        </div>
+      </form>
+    </article>
+
+    <article class="summary-card feature-list-card old-function-tile">
+      <div class="feature-list-head">
+        <div>
+          <p class="panel-title">Takenlijst</p>
+          <p class="feature-list-subtitle">{{ tasks|length }} taken in deze weergave</p>
+        </div>
+        <div class="feature-filter-group">
+          <a href="/taken?filter=all" class="subtle-button {% if current_filter == 'all' %}subtle-button-strong{% endif %}">Alles</a>
+          <a href="/taken?filter=open" class="subtle-button {% if current_filter == 'open' %}subtle-button-strong{% endif %}">Open</a>
+          <a href="/taken?filter=done" class="subtle-button {% if current_filter == 'done' %}subtle-button-strong{% endif %}">Afgerond</a>
+        </div>
+      </div>
+
+      <div class="feature-record-list">
+        {% for task in tasks %}
+          <article class="feature-record-card old-function-card task-record-card {% if task.isDone %}task-record-card-done{% endif %}">
+            <div class="task-record-main">
+              <div>
+                <h2>{{ task.title }}</h2>
+                <p class="feature-record-meta">Deadline: {{ task.dueDate }}</p>
+              </div>
+              <span class="pill">{{ "Afgerond" if task.isDone else "Open" }}</span>
+            </div>
+            <div class="feature-inline-actions">
+              <form method="post" action="/taken?filter={{ current_filter }}">
+                <input type="hidden" name="action" value="toggle">
+                <input type="hidden" name="task_id" value="{{ task.id }}">
+                <button type="submit" class="subtle-button action-small">{{ "Zet open" if task.isDone else "Afronden" }}</button>
+              </form>
+              <form method="post" action="/taken?filter={{ current_filter }}">
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="task_id" value="{{ task.id }}">
+                <button type="submit" class="subtle-button action-small">Verwijder</button>
+              </form>
+            </div>
+          </article>
+        {% else %}
+          <div class="empty-state">Geen taken gevonden voor dit filter.</div>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+{% endblock %}

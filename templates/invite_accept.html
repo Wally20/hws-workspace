@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Account activeren | HWS Voetbalschool Workspace</title>
+    <link rel="stylesheet" href="../static/styles.css?v={{ asset_version }}">
+  </head>
+  <body class="login-body">
+    <div class="login-background" aria-hidden="true">
+      <span class="login-background-slide login-background-slide-1"></span>
+      <span class="login-background-slide login-background-slide-2"></span>
+      <span class="login-background-slide login-background-slide-3"></span>
+      <span class="login-background-slide login-background-slide-4"></span>
+      <span class="login-background-overlay"></span>
+    </div>
+    <main class="login-shell">
+      <section class="login-card">
+        <div class="login-brand">
+          <img src="../static/assets/hws-logo.png" alt="HWS Voetbalschool logo">
+          <div class="brand-copy brand-copy-login">
+            <p class="brand-subtitle">WORKSPACE</p>
+          </div>
+        </div>
+
+        <div class="login-copy">
+          <h1>ACCOUNT ACTIVEREN</h1>
+        </div>
+
+        {% if invite_error %}
+          <section class="notice trainers-notice trainers-notice-error">{{ invite_error }}</section>
+        {% endif %}
+
+        {% if invite_success %}
+          <section class="notice trainers-notice trainers-notice-success">{{ invite_success }}</section>
+        {% endif %}
+
+        {% if invited_user and not invite_error %}
+          <div class="invite-summary">
+            <strong>{{ invited_user.fullName }}</strong>
+            <span>{{ invited_user.email }}</span>
+            <span>{{ invited_user.systemRole or invited_user.role }}</span>
+          </div>
+
+          <form class="agenda-form" method="post">
+            <label class="field">
+              <span>Wachtwoord</span>
+              <input type="password" name="password" autocomplete="new-password" required>
+            </label>
+
+            <label class="field">
+              <span>Herhaal wachtwoord</span>
+              <input type="password" name="password_confirm" autocomplete="new-password" required>
+            </label>
+
+            <div class="agenda-form-actions">
+              <button type="submit" class="subtle-button subtle-button-strong">Account activeren</button>
+            </div>
+          </form>
+        {% endif %}
+      </section>
+    </main>
+  </body>
+</html>

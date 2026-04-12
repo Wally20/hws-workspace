@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}{{ album.title }} | Content | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header content-album-header">
+    <div>
+      <p class="feature-record-meta"><a href="/content">Terug naar alle albums</a></p>
+      <h1>{{ album.title }}</h1>
+      <p class="welcome-line">{{ album.photoCount }} foto{{ 's' if album.photoCount != 1 else '' }} in dit album. Eerste upload: {{ album.uploadedAtDisplay }}.</p>
+    </div>
+    {% if can_manage_content %}
+      <form method="post" action="/content/{{ album.id }}">
+        <input type="hidden" name="action" value="delete_album">
+        <button type="submit" class="subtle-button action-small">Verwijder album</button>
+      </form>
+    {% endif %}
+  </header>
+
+  {% if success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+  {% endif %}
+
+  {% if error %}
+    <section class="notice trainers-notice trainers-notice-error">{{ error }}</section>
+  {% endif %}
+
+  {% if can_manage_content %}
+    <section class="summary-card feature-form-card old-function-tile">
+      <div class="feature-list-head">
+        <div>
+          <p class="panel-title">Foto’s toevoegen</p>
+          <p class="feature-list-subtitle">Nieuwe uploads voor dit album gaan naar {{ content_storage.mode_label }}.</p>
+        </div>
+        <span class="pill">{{ content_storage.max_upload_mb }} MB max</span>
+      </div>
+      <form class="feature-form" method="post" action="/content/{{ album.id }}" enctype="multipart/form-data">
+        <input type="hidden" name="action" value="upload_album_photos">
+        <label class="field">
+          <span>Foto’s</span>
+          <input type="file" name="photos" accept="{{ content_storage.allowed_types|join(',') }}" multiple>
+        </label>
+        <label class="field">
+          <span>Of kies een map</span>
+          <input type="file" name="photo_folder" accept="{{ content_storage.allowed_types|join(',') }}" webkitdirectory directory multiple>
+          <small class="field-hint">Alle foto’s uit de gekozen map worden direct aan dit album toegevoegd.</small>
+        </label>
+        <div class="feature-actions">
+          <button type="submit" class="team-primary-button">Foto’s uploaden</button>
+        </div>
+      </form>
+    </section>
+  {% endif %}
+
+  <section class="summary-card feature-list-card old-function-tile">
+    <div class="feature-list-head">
+      <div>
+        <p class="panel-title">Albumfoto’s</p>
+        <p class="feature-list-subtitle">Klik op een foto om die op volledige grootte te openen.</p>
+      </div>
+    </div>
+
+    <div class="content-photo-grid">
+      {% for photo in photos %}
+        <article class="content-photo-card old-function-card">
+          <a href="{{ photo.imageUrl }}" target="_blank" rel="noreferrer" class="content-photo-link">
+            <img src="{{ photo.imageUrl }}" alt="{{ photo.originalName or album.title }}" class="content-photo-image">
+          </a>
+          <div class="content-photo-body">
+            <p class="feature-record-copy">{{ photo.originalName or photo.fileName }}</p>
+            <p class="feature-record-meta">{{ photo.uploadedAtDisplay }}</p>
+            {% if can_manage_content %}
+              <form method="post" action="/content/{{ album.id }}">
+                <input type="hidden" name="action" value="delete_photo">
+                <input type="hidden" name="photo_id" value="{{ photo.id }}">
+                <button type="submit" class="subtle-button action-small">Verwijder</button>
+              </form>
+            {% endif %}
+          </div>
+        </article>
+      {% else %}
+        <div class="empty-state">Dit album bevat nog geen foto’s.</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% if can_manage_content %}
+    <script>
+      (() => {
+        const uploadForm = document.querySelector('form[action="/content/{{ album.id }}"][enctype="multipart/form-data"]');
+        if (!uploadForm) return;
+        uploadForm.addEventListener("submit", () => {
+          const submitButton = uploadForm.querySelector('button[type="submit"]');
+          if (!submitButton || submitButton.disabled) return;
+          submitButton.disabled = true;
+          submitButton.textContent = "Upload bezig...";
+        });
+      })();
+    </script>
+  {% endif %}
+{% endblock %}

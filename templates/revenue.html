@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Omzet | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Omzet</h1>
+      <p class="welcome-line">
+        Bekijk per maand je omzet uit Ecwid, Moneybird en het gecombineerde totaal
+      </p>
+    </div>
+  </header>
+
+  <section class="orders-toolbar">
+    <div class="orders-toolbar-copy">
+      <p class="orders-toolbar-title">Maandfilter</p>
+      <p class="orders-toolbar-text">
+        Selecteer een maand om de omzet voor die periode te bekijken · Laatst bijgewerkt: {{ last_updated }}
+      </p>
+    </div>
+    <form method="get" action="/omzet" class="revenue-filter-form">
+      <label for="monthSelect" class="visually-hidden">Kies maand</label>
+      <select id="monthSelect" name="month" class="revenue-select" onchange="this.form.submit()">
+        {% for option in month_options %}
+          <option value="{{ option.value }}" {% if option.value == monthly_summary.selectedMonth %}selected{% endif %}>
+            {{ option.label }}
+          </option>
+        {% endfor %}
+      </select>
+    </form>
+  </section>
+
+  {% if message %}
+    <section class="notice">{{ message }}</section>
+  {% endif %}
+
+  <section class="revenue-grid">
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Geselecteerde maand</p>
+      <p class="revenue-month-label">{{ monthly_summary.selectedMonthLabel }}</p>
+      <p class="revenue-month-copy">Ontvangen omzet en bestellingen voor deze maand</p>
+    </article>
+
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Ecwid</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(monthly_summary.ecwidRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">{{ monthly_summary.ecwidOrderCount }} bestellingen</p>
+    </article>
+
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Moneybird</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(monthly_summary.moneybirdRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">{{ monthly_summary.moneybirdPaymentCount }} ontvangen betalingen</p>
+    </article>
+
+    <article class="summary-card revenue-card">
+      <p class="panel-title">Kosten</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(monthly_summary.expenses).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Uitgaande banktransacties uit Moneybird</p>
+    </article>
+
+    <article class="summary-card revenue-card revenue-card-strong">
+      <p class="panel-title">Winst</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(monthly_summary.profit).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Omzet minus kosten · {{ "{:.1f}".format(monthly_summary.profitMarginPercentage).replace(".", ",") }}% van de omzet</p>
+    </article>
+
+    <article class="summary-card revenue-card revenue-card-accent">
+      <p class="panel-title">Totaal omzet</p>
+      <p class="revenue-total">€ {{ "{:,.2f}".format(monthly_summary.combinedRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</p>
+      <p class="revenue-meta">Ecwid + Moneybird samen</p>
+    </article>
+  </section>
+
+  <section class="summary-card revenue-chart-panel">
+    <div class="chart-card-head">
+      <div>
+        <p class="panel-title">Omzet per maand</p>
+        <p class="chart-card-subtitle">Alle maanden met omzet uit Ecwid, Moneybird en het totaal</p>
+      </div>
+    </div>
+    <div
+      class="revenue-chart revenue-chart-full"
+      data-chart-series='{{ monthly_revenue_series|tojson }}'
+      data-chart-height="360"
+      data-chart-mode="full"
+    ></div>
+  </section>
+
+  <script src="../static/revenue-charts.js?v={{ asset_version }}" defer></script>
+{% endblock %}

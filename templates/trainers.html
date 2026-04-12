@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+
+{% block title %}Team | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header team-page-header">
+    <div class="agenda-header team-header">
+      <div>
+        <h1>Team</h1>
+        <p class="welcome-line">Beheer teamleden en open profielen in een overzichtelijke teamomgeving.</p>
+      </div>
+      <button type="button" id="openTrainerCreateModal" class="team-primary-button">Nieuw Teamlid</button>
+    </div>
+  </header>
+
+  {% if form_error %}
+    <section class="notice trainers-notice trainers-notice-error">{{ form_error }}</section>
+  {% endif %}
+
+  {% if form_success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ form_success }}</section>
+  {% endif %}
+
+  {% if invite_link %}
+    <section class="notice trainers-notice trainers-notice-success invite-link-card">
+      <p class="invite-link-title">Aanmeldlink voor nieuw teamlid</p>
+      <div class="invite-link-row">
+        <input id="inviteLinkField" type="text" value="{{ invite_link }}" readonly>
+        <button type="button" id="copyInviteLinkButton" class="subtle-button subtle-button-strong">Kopieer link</button>
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="team-search-card">
+    <label class="team-search-field">
+      <span class="team-search-icon" aria-hidden="true">⌕</span>
+      <input
+        id="teamSearchInput"
+        type="search"
+        placeholder="Zoek op naam, type of functie..."
+      >
+    </label>
+  </section>
+
+  <section class="team-user-grid" id="teamUserGrid">
+    {% for profile in trainer_profiles %}
+      <button
+        type="button"
+        class="team-user-card"
+        data-open-trainer-detail="1"
+        data-trainer-id="{{ profile.id }}"
+        data-search="{{ (profile.fullName ~ ' ' ~ profile.memberType ~ ' ' ~ profile.systemRole ~ ' ' ~ profile.email)|lower }}"
+        data-trainer-name="{{ profile.fullName }}"
+        data-trainer-first-name="{{ profile.fullName.split(' ')[0] if profile.fullName.split(' ') else '' }}"
+        data-trainer-last-name="{{ ' '.join(profile.fullName.split(' ')[1:]) }}"
+        data-trainer-system-role="{{ profile.systemRole }}"
+        data-trainer-email="{{ profile.email }}"
+        data-trainer-phone="{{ profile.phone or '-' }}"
+        data-trainer-created="{{ profile.createdAtDisplay }}"
+        data-trainer-access="{% if profile.isAdmin %}Admin{% else %}Teamlid{% endif %}"
+        data-trainer-status="{{ profile.status }}"
+        data-trainer-license="{{ profile.knvbLicense or '-' }}"
+        data-trainer-education="{{ profile.education or '-' }}"
+        data-trainer-availability="{{ profile.availabilityLabel }}"
+        data-trainer-availability-days="{{ profile.availabilityDays|join(',') }}"
+        data-trainer-is-admin="{{ '1' if profile.isAdmin else '0' }}"
+        data-trainer-notes="{{ profile.notes or 'Geen notities toegevoegd.' }}"
+        data-trainer-initials="{{ profile.initials }}"
+      >
+        <span class="team-user-avatar-wrap">
+          <span class="team-user-avatar">{{ profile.initials }}</span>
+          <span class="team-user-status-dot" aria-hidden="true"></span>
+        </span>
+        <span class="team-user-name">{{ profile.fullName }}</span>
+        <span class="team-user-role">{{ profile.systemRole }}</span>
+      </button>
+    {% else %}
+      <div class="empty-state">Er zijn nog geen teamleden aangemaakt.</div>
+    {% endfor %}
+  </section>
+
+  <div id="trainerCreateModal" class="agenda-modal team-modal" {% if not form_error %}hidden{% endif %}>
+    <div class="agenda-modal-backdrop" data-close-trainer-modal="create"></div>
+    <div class="agenda-modal-dialog team-modal-dialog">
+      <div class="team-modal-top">
+        <div class="team-modal-title-wrap">
+          <h2>Nieuw Teamlid</h2>
+        </div>
+        <button type="button" class="team-modal-close" data-close-trainer-modal="create" aria-label="Sluiten">×</button>
+      </div>
+
+      <div class="team-modal-identity">
+        <div class="team-modal-avatar-wrap">
+          <div class="team-modal-avatar" id="trainerPreviewAvatar">NL</div>
+        </div>
+        <div>
+          <h3 id="trainerPreviewName">Nieuw Lid</h3>
+          <p id="trainerPreviewRole">Functie</p>
+        </div>
+      </div>
+
+      <form class="team-member-form" method="post" action="/trainers">
+        <section class="team-form-grid team-form-grid-single">
+          <article class="team-form-section">
+            <h3>Gegevens</h3>
+
+            <div class="team-field-grid">
+              <label class="field">
+                <span>Voornaam</span>
+                <input id="trainerFirstName" type="text" name="first_name" required>
+              </label>
+
+              <label class="field">
+                <span>Achternaam</span>
+                <input id="trainerLastName" type="text" name="last_name" required>
+              </label>
+            </div>
+
+            <label class="field">
+              <span>Rol</span>
+              <select id="trainerSystemRole" name="system_role" required>
+                <option value="Admin">Admin</option>
+                <option value="Social media beheerder">Social media beheerder</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Email</span>
+              <input type="email" name="email" required>
+            </label>
+
+            <label class="field">
+              <span>Telefoon</span>
+              <input type="text" name="phone">
+            </label>
+
+            <p class="team-invite-help">
+              Na opslaan krijg je direct een aanmeldlink die je kunt doorsturen naar dit teamlid.
+            </p>
+
+          </article>
+
+        </section>
+
+        <div class="team-form-actions">
+          <button type="submit" class="team-primary-button">Toevoegen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="trainerDetailModal" class="agenda-modal team-modal" hidden>
+    <div class="agenda-modal-backdrop" data-close-trainer-modal="detail"></div>
+    <div class="agenda-modal-dialog team-detail-dialog">
+      <div class="team-modal-top">
+        <div class="team-modal-title-wrap">
+          <h2>Teamlid</h2>
+        </div>
+        <button type="button" class="team-modal-close" data-close-trainer-modal="detail" aria-label="Sluiten">×</button>
+      </div>
+
+      <form class="team-member-form team-edit-form" method="post" action="/trainers">
+        <input type="hidden" name="action" value="update">
+        <input type="hidden" name="profile_id" id="trainerDetailProfileId">
+        <div class="team-modal-identity">
+          <div class="team-modal-avatar-wrap">
+            <div class="team-modal-avatar" id="trainerDetailAvatar">TM</div>
+          </div>
+          <div>
+            <h3 id="trainerDetailName">Teamlid</h3>
+            <p id="trainerDetailRole">Functie</p>
+          </div>
+        </div>
+
+        <section class="team-form-grid team-form-grid-single">
+          <article class="team-form-section">
+            <h3>Gegevens</h3>
+
+            <div class="team-field-grid">
+              <label class="field">
+                <span>Voornaam</span>
+                <input type="text" name="first_name" id="trainerDetailFirstName" required>
+              </label>
+
+              <label class="field">
+                <span>Achternaam</span>
+                <input type="text" name="last_name" id="trainerDetailLastName" required>
+              </label>
+            </div>
+
+            <label class="field">
+              <span>Rol</span>
+              <select name="system_role" id="trainerDetailSystemRoleInput" required>
+                <option value="Admin">Admin</option>
+                <option value="Social media beheerder">Social media beheerder</option>
+              </select>
+            </label>
+
+            <div class="team-field-grid">
+              <label class="field">
+                <span>Email</span>
+                <input type="email" name="email" id="trainerDetailEmailInput" required>
+              </label>
+
+              <label class="field">
+                <span>Telefoon</span>
+                <input type="text" name="phone" id="trainerDetailPhoneInput">
+              </label>
+            </div>
+
+          </article>
+
+        </section>
+
+        <div class="team-form-actions">
+          <button type="submit" class="team-primary-button">Opslaan</button>
+        </div>
+      </form>
+
+      <form method="post" action="/trainers" class="social-plan-delete-form" id="trainerDeleteForm">
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="profile_id" id="trainerDeleteProfileId">
+        <button type="submit" class="subtle-button action-small action-danger">Verwijderen</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="../static/trainers.js?v={{ asset_version }}" defer></script>
+{% endblock %}

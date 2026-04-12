@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}Agenda | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div class="agenda-header">
+      <div>
+        <h1>Agenda</h1>
+        <p class="welcome-line">Voeg trainingen toe en houd je planning overzichtelijk bij.</p>
+      </div>
+      <button type="button" id="openAgendaModal" class="refresh-button">+ Nieuwe Training</button>
+    </div>
+  </header>
+
+  <section class="agenda-calendar-card">
+    <div class="agenda-toolbar">
+      <div class="agenda-toolbar-left">
+        <a href="/agenda?week={{ week_offset - 1 }}" class="subtle-button agenda-nav-button">&#8249;</a>
+        <a href="/agenda?week={{ week_offset + 1 }}" class="subtle-button agenda-nav-button">&#8250;</a>
+        <a href="/agenda?week=0" class="subtle-button agenda-today-button">Vandaag</a>
+      </div>
+      <h2 class="agenda-week-label">{{ week_label }}</h2>
+      <div class="agenda-toolbar-right">
+        <span class="agenda-view-pill agenda-view-pill-active">Week</span>
+        <span class="agenda-view-pill">Maand</span>
+      </div>
+    </div>
+
+    <div class="agenda-board">
+      <div class="agenda-grid">
+        <div class="agenda-grid-corner"></div>
+        {% for day in week_days %}
+          <div class="agenda-day-header {% if day.isToday %}agenda-day-header-today{% endif %}">
+            {{ day.shortLabel }}
+          </div>
+        {% endfor %}
+
+        {% for slot in time_slots %}
+          <div class="agenda-time-label">{{ slot }}</div>
+          {% for day in week_days %}
+            <div class="agenda-cell {% if day.isToday %}agenda-cell-today{% endif %}"></div>
+          {% endfor %}
+        {% endfor %}
+
+        {% for event in calendar_events %}
+          <article
+            class="agenda-event"
+            style="--day-index: {{ event.dayIndex }}; --event-top: {{ event.top }}px; --event-height: {{ event.height }}px;"
+          >
+            <p class="agenda-event-time">{{ event.time }} - {{ event.endTime }}</p>
+            <p class="agenda-event-title">{{ event.title }}</p>
+            {% if event.location %}
+              <p class="agenda-event-location">{{ event.location }}</p>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <div id="agendaModal" class="agenda-modal" hidden>
+    <div class="agenda-modal-backdrop" data-close-modal="1"></div>
+    <div class="agenda-modal-dialog">
+      <div class="agenda-modal-header">
+        <h2>Training Toevoegen</h2>
+        <button type="button" class="subtle-button" id="closeAgendaModal">Sluiten</button>
+      </div>
+
+      <form class="agenda-form" method="post" action="/agenda">
+        <label class="field">
+          <span>Titel</span>
+          <input type="text" name="title" placeholder="Bijvoorbeeld: Techniektraining O15" required>
+        </label>
+
+        <div class="agenda-form-grid">
+          <label class="field">
+            <span>Datum</span>
+            <input type="date" name="date" required>
+          </label>
+
+          <label class="field">
+            <span>Starttijd</span>
+            <input type="time" name="time" required>
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Eindtijd</span>
+          <input type="time" name="end_time">
+        </label>
+
+        <label class="field">
+          <span>Locatie</span>
+          <input type="text" name="location" placeholder="Bijvoorbeeld: Sportpark Harfsen">
+        </label>
+
+        <label class="field">
+          <span>Notities</span>
+          <textarea name="notes" rows="4" placeholder="Extra details over de training"></textarea>
+        </label>
+
+        <div class="agenda-form-actions">
+          <button type="submit" class="subtle-button subtle-button-strong">Training toevoegen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="../static/agenda.js?v={{ asset_version }}" defer></script>
+{% endblock %}

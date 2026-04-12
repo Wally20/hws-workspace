@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Content | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Content</h1>
+      <p class="welcome-line">Bekijk fotoalbums centraal en upload nieuw beeldmateriaal voor jullie contentplanning.</p>
+    </div>
+  </header>
+
+  {% if success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+  {% endif %}
+
+  {% if error %}
+    <section class="notice trainers-notice trainers-notice-error">{{ error }}</section>
+  {% endif %}
+
+  <section class="summary-card feature-list-card old-function-tile content-storage-card">
+    <div class="feature-list-head">
+      <div>
+        <p class="panel-title">Opslag</p>
+        <p class="feature-list-subtitle">Uploads worden opgeslagen via {{ content_storage.mode_label }}.</p>
+      </div>
+      <div class="feature-record-pills">
+        <span class="pill">{{ content_storage.base_path }}</span>
+        <span class="pill">{{ content_storage.max_upload_mb }} MB max</span>
+      </div>
+    </div>
+
+    <p class="feature-record-copy">
+      Toegestane bestandstypes: {{ content_storage.allowed_types|join(", ") }}.
+    </p>
+
+    {% if not content_storage.is_bunny_enabled %}
+      <section class="notice trainers-notice trainers-notice-error content-storage-warning">
+        Bunny-config ontbreekt nog: {{ content_storage.missing_config|join(", ") }}. Tot die tijd gebruikt deze pagina lokale opslag.
+      </section>
+    {% endif %}
+  </section>
+
+  {% if can_manage_content %}
+    <section class="summary-card feature-form-card old-function-tile">
+      <div class="feature-list-head">
+        <div>
+          <p class="panel-title">Foto’s uploaden</p>
+          <p class="feature-list-subtitle">Maak een nieuw album of voeg foto’s toe aan een bestaand album.</p>
+        </div>
+      </div>
+
+      <form class="feature-form" method="post" action="/content" enctype="multipart/form-data">
+        <input type="hidden" name="action" value="upload_album_photos">
+        <div class="content-upload-grid">
+          <label class="field">
+            <span>Bestaand album</span>
+            <select name="album_id">
+              <option value="0">Kies bestaand album</option>
+              {% for album in albums %}
+                <option value="{{ album.id }}">{{ album.title }} ({{ album.photoCount }} foto{{ 's' if album.photoCount != 1 else '' }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="field">
+            <span>Of nieuw album</span>
+            <input type="text" name="album_title" placeholder="Bijvoorbeeld: Clinic april 2026">
+          </label>
+        </div>
+        <label class="field">
+          <span>Foto’s</span>
+          <input type="file" name="photos" accept="{{ content_storage.allowed_types|join(',') }}" multiple>
+        </label>
+        <label class="field">
+          <span>Of kies een map</span>
+          <input type="file" name="photo_folder" accept="{{ content_storage.allowed_types|join(',') }}" webkitdirectory directory multiple>
+          <small class="field-hint">Selecteer een volledige fotomap om alle afbeeldingen in één keer te uploaden.</small>
+        </label>
+        <div class="feature-actions">
+          <button type="submit" class="team-primary-button">Upload foto’s</button>
+        </div>
+      </form>
+    </section>
+  {% endif %}
+
+  <section class="summary-card feature-list-card old-function-tile">
+    <div class="feature-list-head">
+      <div>
+        <p class="panel-title">Fotoalbums</p>
+        <p class="feature-list-subtitle">{{ albums|length }} albums beschikbaar</p>
+      </div>
+    </div>
+
+    <div class="content-album-grid">
+      {% for album in albums %}
+        <article class="content-album-tile old-function-card">
+          <a href="/content/{{ album.id }}" class="content-album-link">
+            <div class="content-album-image-wrap">
+              {% if album.coverUrl %}
+                <img src="{{ album.coverUrl }}" alt="Omslagfoto van album {{ album.title }}" class="content-album-image">
+              {% else %}
+                <div class="content-album-placeholder">Nog geen foto</div>
+              {% endif %}
+            </div>
+          </a>
+          <div class="content-album-body">
+            <div class="feature-record-head">
+              <h2><a href="/content/{{ album.id }}" class="content-album-title-link">{{ album.title }}</a></h2>
+              <span class="pill">{{ album.photoCount }} foto{{ 's' if album.photoCount != 1 else '' }}</span>
+            </div>
+            <p class="feature-record-meta">Geupload op {{ album.uploadedAtDisplay }}</p>
+            <div class="feature-inline-actions">
+              <a href="/content/{{ album.id }}" class="subtle-button action-small">Open album</a>
+              {% if can_manage_content %}
+                <form method="post" action="/content">
+                  <input type="hidden" name="action" value="delete_album">
+                  <input type="hidden" name="album_id" value="{{ album.id }}">
+                  <button type="submit" class="subtle-button action-small">Verwijder album</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+        </article>
+      {% else %}
+        <div class="empty-state">Er zijn nog geen fotoalbums aangemaakt.</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% if can_manage_content %}
+    <script>
+      (() => {
+        const uploadForm = document.querySelector('form[action="/content"][enctype="multipart/form-data"]');
+        if (!uploadForm) return;
+        uploadForm.addEventListener("submit", () => {
+          const submitButton = uploadForm.querySelector('button[type="submit"]');
+          if (!submitButton || submitButton.disabled) return;
+          submitButton.disabled = true;
+          submitButton.textContent = "Upload bezig...";
+        });
+      })();
+    </script>
+  {% endif %}
+{% endblock %}

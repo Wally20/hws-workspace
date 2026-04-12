@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Vergoeding Per Training | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Vergoeding per training</h1>
+      <p class="welcome-line">
+        Deze pagina is klaar om gevuld te worden met het overzicht per training
+      </p>
+    </div>
+  </header>
+
+  <section class="orders-toolbar">
+    <div class="orders-toolbar-copy">
+      <p class="orders-toolbar-title">Voorbereid</p>
+      <p class="orders-toolbar-text">
+        Geef in je volgende prompt aan hoe je dit overzicht wilt opbouwen · Laatst bijgewerkt: {{ last_updated }}
+      </p>
+    </div>
+    <a href="/trainersvergoedingen" class="refresh-button orders-toolbar-button">Terug naar overzicht</a>
+  </section>
+
+  {% if message %}
+    <section class="notice">{{ message }}</section>
+  {% endif %}
+
+  <section class="summary-card">
+    <p class="panel-title">Nog in te vullen</p>
+    <p class="revenue-entry-copy">Deze aparte pagina staat klaar voor de inhoud van trainersvergoedingen per training.</p>
+  </section>
+{% endblock %}
