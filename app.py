@@ -84,6 +84,20 @@ def get_env(name: str) -> str:
     return os.getenv(name, "").strip()
 
 
+def is_placeholder_value(value: str) -> bool:
+    normalized = (value or "").strip()
+    if not normalized:
+        return True
+
+    lowered = normalized.lower()
+    return lowered.startswith("hier_jouw_") or lowered.startswith("replace-with-") or lowered in {
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "12345678",
+        "123456789012345678",
+    }
+
+
 def get_env_bool(name: str, default: bool = False) -> bool:
     value = get_env(name)
     if not value:
@@ -132,11 +146,18 @@ configure_app()
 
 
 def get_config() -> Dict[str, str]:
+    store_id = get_env("ECWID_STORE_ID")
+    secret_token = get_env("ECWID_SECRET_TOKEN")
+    moneybird_token = get_env("MONEYBIRD_API_TOKEN")
+    moneybird_administration_id = get_env("MONEYBIRD_ADMINISTRATION_ID")
+
     return {
-        "store_id": get_env("ECWID_STORE_ID"),
-        "secret_token": get_env("ECWID_SECRET_TOKEN"),
-        "moneybird_token": get_env("MONEYBIRD_API_TOKEN"),
-        "moneybird_administration_id": get_env("MONEYBIRD_ADMINISTRATION_ID"),
+        "store_id": "" if is_placeholder_value(store_id) else store_id,
+        "secret_token": "" if is_placeholder_value(secret_token) else secret_token,
+        "moneybird_token": "" if is_placeholder_value(moneybird_token) else moneybird_token,
+        "moneybird_administration_id": (
+            "" if is_placeholder_value(moneybird_administration_id) else moneybird_administration_id
+        ),
     }
 
 
