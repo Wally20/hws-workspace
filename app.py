@@ -1285,8 +1285,10 @@ def delete_content_file(remote_path: str, storage_backend: str) -> None:
             headers={"AccessKey": config["access_key"]},
             timeout=30,
         )
-        response.raise_for_status()
-        purge_content_url(f"{config['public_base']}/{normalized_remote_path}")
+        if response.status_code not in {200, 201, 202, 204, 404}:
+            response.raise_for_status()
+        if response.status_code != 404:
+            purge_content_url(f"{config['public_base']}/{normalized_remote_path}")
         return
 
     local_root = get_content_storage_config()["local_upload_root"]
