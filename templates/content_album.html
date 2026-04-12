@@ -92,6 +92,7 @@
       (() => {
         const uploadForm = document.querySelector('form[action="/content/{{ album.id }}"][enctype="multipart/form-data"]');
         if (!uploadForm) return;
+        const formActionUrl = uploadForm.getAttribute("action") || "/content/{{ album.id }}";
         const submitButton = uploadForm.querySelector('button[type="submit"]');
         const photosInput = uploadForm.querySelector('input[name="photos"]');
         const folderInput = uploadForm.querySelector('input[name="photo_folder"]');
@@ -201,7 +202,7 @@
               setButtonState(`Uploaden ${index + 1}/${batches.length}...`, true);
               updateProgress(`Batch ${index + 1} van ${batches.length} wordt geupload...`);
 
-              const response = await fetch(uploadForm.action, {
+              const response = await fetch(formActionUrl, {
                 method: "POST",
                 body: formData,
                 credentials: "same-origin",

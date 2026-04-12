@@ -133,6 +133,7 @@
       (() => {
         const uploadForm = document.querySelector('form[action="/content"][enctype="multipart/form-data"]');
         if (!uploadForm) return;
+        const formActionUrl = uploadForm.getAttribute("action") || "/content";
         const submitButton = uploadForm.querySelector('button[type="submit"]');
         const photosInput = uploadForm.querySelector('input[name="photos"]');
         const folderInput = uploadForm.querySelector('input[name="photo_folder"]');
@@ -253,7 +254,7 @@
           }
 
           const batches = createBatches(files);
-          let targetUrl = uploadForm.action;
+          let targetUrl = formActionUrl;
           let currentAlbumId = existingAlbumId;
           let totalUploaded = 0;
 
