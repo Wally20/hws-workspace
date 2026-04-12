@@ -133,11 +133,186 @@
       (() => {
         const uploadForm = document.querySelector('form[action="/content"][enctype="multipart/form-data"]');
         if (!uploadForm) return;
-        uploadForm.addEventListener("submit", () => {
-          const submitButton = uploadForm.querySelector('button[type="submit"]');
-          if (!submitButton || submitButton.disabled) return;
-          submitButton.disabled = true;
-          submitButton.textContent = "Upload bezig...";
+        const submitButton = uploadForm.querySelector('button[type="submit"]');
+        const photosInput = uploadForm.querySelector('input[name="photos"]');
+        const folderInput = uploadForm.querySelector('input[name="photo_folder"]');
+        const albumSelect = uploadForm.querySelector('select[name="album_id"]');
+        const albumTitleInput = uploadForm.querySelector('input[name="album_title"]');
+        const requestByteLimit = 18 * 1024 * 1024;
+        const maxFilesPerBatch = 25;
+
+        const setButtonState = (label, disabled) => {
+          if (!submitButton) return;
+          submitButton.disabled = disabled;
+          submitButton.textContent = label;
+        };
+
+        const ensureNotice = (type) => {
+          let notice = uploadForm.previousElementSibling;
+          if (!notice || !notice.classList || !notice.classList.contains("upload-progress-notice")) {
+            notice = document.createElement("section");
+            notice.className = "notice upload-progress-notice";
+            uploadForm.parentNode.insertBefore(notice, uploadForm);
+          }
+          notice.className = `notice upload-progress-notice trainers-notice trainers-notice-${type}`;
+          return notice;
+        };
+
+        const updateProgress = (message, type = "success") => {
+          const notice = ensureNotice(type);
+          notice.textContent = message;
+        };
+
+        const clearProgress = () => {
+          const notice = uploadForm.previousElementSibling;
+          if (notice && notice.classList && notice.classList.contains("upload-progress-notice")) {
+            notice.remove();
+          }
+        };
+
+        const collectFiles = () => {
+          const files = [];
+          for (const input of [photosInput, folderInput]) {
+            if (!input || !input.files) continue;
+            const fieldName = input.name;
+            for (const file of input.files) {
+              if (file && file.size > 0) {
+                files.push({ file, fieldName });
+              }
+            }
+          }
+          return files;
+        };
+
+        const createBatches = (files) => {
+          const batches = [];
+          let currentBatch = [];
+          let currentSize = 0;
+
+          for (const item of files) {
+            const file = item.file;
+            if (file.size >= requestByteLimit && currentBatch.length) {
+              batches.push(currentBatch);
+              currentBatch = [];
+              currentSize = 0;
+            }
+
+            if (
+              currentBatch.length &&
+              (currentSize + file.size > requestByteLimit || currentBatch.length >= maxFilesPerBatch)
+            ) {
+              batches.push(currentBatch);
+              currentBatch = [];
+              currentSize = 0;
+            }
+
+            currentBatch.push(item);
+            currentSize += file.size;
+          }
+
+          if (currentBatch.length) {
+            batches.push(currentBatch);
+          }
+
+          return batches;
+        };
+
+        const getAlbumPageUrl = (responseUrl, fallbackAlbumId) => {
+          if (fallbackAlbumId) {
+            return `/content/${fallbackAlbumId}`;
+          }
+          try {
+            const url = new URL(responseUrl, window.location.origin);
+            const match = url.pathname.match(/^\/content\/(\d+)$/);
+            if (match) {
+              return `/content/${match[1]}`;
+            }
+          } catch (error) {
+            return null;
+          }
+          return null;
+        };
+
+        uploadForm.addEventListener("submit", async (event) => {
+          const files = collectFiles();
+          if (!files.length) {
+            setButtonState("Upload bezig...", true);
+            return;
+          }
+
+          event.preventDefault();
+          clearProgress();
+          setButtonState("Upload voorbereiden...", true);
+
+          const existingAlbumId = Number(albumSelect ? albumSelect.value : 0) || 0;
+          const newAlbumTitle = albumTitleInput ? albumTitleInput.value.trim() : "";
+          if (!existingAlbumId && !newAlbumTitle) {
+            updateProgress("Kies een bestaand album of vul een nieuwe albumtitel in.", "error");
+            setButtonState("Upload foto’s", false);
+            return;
+          }
+
+          const batches = createBatches(files);
+          let targetUrl = uploadForm.action;
+          let currentAlbumId = existingAlbumId;
+          let totalUploaded = 0;
+
+          try {
+            for (const [index, batch] of batches.entries()) {
+              const formData = new FormData();
+              formData.append("action", "upload_album_photos");
+
+              if (currentAlbumId) {
+                formData.append("album_id", String(currentAlbumId));
+              } else {
+                formData.append("album_id", "0");
+                formData.append("album_title", newAlbumTitle);
+              }
+
+              for (const item of batch) {
+                const file = item.file;
+                formData.append(item.fieldName, file, file.webkitRelativePath || file.name);
+              }
+
+              setButtonState(`Uploaden ${index + 1}/${batches.length}...`, true);
+              updateProgress(`Batch ${index + 1} van ${batches.length} wordt geupload...`);
+
+              const response = await fetch(targetUrl, {
+                method: "POST",
+                body: formData,
+                credentials: "same-origin",
+                redirect: "follow",
+              });
+
+              if (!response.ok) {
+                throw new Error(`Upload mislukt met status ${response.status}.`);
+              }
+
+              totalUploaded += batch.length;
+              const albumPageUrl = getAlbumPageUrl(response.url, currentAlbumId);
+              if (albumPageUrl) {
+                targetUrl = albumPageUrl;
+                const match = albumPageUrl.match(/^\/content\/(\d+)$/);
+                if (match) {
+                  currentAlbumId = Number(match[1]);
+                }
+              }
+            }
+
+            if (currentAlbumId) {
+              const successMessage = encodeURIComponent(`${totalUploaded} foto's geupload.`);
+              window.location.assign(`/content/${currentAlbumId}?success=${successMessage}`);
+              return;
+            }
+
+            window.location.reload();
+          } catch (error) {
+            updateProgress(
+              "De upload is gestopt voordat alle batches klaar waren. Probeer het opnieuw met dezelfde map; reeds geuploade foto's blijven bewaard.",
+              "error"
+            );
+            setButtonState("Upload foto’s", false);
+          }
         });
       })();
     </script>
