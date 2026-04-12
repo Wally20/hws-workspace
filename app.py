@@ -90,11 +90,28 @@ def is_placeholder_value(value: str) -> bool:
         return True
 
     lowered = normalized.lower()
+    compact = re.sub(r"[^a-z0-9]+", "", lowered)
+    placeholder_fragments = (
+        "hierjouw",
+        "replacewith",
+        "placeholder",
+        "example",
+        "yourstore",
+        "yoursecret",
+        "ecwidstoreid",
+        "ecwidsecrettoken",
+        "moneybirdapitoken",
+        "moneybirdadministrationid",
+    )
+    if compact == "..." or any(fragment in compact for fragment in placeholder_fragments):
+        return True
+
     return lowered.startswith("hier_jouw_") or lowered.startswith("replace-with-") or lowered in {
         "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
         "secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
         "12345678",
         "123456789012345678",
+        "...",
     }
 
 
@@ -2456,6 +2473,7 @@ def fetch_orders_from_ecwid() -> Dict[str, Any]:
         return {
             "source": "mock",
             "items": mock_orders(),
+            "summary": build_summary(mock_orders()),
             "message": (
                 "Live Ecwid-koppeling staat nog niet aan. "
                 "Voeg ECWID_STORE_ID en ECWID_SECRET_TOKEN toe."
@@ -2467,28 +2485,39 @@ def fetch_orders_from_ecwid() -> Dict[str, Any]:
     limit = 100
     total = 0
 
-    while True:
-        response = requests.get(
-            f"{ECWID_API_BASE}/{config['store_id']}/orders",
-            headers={"Authorization": f"Bearer {config['secret_token']}"},
-            params={
-                "limit": limit,
-                "offset": offset,
-                "responseFields": ECWID_RESPONSE_FIELDS,
-            },
-            timeout=20,
-        )
-        response.raise_for_status()
-        payload = response.json()
+    try:
+        while True:
+            response = requests.get(
+                f"{ECWID_API_BASE}/{config['store_id']}/orders",
+                headers={"Authorization": f"Bearer {config['secret_token']}"},
+                params={
+                    "limit": limit,
+                    "offset": offset,
+                    "responseFields": ECWID_RESPONSE_FIELDS,
+                },
+                timeout=20,
+            )
+            response.raise_for_status()
+            payload = response.json()
 
-        batch = payload.get("items", [])
-        total = payload.get("total", total)
-        all_orders.extend(batch)
+            batch = payload.get("items", [])
+            total = payload.get("total", total)
+            all_orders.extend(batch)
 
-        if not batch or len(batch) < limit or len(all_orders) >= total:
-            break
+            if not batch or len(batch) < limit or len(all_orders) >= total:
+                break
 
-        offset += limit
+            offset += limit
+    except requests.RequestException:
+        return {
+            "source": "mock",
+            "items": mock_orders(),
+            "summary": build_summary(mock_orders()),
+            "message": (
+                "Ecwid kon nu niet worden geladen. "
+                "Controleer ECWID_STORE_ID en ECWID_SECRET_TOKEN; tijdelijke voorbeelddata wordt getoond."
+            ),
+        }
 
     normalized_orders = [normalize_order(order) for order in all_orders]
 
@@ -3404,6 +3433,7 @@ def index() -> str:
         report_summary=dashboard_payload["reportSummary"],
         product_summary=dashboard_payload["productSummary"],
         last_updated=dashboard_payload["lastUpdated"],
+        message=dashboard_payload["message"],
     )
 
 

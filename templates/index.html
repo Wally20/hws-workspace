@@ -10,6 +10,10 @@
     </article>
   </section>
 
+  {% if message %}
+    <section class="notice">{{ message }}</section>
+  {% endif %}
+
   <section class="dashboard-panels dashboard-panels-triple">
     {% if can_view_revenue %}
     <article class="summary-card compact-summary-card">

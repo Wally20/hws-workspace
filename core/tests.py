@@ -1,4 +1,5 @@
 from importlib import import_module
+from unittest.mock import patch
 
 from django.conf import settings
 from django.test import Client, SimpleTestCase
@@ -27,3 +28,18 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["items"][0]["label"], legacy.load_dashboard_events_config()[0]["label"])
+
+    def test_dashboard_falls_back_to_mock_data_for_placeholder_ecwid_config(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "ECWID_STORE_ID": "HIER_JOUW_ECWID_STORE_ID",
+                "ECWID_SECRET_TOKEN": "HIER_JOUW_ECWID_SECRET_TOKEN",
+            },
+            clear=False,
+        ):
+            response = self.build_authenticated_client().get("/", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Live Ecwid-koppeling staat nog niet aan.", content)
