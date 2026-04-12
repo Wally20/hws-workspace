@@ -96,8 +96,9 @@
         const submitButton = uploadForm.querySelector('button[type="submit"]');
         const photosInput = uploadForm.querySelector('input[name="photos"]');
         const folderInput = uploadForm.querySelector('input[name="photo_folder"]');
-        const requestByteLimit = 18 * 1024 * 1024;
-        const maxFilesPerBatch = 25;
+        const requestByteLimit = 48 * 1024 * 1024;
+        const maxFilesPerBatch = 60;
+        const uploadConcurrency = 4;
 
         const setButtonState = (label, disabled) => {
           if (!submitButton) return;
@@ -142,6 +143,18 @@
           return files;
         };
 
+        const buildBatchFormData = (batch) => {
+          const formData = new FormData();
+          formData.append("action", "upload_album_photos");
+
+          for (const item of batch) {
+            const file = item.file;
+            formData.append(item.fieldName, file, file.webkitRelativePath || file.name);
+          }
+
+          return formData;
+        };
+
         const createBatches = (files) => {
           const batches = [];
           let currentBatch = [];
@@ -175,6 +188,34 @@
           return batches;
         };
 
+        const uploadBatch = async ({ batch, index, totalBatches }) => {
+          const response = await fetch(formActionUrl, {
+            method: "POST",
+            body: buildBatchFormData(batch),
+            credentials: "same-origin",
+            redirect: "follow",
+          });
+
+          if (!response.ok) {
+            throw new Error(`Batch ${index + 1} mislukt met status ${response.status}.`);
+          }
+
+          return response;
+        };
+
+        const runConcurrentUploads = async (jobs, concurrency, onProgress) => {
+          let nextIndex = 0;
+          const workers = Array.from({ length: Math.min(concurrency, jobs.length) }, async () => {
+            while (nextIndex < jobs.length) {
+              const currentIndex = nextIndex;
+              nextIndex += 1;
+              const result = await jobs[currentIndex]();
+              onProgress(currentIndex, result);
+            }
+          });
+          await Promise.all(workers);
+        };
+
         uploadForm.addEventListener("submit", async (event) => {
           const files = collectFiles();
           if (!files.length) {
@@ -190,30 +231,24 @@
           let totalUploaded = 0;
 
           try {
-            for (const [index, batch] of batches.entries()) {
-              const formData = new FormData();
-              formData.append("action", "upload_album_photos");
+            const jobs = batches.map((batch, index) => async () => uploadBatch({
+              batch,
+              index,
+              totalBatches: batches.length,
+            }));
 
-              for (const item of batch) {
-                const file = item.file;
-                formData.append(item.fieldName, file, file.webkitRelativePath || file.name);
-              }
+            let completedBatches = 0;
+            await runConcurrentUploads(jobs, uploadConcurrency, (jobIndex) => {
+              completedBatches += 1;
+              totalUploaded += batches[jobIndex].length;
+              setButtonState(`Uploaden ${completedBatches}/${batches.length}...`, true);
+              updateProgress(
+                `${totalUploaded} foto's geupload. Batch ${completedBatches} van ${batches.length} klaar.`
+              );
+            });
 
-              setButtonState(`Uploaden ${index + 1}/${batches.length}...`, true);
-              updateProgress(`Batch ${index + 1} van ${batches.length} wordt geupload...`);
-
-              const response = await fetch(formActionUrl, {
-                method: "POST",
-                body: formData,
-                credentials: "same-origin",
-                redirect: "follow",
-              });
-
-              if (!response.ok) {
-                throw new Error(`Upload mislukt met status ${response.status}.`);
-              }
-
-              totalUploaded += batch.length;
+            if (!completedBatches) {
+              throw new Error("Geen batches verwerkt.");
             }
 
             const successMessage = encodeURIComponent(`${totalUploaded} foto's geupload.`);

@@ -139,8 +139,9 @@
         const folderInput = uploadForm.querySelector('input[name="photo_folder"]');
         const albumSelect = uploadForm.querySelector('select[name="album_id"]');
         const albumTitleInput = uploadForm.querySelector('input[name="album_title"]');
-        const requestByteLimit = 18 * 1024 * 1024;
-        const maxFilesPerBatch = 25;
+        const requestByteLimit = 48 * 1024 * 1024;
+        const maxFilesPerBatch = 60;
+        const uploadConcurrency = 4;
 
         const setButtonState = (label, disabled) => {
           if (!submitButton) return;
@@ -183,6 +184,25 @@
             }
           }
           return files;
+        };
+
+        const buildBatchFormData = (batch, albumId, albumTitle) => {
+          const formData = new FormData();
+          formData.append("action", "upload_album_photos");
+
+          if (albumId) {
+            formData.append("album_id", String(albumId));
+          } else {
+            formData.append("album_id", "0");
+            formData.append("album_title", albumTitle);
+          }
+
+          for (const item of batch) {
+            const file = item.file;
+            formData.append(item.fieldName, file, file.webkitRelativePath || file.name);
+          }
+
+          return formData;
         };
 
         const createBatches = (files) => {
@@ -234,6 +254,34 @@
           return null;
         };
 
+        const uploadBatch = async ({ batch, index, totalBatches, url, albumId, albumTitle }) => {
+          const response = await fetch(url, {
+            method: "POST",
+            body: buildBatchFormData(batch, albumId, albumTitle),
+            credentials: "same-origin",
+            redirect: "follow",
+          });
+
+          if (!response.ok) {
+            throw new Error(`Batch ${index + 1} mislukt met status ${response.status}.`);
+          }
+
+          return response;
+        };
+
+        const runConcurrentUploads = async (jobs, concurrency, onProgress) => {
+          let nextIndex = 0;
+          const workers = Array.from({ length: Math.min(concurrency, jobs.length) }, async () => {
+            while (nextIndex < jobs.length) {
+              const currentIndex = nextIndex;
+              nextIndex += 1;
+              const result = await jobs[currentIndex]();
+              onProgress(currentIndex, result);
+            }
+          });
+          await Promise.all(workers);
+        };
+
         uploadForm.addEventListener("submit", async (event) => {
           const files = collectFiles();
           if (!files.length) {
@@ -254,50 +302,52 @@
           }
 
           const batches = createBatches(files);
-          let targetUrl = formActionUrl;
           let currentAlbumId = existingAlbumId;
           let totalUploaded = 0;
 
           try {
-            for (const [index, batch] of batches.entries()) {
-              const formData = new FormData();
-              formData.append("action", "upload_album_photos");
+            const firstBatch = batches[0];
+            setButtonState(`Uploaden 1/${batches.length}...`, true);
+            updateProgress(`Batch 1 van ${batches.length} wordt geupload...`);
 
-              if (currentAlbumId) {
-                formData.append("album_id", String(currentAlbumId));
-              } else {
-                formData.append("album_id", "0");
-                formData.append("album_title", newAlbumTitle);
+            const firstResponse = await uploadBatch({
+              batch: firstBatch,
+              index: 0,
+              totalBatches: batches.length,
+              url: formActionUrl,
+              albumId: currentAlbumId,
+              albumTitle: newAlbumTitle,
+            });
+
+            totalUploaded += firstBatch.length;
+            const albumPageUrl = getAlbumPageUrl(firstResponse.url, currentAlbumId);
+            if (albumPageUrl) {
+              const match = albumPageUrl.match(/^\/content\/(\d+)$/);
+              if (match) {
+                currentAlbumId = Number(match[1]);
               }
+            }
 
-              for (const item of batch) {
-                const file = item.file;
-                formData.append(item.fieldName, file, file.webkitRelativePath || file.name);
-              }
+            const remainingBatches = batches.slice(1);
+            let completedBatches = 1;
+            if (remainingBatches.length) {
+              const jobs = remainingBatches.map((batch, offset) => async () => uploadBatch({
+                batch,
+                index: offset + 1,
+                totalBatches: batches.length,
+                url: currentAlbumId ? `/content/${currentAlbumId}` : formActionUrl,
+                albumId: currentAlbumId,
+                albumTitle: newAlbumTitle,
+              }));
 
-              setButtonState(`Uploaden ${index + 1}/${batches.length}...`, true);
-              updateProgress(`Batch ${index + 1} van ${batches.length} wordt geupload...`);
-
-              const response = await fetch(targetUrl, {
-                method: "POST",
-                body: formData,
-                credentials: "same-origin",
-                redirect: "follow",
+              await runConcurrentUploads(jobs, uploadConcurrency, (jobIndex) => {
+                completedBatches += 1;
+                totalUploaded += remainingBatches[jobIndex].length;
+                setButtonState(`Uploaden ${completedBatches}/${batches.length}...`, true);
+                updateProgress(
+                  `${totalUploaded} foto's geupload. Batch ${completedBatches} van ${batches.length} klaar.`
+                );
               });
-
-              if (!response.ok) {
-                throw new Error(`Upload mislukt met status ${response.status}.`);
-              }
-
-              totalUploaded += batch.length;
-              const albumPageUrl = getAlbumPageUrl(response.url, currentAlbumId);
-              if (albumPageUrl) {
-                targetUrl = albumPageUrl;
-                const match = albumPageUrl.match(/^\/content\/(\d+)$/);
-                if (match) {
-                  currentAlbumId = Number(match[1]);
-                }
-              }
             }
 
             if (currentAlbumId) {
