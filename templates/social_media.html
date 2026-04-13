@@ -46,7 +46,7 @@
                 <strong>{{ idea.title }}</strong>
               </div>
               <div class="social-idea-cell">
-                <span class="social-idea-label">Platform</span>
+                <span class="social-idea-label">Platformen</span>
                 <span>{{ idea.platform }}</span>
               </div>
               <div class="social-idea-cell">
@@ -85,7 +85,7 @@
                 data-open-social-plan="1"
                 data-idea-id="{{ idea.id }}"
                 data-idea-title="{{ idea.title }}"
-                data-idea-platform="{{ idea.platform }}"
+                data-idea-platform="{{ idea.platforms[0] if idea.platforms else '' }}"
                 data-idea-notes="{{ idea.notes }}"
               >
                 Inplannen
@@ -174,15 +174,15 @@
         </label>
         <div class="agenda-form-grid">
           <label class="field">
-            <span>Platform</span>
-            <select name="platform" required>
-              <option value="">Kies platform</option>
+            <span>Platformen</span>
+            <select name="platform" multiple size="5" required>
               <option value="Instagram">Instagram</option>
               <option value="TikTok">TikTok</option>
               <option value="Facebook">Facebook</option>
               <option value="LinkedIn">LinkedIn</option>
               <option value="YouTube">YouTube</option>
             </select>
+            <small>Selecteer een of meerdere platformen.</small>
           </label>
           <label class="field">
             <span>Type content</span>
@@ -233,15 +233,15 @@
         </label>
         <div class="agenda-form-grid">
           <label class="field">
-            <span>Platform</span>
-            <select name="platform" id="socialIdeaEditPlatform" required>
-              <option value="">Kies platform</option>
+            <span>Platformen</span>
+            <select name="platform" id="socialIdeaEditPlatform" multiple size="5" required>
               <option value="Instagram">Instagram</option>
               <option value="TikTok">TikTok</option>
               <option value="Facebook">Facebook</option>
               <option value="LinkedIn">LinkedIn</option>
               <option value="YouTube">YouTube</option>
             </select>
+            <small>Selecteer een of meerdere platformen.</small>
           </label>
           <label class="field">
             <span>Type content</span>

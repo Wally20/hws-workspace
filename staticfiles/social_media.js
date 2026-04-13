@@ -31,6 +31,23 @@ const socialEditDate = document.querySelector("#socialEditDate");
 const socialEditTime = document.querySelector("#socialEditTime");
 const socialEditNotes = document.querySelector("#socialEditNotes");
 
+function setSelectValues(select, values) {
+  if (!(select instanceof HTMLSelectElement)) {
+    return;
+  }
+
+  const selectedValues = new Set(
+    String(values || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+
+  Array.from(select.options).forEach((option) => {
+    option.selected = selectedValues.has(option.value);
+  });
+}
+
 function setSocialModalOpen(modal, isOpen) {
   if (!modal) {
     return;
@@ -106,7 +123,7 @@ socialIdeaEditButtons.forEach((button) => {
       socialIdeaEditTitle.value = button.dataset.ideaTitle || "";
     }
     if (socialIdeaEditPlatform) {
-      socialIdeaEditPlatform.value = button.dataset.ideaPlatform || "";
+      setSelectValues(socialIdeaEditPlatform, button.dataset.ideaPlatform || "");
     }
     if (socialIdeaEditContentType) {
       socialIdeaEditContentType.value = button.dataset.ideaContentType || "";

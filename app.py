@@ -985,9 +985,10 @@ def load_social_media_ideas() -> List[Dict[str, Any]]:
 
     return [
         {
+            "platforms": parse_social_media_platforms(row["platform"]),
             "id": int(row["id"]),
             "title": str(row["title"] or "").strip(),
-            "platform": str(row["platform"] or "").strip(),
+            "platform": format_social_media_platforms(parse_social_media_platforms(row["platform"])),
             "contentType": str(row["content_type"] or "").strip(),
             "priority": str(row["priority"] or "Midden").strip() or "Midden",
             "isScheduled": bool(row["is_scheduled"]),
@@ -998,7 +999,25 @@ def load_social_media_ideas() -> List[Dict[str, Any]]:
     ]
 
 
-def add_social_media_idea(title: str, platform: str, content_type: str, priority: str, notes: str) -> None:
+def parse_social_media_platforms(raw_value: Any) -> List[str]:
+    values: List[str] = []
+    seen: set[str] = set()
+
+    for part in str(raw_value or "").split(","):
+        platform = part.strip()
+        if not platform or platform in seen:
+            continue
+        values.append(platform)
+        seen.add(platform)
+
+    return values
+
+
+def format_social_media_platforms(platforms: List[str]) -> str:
+    return ", ".join(platforms)
+
+
+def add_social_media_idea(title: str, platforms: List[str], content_type: str, priority: str, notes: str) -> None:
     with get_db_connection() as connection:
         connection.execute(
             """
@@ -1007,7 +1026,7 @@ def add_social_media_idea(title: str, platform: str, content_type: str, priority
             """,
             (
                 title.strip(),
-                platform.strip(),
+                format_social_media_platforms(platforms),
                 content_type.strip(),
                 priority.strip() or "Midden",
                 notes.strip(),
@@ -1016,7 +1035,7 @@ def add_social_media_idea(title: str, platform: str, content_type: str, priority
         )
 
 
-def update_social_media_idea(idea_id: int, title: str, platform: str, content_type: str, priority: str, notes: str) -> None:
+def update_social_media_idea(idea_id: int, title: str, platforms: List[str], content_type: str, priority: str, notes: str) -> None:
     with get_db_connection() as connection:
         connection.execute(
             """
@@ -1031,7 +1050,7 @@ def update_social_media_idea(idea_id: int, title: str, platform: str, content_ty
             """,
             (
                 title.strip(),
-                platform.strip(),
+                format_social_media_platforms(platforms),
                 content_type.strip(),
                 priority.strip() or "Midden",
                 notes.strip(),
@@ -3992,22 +4011,22 @@ def social_media_page() -> str:
         action = request.form.get("action", "").strip()
         if action == "create_idea":
             title = request.form.get("title", "").strip()
-            platform = request.form.get("platform", "").strip()
+            platforms = parse_social_media_platforms(request.form.getlist("platform") or request.form.get("platform", ""))
             content_type = request.form.get("content_type", "").strip()
             priority = request.form.get("priority", "").strip() or "Midden"
             notes = request.form.get("notes", "").strip()
-            if title and platform and content_type:
-                add_social_media_idea(title, platform, content_type, priority, notes)
+            if title and platforms and content_type:
+                add_social_media_idea(title, platforms, content_type, priority, notes)
                 return redirect(url_for("social_media_page", week=redirect_week, success="Contentidee opgeslagen."))
         elif action == "update_idea":
             idea_id = request.form.get("idea_id", type=int)
             title = request.form.get("title", "").strip()
-            platform = request.form.get("platform", "").strip()
+            platforms = parse_social_media_platforms(request.form.getlist("platform") or request.form.get("platform", ""))
             content_type = request.form.get("content_type", "").strip()
             priority = request.form.get("priority", "").strip() or "Midden"
             notes = request.form.get("notes", "").strip()
-            if idea_id and title and platform and content_type:
-                update_social_media_idea(idea_id, title, platform, content_type, priority, notes)
+            if idea_id and title and platforms and content_type:
+                update_social_media_idea(idea_id, title, platforms, content_type, priority, notes)
                 return redirect(url_for("social_media_page", week=redirect_week, success="Contentidee opgeslagen."))
             return redirect(url_for("social_media_page", week=redirect_week, error="Vul alle velden van het contentidee in."))
         elif action == "toggle_idea_scheduled":
