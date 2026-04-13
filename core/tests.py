@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.test import Client, SimpleTestCase
+from openpyxl import load_workbook
 
 import app as legacy
 
@@ -176,3 +177,54 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
         self.assertIn("Live Ecwid-koppeling staat nog niet aan.", content)
+
+    def test_orders_page_filters_results(self):
+        mock_payload = {
+            "items": legacy.mock_orders(),
+            "summary": legacy.build_summary(legacy.mock_orders()),
+            "cachedAt": 0.0,
+            "source": "mock",
+        }
+        with patch.object(legacy, "fetch_ecwid_orders", return_value=mock_payload):
+            response = self.build_authenticated_client().get(
+                "/bestellingen",
+                {"q": "Anne", "status": "PAID"},
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Anne de Vries", content)
+        self.assertNotIn("Milan Jansen", content)
+
+    def test_team_assignment_export_returns_excel_for_selected_orders(self):
+        client = self.build_authenticated_client()
+        mock_payload = {
+            "items": legacy.mock_orders(),
+            "summary": legacy.build_summary(legacy.mock_orders()),
+            "cachedAt": 0.0,
+            "source": "mock",
+        }
+        with patch.object(legacy, "fetch_ecwid_orders", return_value=mock_payload):
+            response = client.post(
+                "/bestellingen/teamindeling-export",
+                {
+                    "csrf_token": self.TEST_CSRF_TOKEN,
+                    "selected_order_ids": "WEB-1001,WEB-1002",
+                },
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        workbook = load_workbook(filename=io.BytesIO(response.content))
+        worksheet = workbook["Teamindeling"]
+
+        self.assertEqual(worksheet["A1"].value, "Teamindeling geselecteerde bestellingen")
+        self.assertEqual(worksheet["A4"].value, "Datum")
+        self.assertEqual(worksheet["H4"].value, "Team")
+        self.assertEqual(worksheet["C5"].value, "Anne de Vries")

@@ -7,7 +7,7 @@
     <div>
       <h1>Bestellingen</h1>
       <p class="welcome-line">
-        Nieuw naar oud, {{ total_orders }} bestellingen in totaal
+        Nieuw naar oud, {{ total_orders }} van {{ total_unfiltered_orders }} bestellingen zichtbaar
       </p>
     </div>
   </header>
@@ -19,12 +19,75 @@
         Pagina {{ current_page }} van {{ total_pages }} · Laatst bijgewerkt: {{ last_updated }}
       </p>
     </div>
-    <a href="/bestellingen?page={{ current_page }}" class="refresh-button orders-toolbar-button">Nu verversen</a>
+    <a href="{{ refresh_url }}" class="refresh-button orders-toolbar-button">Nu verversen</a>
   </section>
 
   {% if message %}
     <section class="notice">{{ message }}</section>
   {% endif %}
+
+  <section class="orders-panel">
+    <div class="section-head">
+      <div>
+        <h2>Filters en export</h2>
+        <p class="section-subtitle">Filter bestellingen en exporteer daarna direct een teamindeling van je selectie.</p>
+      </div>
+    </div>
+
+    <form method="get" action="/bestellingen" class="orders-filter-form">
+      <label class="field">
+        <span>Zoeken</span>
+        <input type="search" name="q" value="{{ search_query }}" placeholder="Zoek op ordernummer, naam, e-mail of product">
+      </label>
+
+      <label class="field">
+        <span>Status</span>
+        <select name="status">
+          <option value="">Alle statussen</option>
+          {% for option in filter_options.statuses %}
+            <option value="{{ option.value }}" {% if option.value == selected_status %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Betaalstatus</span>
+        <select name="payment_status">
+          <option value="">Alle betaalstatussen</option>
+          {% for option in filter_options.payment_statuses %}
+            <option value="{{ option.value }}" {% if option.value == selected_payment_status %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Maand</span>
+        <select name="month">
+          <option value="">Alle maanden</option>
+          {% for option in filter_options.months %}
+            <option value="{{ option.value }}" {% if option.value == selected_month %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <div class="orders-filter-actions">
+        <button type="submit" class="team-primary-button">Filteren</button>
+        {% if has_active_filters %}
+          <a href="{{ reset_filters_url }}" class="refresh-button">Filters wissen</a>
+        {% endif %}
+      </div>
+    </form>
+
+    <form method="post" action="/bestellingen/teamindeling-export" class="orders-export-form" id="ordersExportForm">
+      <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+      <input type="hidden" name="selected_order_ids" id="selectedOrderIdsInput" value="">
+      <div class="orders-export-copy">
+        <p class="orders-toolbar-title">Selectie</p>
+        <p class="orders-toolbar-text"><span id="selectedOrdersCount">0</span> bestellingen geselecteerd</p>
+      </div>
+      <button type="submit" class="team-primary-button" id="exportOrdersButton" disabled>Exporteer teamindeling naar Excel</button>
+    </form>
+  </section>
 
   <section class="orders-panel">
     <div class="section-head">
@@ -36,9 +99,16 @@
 
     <div class="orders-list">
       <div class="orders-list-head">
+        <span>
+          <label class="orders-select-all">
+            <input type="checkbox" id="selectAllOrders">
+            <span>Selecteer</span>
+          </label>
+        </span>
         <span>Datum</span>
         <span>Tijd</span>
         <span>Ordernummer</span>
+        <span>Klant</span>
         <span>Item</span>
         <span>E-mailadres</span>
         <span>Totaal</span>
@@ -46,9 +116,16 @@
 
       {% for order in orders %}
         <article class="order-row">
+          <span data-label="Selecteer">
+            <label class="order-select">
+              <input type="checkbox" class="order-select-input" value="{{ order.id }}" data-order-id="{{ order.id }}">
+              <span>Selecteer</span>
+            </label>
+          </span>
           <span data-label="Datum">{{ order.displayDate }}</span>
           <span data-label="Tijd">{{ order.displayTime }}</span>
           <span data-label="Ordernummer">{{ order.orderNumber }}</span>
+          <span data-label="Klant">{{ order.customerName }}</span>
           <span data-label="Item" class="order-item-cell">{{ order.itemNames }}</span>
           <span data-label="E-mailadres">{{ order.email or "-" }}</span>
           <span data-label="Totaal">€ {{ "{:,.2f}".format(order.total).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
@@ -60,28 +137,30 @@
 
     <nav class="pagination" aria-label="Paginering bestellingen">
       {% if current_page > 1 %}
-        <a class="pagination-link" href="/bestellingen?page={{ current_page - 1 }}">Vorige</a>
+        <a class="pagination-link" href="{{ prev_page_url }}">Vorige</a>
       {% else %}
         <span class="pagination-link pagination-link-disabled">Vorige</span>
       {% endif %}
 
-      {% for page_number in range(1, total_pages + 1) %}
-        {% if page_number == current_page %}
-          <span class="pagination-link pagination-link-active">{{ page_number }}</span>
-        {% elif page_number <= 2 or page_number > total_pages - 2 or (page_number >= current_page - 1 and page_number <= current_page + 1) %}
-          <a class="pagination-link" href="/bestellingen?page={{ page_number }}">{{ page_number }}</a>
-        {% elif page_number == 3 and current_page > 4 %}
+      {% for link in pagination_links %}
+        {% if link.page == current_page %}
+          <span class="pagination-link pagination-link-active">{{ link.page }}</span>
+        {% elif link.page <= 2 or link.page > total_pages - 2 or (link.page >= current_page - 1 and link.page <= current_page + 1) %}
+          <a class="pagination-link" href="{{ link.url }}">{{ link.page }}</a>
+        {% elif link.page == 3 and current_page > 4 %}
           <span class="pagination-ellipsis">...</span>
-        {% elif page_number == total_pages - 2 and current_page < total_pages - 3 %}
+        {% elif link.page == total_pages - 2 and current_page < total_pages - 3 %}
           <span class="pagination-ellipsis">...</span>
         {% endif %}
       {% endfor %}
 
       {% if current_page < total_pages %}
-        <a class="pagination-link" href="/bestellingen?page={{ current_page + 1 }}">Volgende</a>
+        <a class="pagination-link" href="{{ next_page_url }}">Volgende</a>
       {% else %}
         <span class="pagination-link pagination-link-disabled">Volgende</span>
       {% endif %}
     </nav>
   </section>
+
+  <script src="../static/orders.js?v={{ asset_version }}" defer></script>
 {% endblock %}

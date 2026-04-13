@@ -11,6 +11,7 @@ urlpatterns = [
     path("logout", views.logout_page, name="logout_page"),
     path("", views.index, name="index"),
     path("bestellingen", views.orders_page, name="orders_page"),
+    path("bestellingen/teamindeling-export", views.export_orders_team_assignment, name="export_orders_team_assignment"),
     path("omzet", views.revenue_home_page, name="revenue_home_page"),
     path("omzet/totaal", views.revenue_total_page, name="revenue_total_page"),
     path("omzet/per-maand", views.revenue_monthly_page, name="revenue_monthly_page"),

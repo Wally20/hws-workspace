@@ -1155,7 +1155,7 @@ textarea:focus {
 .orders-list-head,
 .order-row {
   display: grid;
-  grid-template-columns: 110px 80px 140px minmax(240px, 1.5fr) minmax(220px, 1.2fr) 110px;
+  grid-template-columns: 110px 110px 80px 140px minmax(180px, 1fr) minmax(240px, 1.4fr) minmax(220px, 1.2fr) 110px;
   gap: 16px;
   align-items: center;
 }
@@ -1178,6 +1178,62 @@ textarea:focus {
 
 .order-row:last-child {
   border-bottom: 0;
+}
+
+.orders-filter-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.orders-filter-form .field {
+  display: grid;
+  gap: 8px;
+}
+
+.orders-filter-form input,
+.orders-filter-form select {
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.orders-filter-actions,
+.orders-export-form {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.orders-export-form {
+  justify-content: space-between;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.orders-export-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.orders-select-all,
+.order-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.orders-select-all input,
+.order-select input {
+  width: 18px;
+  height: 18px;
 }
 
 .pagination {
@@ -2059,6 +2115,14 @@ textarea:focus {
   .order-row {
     grid-template-columns: 1fr;
     gap: 10px;
+  }
+
+  .orders-filter-form {
+    grid-template-columns: 1fr;
+  }
+
+  .orders-export-form {
+    align-items: stretch;
   }
 
   .order-row span::before {

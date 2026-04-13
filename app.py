@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import mimetypes
 import unicodedata
+from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal, InvalidOperation
 from datetime import date, datetime, time as dt_time, timedelta
@@ -17,6 +18,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import requests
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -674,6 +677,183 @@ def decorate_orders_for_list(orders: List[Dict[str, Any]]) -> List[Dict[str, Any
         decorated_orders.append(decorated_order)
 
     return decorated_orders
+
+
+def build_orders_filter_options(orders: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, str]]]:
+    statuses = sorted(
+        {str(order.get("status", "")).strip() for order in orders if str(order.get("status", "")).strip()}
+    )
+    payment_statuses = sorted(
+        {
+            str(order.get("paymentStatus", "")).strip()
+            for order in orders
+            if str(order.get("paymentStatus", "")).strip()
+        }
+    )
+    month_map: Dict[str, str] = {}
+    for order in orders:
+        created_at = parse_iso_datetime(order.get("createdAt", ""))
+        if created_at is None:
+            continue
+        month_key = created_at.strftime("%Y-%m")
+        month_map[month_key] = get_month_label(month_key).capitalize()
+
+    return {
+        "statuses": [{"value": value, "label": value.replace("_", " ").title()} for value in statuses],
+        "payment_statuses": [
+            {"value": value, "label": value.replace("_", " ").title()} for value in payment_statuses
+        ],
+        "months": [
+            {"value": value, "label": month_map[value]}
+            for value in sorted(month_map.keys(), reverse=True)
+        ],
+    }
+
+
+def filter_orders(
+    orders: List[Dict[str, Any]],
+    search_query: str = "",
+    status: str = "",
+    payment_status: str = "",
+    month: str = "",
+) -> List[Dict[str, Any]]:
+    normalized_query = search_query.strip().lower()
+    normalized_status = status.strip()
+    normalized_payment_status = payment_status.strip()
+    normalized_month = month.strip()
+
+    filtered_orders: List[Dict[str, Any]] = []
+    for order in orders:
+        created_at = parse_iso_datetime(order.get("createdAt", ""))
+        searchable_parts = [
+            str(order.get("orderNumber", "") or ""),
+            str(order.get("customerName", "") or ""),
+            str(order.get("email", "") or ""),
+            str(order.get("paymentMethod", "") or ""),
+            str(order.get("shippingMethod", "") or ""),
+        ]
+        searchable_parts.extend(str(item.get("name", "") or "") for item in order.get("items", []))
+        searchable_text = " ".join(searchable_parts).lower()
+
+        if normalized_query and normalized_query not in searchable_text:
+            continue
+        if normalized_status and str(order.get("status", "")).strip() != normalized_status:
+            continue
+        if normalized_payment_status and str(order.get("paymentStatus", "")).strip() != normalized_payment_status:
+            continue
+        if normalized_month:
+            if created_at is None or created_at.strftime("%Y-%m") != normalized_month:
+                continue
+
+        filtered_orders.append(order)
+
+    return filtered_orders
+
+
+def build_orders_page_url(page: int = 1, search_query: str = "", status: str = "", payment_status: str = "", month: str = "") -> str:
+    params: Dict[str, Any] = {"page": page}
+    if search_query.strip():
+        params["q"] = search_query.strip()
+    if status.strip():
+        params["status"] = status.strip()
+    if payment_status.strip():
+        params["payment_status"] = payment_status.strip()
+    if month.strip():
+        params["month"] = month.strip()
+    return url_for("orders_page", **params)
+
+
+def parse_selected_order_ids(raw_ids: List[str]) -> List[str]:
+    selected_ids: List[str] = []
+    for raw_id in raw_ids:
+        for candidate in str(raw_id or "").split(","):
+            cleaned = candidate.strip()
+            if cleaned and cleaned not in selected_ids:
+                selected_ids.append(cleaned)
+    return selected_ids
+
+
+def build_team_assignment_rows(orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for order in sort_orders_desc(orders):
+        created_at = parse_iso_datetime(order.get("createdAt", ""))
+        display_date = created_at.strftime("%d-%m-%Y") if created_at else "-"
+
+        for item in order.get("items", []):
+            quantity = max(int(item.get("quantity") or 0), 1)
+            for participant_index in range(quantity):
+                rows.append(
+                    {
+                        "date": display_date,
+                        "orderNumber": str(order.get("orderNumber", "") or order.get("id", "")),
+                        "customerName": str(order.get("customerName", "") or "-"),
+                        "email": str(order.get("email", "") or "-"),
+                        "product": str(item.get("name", "") or "Naamloos product"),
+                        "sku": str(item.get("sku", "") or "-"),
+                        "participantLabel": participant_index + 1 if quantity > 1 else "",
+                        "team": "",
+                    }
+                )
+
+    rows.sort(key=lambda row: (row["product"].lower(), row["date"], row["customerName"].lower(), row["orderNumber"]))
+    return rows
+
+
+def build_team_assignment_workbook(orders: List[Dict[str, Any]]) -> BytesIO:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Teamindeling"
+
+    worksheet["A1"] = "Teamindeling geselecteerde bestellingen"
+    worksheet["A1"].font = Font(size=14, bold=True)
+    worksheet.merge_cells("A1:H1")
+    worksheet["A2"] = f"Gegenereerd op {datetime.now().strftime('%d-%m-%Y %H:%M')}"
+    worksheet.merge_cells("A2:H2")
+
+    headers = ["Datum", "Ordernummer", "Naam", "E-mail", "Product", "SKU", "Deelnemer", "Team"]
+    header_fill = PatternFill(fill_type="solid", fgColor="111111")
+    header_font = Font(color="FFFFFF", bold=True)
+
+    for column_index, header in enumerate(headers, start=1):
+        cell = worksheet.cell(row=4, column=column_index, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    for row_index, item in enumerate(build_team_assignment_rows(orders), start=5):
+        worksheet.cell(row=row_index, column=1, value=item["date"])
+        worksheet.cell(row=row_index, column=2, value=item["orderNumber"])
+        worksheet.cell(row=row_index, column=3, value=item["customerName"])
+        worksheet.cell(row=row_index, column=4, value=item["email"])
+        worksheet.cell(row=row_index, column=5, value=item["product"])
+        worksheet.cell(row=row_index, column=6, value=item["sku"])
+        worksheet.cell(row=row_index, column=7, value=item["participantLabel"])
+        worksheet.cell(row=row_index, column=8, value=item["team"])
+
+    worksheet.freeze_panes = "A5"
+    worksheet.auto_filter.ref = f"A4:H{max(5, worksheet.max_row)}"
+
+    column_widths = {
+        "A": 14,
+        "B": 16,
+        "C": 24,
+        "D": 30,
+        "E": 36,
+        "F": 18,
+        "G": 12,
+        "H": 18,
+    }
+    for column, width in column_widths.items():
+        worksheet.column_dimensions[column].width = width
+
+    for row in worksheet.iter_rows(min_row=5, max_row=worksheet.max_row, min_col=1, max_col=8):
+        for cell in row:
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+
+    buffer = BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    return buffer
 
 
 def build_summary(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -2958,125 +3138,165 @@ def fetch_moneybird_summary() -> Dict[str, Any]:
             "message": "Moneybird-koppeling staat nog niet aan. Voeg MONEYBIRD_API_TOKEN toe.",
         }
 
-    administration = fetch_moneybird_administration(config)
-    administration_id = administration.get("id")
-    if not administration_id:
-        return {
-            "source": "missing",
-            "invoiceCount": 0,
-            "revenue_received": 0.0,
-            "expenses_total": 0.0,
-            "financialMutations": [],
-            "message": "Geen Moneybird-administratie gevonden voor de huidige API-token.",
-        }
+    try:
+        administration = fetch_moneybird_administration(config)
+        administration_id = administration.get("id")
+        if not administration_id:
+            return {
+                "source": "missing",
+                "invoiceCount": 0,
+                "revenue_received": 0.0,
+                "expenses_total": 0.0,
+                "financialMutations": [],
+                "message": "Geen Moneybird-administratie gevonden voor de huidige API-token.",
+            }
 
-    ledger_account_types = fetch_moneybird_ledger_account_types(token, administration_id)
+        ledger_account_types = fetch_moneybird_ledger_account_types(token, administration_id)
 
-    sync_url = f"{MONEYBIRD_API_BASE}/{administration_id}/sales_invoices/synchronization.json"
-    response = requests.get(
-        sync_url,
-        headers=get_moneybird_headers(token),
-        timeout=20,
-    )
-    response.raise_for_status()
-    sync_items = response.json()
-    if not isinstance(sync_items, list):
-        sync_items = []
-
-    invoice_ids = [item.get("id") for item in sync_items if item.get("id")]
-    invoices: List[Dict[str, Any]] = []
-    batch_size = 100
-
-    for start_index in range(0, len(invoice_ids), batch_size):
-        batch_ids = invoice_ids[start_index : start_index + batch_size]
-        detail_response = requests.post(
+        sync_url = f"{MONEYBIRD_API_BASE}/{administration_id}/sales_invoices/synchronization.json"
+        response = requests.get(
             sync_url,
-            headers={
-                **get_moneybird_headers(token),
-                "Content-Type": "application/json",
-            },
-            json={"ids": batch_ids},
+            headers=get_moneybird_headers(token),
             timeout=20,
         )
-        detail_response.raise_for_status()
-        batch = detail_response.json()
-        if isinstance(batch, list):
-            invoices.extend(batch)
+        response.raise_for_status()
+        sync_items = response.json()
+        if not isinstance(sync_items, list):
+            sync_items = []
 
-    invoice_years = []
-    for invoice in invoices:
-        invoice_date = parse_iso_date(str(invoice.get("invoice_date", "")).strip())
-        if invoice_date is not None:
-            invoice_years.append(invoice_date.year)
+        invoice_ids = [item.get("id") for item in sync_items if item.get("id")]
+        invoices: List[Dict[str, Any]] = []
+        batch_size = 100
 
-    start_year = min(invoice_years, default=date.today().year)
-    end_year = max(invoice_years, default=date.today().year) + 1
+        for start_index in range(0, len(invoice_ids), batch_size):
+            batch_ids = invoice_ids[start_index : start_index + batch_size]
+            detail_response = requests.post(
+                sync_url,
+                headers={
+                    **get_moneybird_headers(token),
+                    "Content-Type": "application/json",
+                },
+                json={"ids": batch_ids},
+                timeout=20,
+            )
+            detail_response.raise_for_status()
+            batch = detail_response.json()
+            if isinstance(batch, list):
+                invoices.extend(batch)
 
-    mutations_sync_url = f"{MONEYBIRD_API_BASE}/{administration_id}/financial_mutations/synchronization.json"
-    mutation_response = requests.get(
-        mutations_sync_url,
-        headers=get_moneybird_headers(token),
-        params={"filter": f"period:{start_year}01..{end_year}12,state:all,mutation_type:credit"},
-        timeout=20,
-    )
-    mutation_response.raise_for_status()
-    mutation_sync_items = mutation_response.json()
-    if not isinstance(mutation_sync_items, list):
-        mutation_sync_items = []
+        invoice_years = []
+        for invoice in invoices:
+            invoice_date = parse_iso_date(str(invoice.get("invoice_date", "")).strip())
+            if invoice_date is not None:
+                invoice_years.append(invoice_date.year)
 
-    mutation_ids = [item.get("id") for item in mutation_sync_items if item.get("id")]
-    financial_mutations: List[Dict[str, Any]] = []
+        start_year = min(invoice_years, default=date.today().year)
+        end_year = max(invoice_years, default=date.today().year) + 1
 
-    for start_index in range(0, len(mutation_ids), batch_size):
-        batch_ids = mutation_ids[start_index : start_index + batch_size]
-        detail_response = requests.post(
+        mutations_sync_url = f"{MONEYBIRD_API_BASE}/{administration_id}/financial_mutations/synchronization.json"
+        mutation_response = requests.get(
             mutations_sync_url,
-            headers={
-                **get_moneybird_headers(token),
-                "Content-Type": "application/json",
-            },
-            json={"ids": batch_ids},
+            headers=get_moneybird_headers(token),
+            params={"filter": f"period:{start_year}01..{end_year}12,state:all,mutation_type:credit"},
             timeout=20,
         )
-        detail_response.raise_for_status()
-        batch = detail_response.json()
-        if isinstance(batch, list):
-            financial_mutations.extend(batch)
+        mutation_response.raise_for_status()
+        mutation_sync_items = mutation_response.json()
+        if not isinstance(mutation_sync_items, list):
+            mutation_sync_items = []
 
-    invoiced_total = sum(decimal_from_value(invoice.get("total_price_incl_tax")) for invoice in invoices)
-    received_total = sum(decimal_from_value(invoice.get("total_paid")) for invoice in invoices)
-    expenses_total = sum(
-        abs(decimal_from_value(mutation.get("amount")))
-        for mutation in financial_mutations
-        if is_cost_mutation(mutation, ledger_account_types)
-    )
-    outstanding_total = invoiced_total - received_total
-    last_synced_at = max(
-        (
-            str(value).strip()
-            for value in [
-                *(invoice.get("updated_at", "") for invoice in invoices),
-                *(mutation.get("updated_at", "") for mutation in financial_mutations),
-            ]
-            if value
-        ),
-        default="",
-    )
+        mutation_ids = [item.get("id") for item in mutation_sync_items if item.get("id")]
+        financial_mutations: List[Dict[str, Any]] = []
 
-    return {
-        "source": "moneybird",
-        "administrationId": str(administration_id),
-        "administrationName": administration.get("name", ""),
-        "invoiceCount": len(invoices),
-        "revenue_total": round(float(invoiced_total), 2),
-        "revenue_received": round(float(received_total), 2),
-        "revenue_outstanding": round(float(outstanding_total), 2),
-        "expenses_total": round(float(expenses_total), 2),
-        "lastSyncedAt": last_synced_at,
-        "invoices": invoices,
-        "financialMutations": financial_mutations,
-        "ledgerAccountTypes": ledger_account_types,
-    }
+        for start_index in range(0, len(mutation_ids), batch_size):
+            batch_ids = mutation_ids[start_index : start_index + batch_size]
+            detail_response = requests.post(
+                mutations_sync_url,
+                headers={
+                    **get_moneybird_headers(token),
+                    "Content-Type": "application/json",
+                },
+                json={"ids": batch_ids},
+                timeout=20,
+            )
+            detail_response.raise_for_status()
+            batch = detail_response.json()
+            if isinstance(batch, list):
+                financial_mutations.extend(batch)
+
+        invoiced_total = sum(decimal_from_value(invoice.get("total_price_incl_tax")) for invoice in invoices)
+        received_total = sum(decimal_from_value(invoice.get("total_paid")) for invoice in invoices)
+        expenses_total = sum(
+            abs(decimal_from_value(mutation.get("amount")))
+            for mutation in financial_mutations
+            if is_cost_mutation(mutation, ledger_account_types)
+        )
+        outstanding_total = invoiced_total - received_total
+        last_synced_at = max(
+            (
+                str(value).strip()
+                for value in [
+                    *(invoice.get("updated_at", "") for invoice in invoices),
+                    *(mutation.get("updated_at", "") for mutation in financial_mutations),
+                ]
+                if value
+            ),
+            default="",
+        )
+
+        return {
+            "source": "moneybird",
+            "administrationId": str(administration_id),
+            "administrationName": administration.get("name", ""),
+            "invoiceCount": len(invoices),
+            "revenue_total": round(float(invoiced_total), 2),
+            "revenue_received": round(float(received_total), 2),
+            "revenue_outstanding": round(float(outstanding_total), 2),
+            "expenses_total": round(float(expenses_total), 2),
+            "lastSyncedAt": last_synced_at,
+            "invoices": invoices,
+            "financialMutations": financial_mutations,
+            "ledgerAccountTypes": ledger_account_types,
+        }
+    except requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else 0
+        if status_code == 401:
+            message = "Moneybird API-token is ongeldig of ingetrokken. Controleer MONEYBIRD_API_TOKEN."
+        elif status_code == 403:
+            message = "Moneybird-token heeft onvoldoende rechten voor deze administratie."
+        elif status_code == 404:
+            message = "Moneybird-administratie niet gevonden. Controleer MONEYBIRD_ADMINISTRATION_ID."
+        else:
+            message = "Moneybird reageerde met een fout. Controleer token, administratie en rechten."
+        return {
+            "source": "error",
+            "administrationId": str(config.get("moneybird_administration_id") or ""),
+            "invoiceCount": 0,
+            "revenue_total": 0.0,
+            "revenue_received": 0.0,
+            "revenue_outstanding": 0.0,
+            "expenses_total": 0.0,
+            "lastSyncedAt": "",
+            "invoices": [],
+            "financialMutations": [],
+            "ledgerAccountTypes": {},
+            "message": message,
+        }
+    except requests.RequestException:
+        return {
+            "source": "error",
+            "administrationId": str(config.get("moneybird_administration_id") or ""),
+            "invoiceCount": 0,
+            "revenue_total": 0.0,
+            "revenue_received": 0.0,
+            "revenue_outstanding": 0.0,
+            "expenses_total": 0.0,
+            "lastSyncedAt": "",
+            "invoices": [],
+            "financialMutations": [],
+            "ledgerAccountTypes": {},
+            "message": "Moneybird is tijdelijk niet bereikbaar. Probeer het zo opnieuw.",
+        }
 
 
 def fetch_dashboard_payload() -> Dict[str, Any]:
@@ -3644,6 +3864,7 @@ def mock_orders() -> List[Dict[str, Any]]:
     return [
         {
             "id": "WEB-1001",
+            "orderNumber": "WEB-1001",
             "createdAt": "2026-04-04T14:12:00+02:00",
             "status": "PAID",
             "paymentStatus": "PAID",
@@ -3661,6 +3882,7 @@ def mock_orders() -> List[Dict[str, Any]]:
         },
         {
             "id": "WEB-1002",
+            "orderNumber": "WEB-1002",
             "createdAt": "2026-04-03T09:05:00+02:00",
             "status": "PROCESSING",
             "paymentStatus": "AWAITING_PAYMENT",
@@ -3677,6 +3899,7 @@ def mock_orders() -> List[Dict[str, Any]]:
         },
         {
             "id": "WEB-1003",
+            "orderNumber": "WEB-1003",
             "createdAt": "2026-04-01T16:45:00+02:00",
             "status": "SHIPPED",
             "paymentStatus": "PAID",
@@ -3812,15 +4035,42 @@ def orders_page() -> str:
         return access_redirect
 
     page = max(request.args.get("page", default=1, type=int), 1)
+    search_query = request.args.get("q", "").strip()
+    selected_status = request.args.get("status", "").strip()
+    selected_payment_status = request.args.get("payment_status", "").strip()
+    selected_month = request.args.get("month", "").strip()
     per_page = 20
     payload = fetch_ecwid_orders()
-    sorted_orders = sort_orders_desc(payload.get("items", []))
-    total_orders = len(sorted_orders)
+    all_orders = sort_orders_desc(payload.get("items", []))
+    filter_options = build_orders_filter_options(all_orders)
+    filtered_orders = filter_orders(
+        all_orders,
+        search_query=search_query,
+        status=selected_status,
+        payment_status=selected_payment_status,
+        month=selected_month,
+    )
+    total_orders = len(filtered_orders)
     total_pages = max(ceil(total_orders / per_page), 1)
     current_page = min(page, total_pages)
     start_index = (current_page - 1) * per_page
     end_index = start_index + per_page
-    page_orders = decorate_orders_for_list(sorted_orders[start_index:end_index])
+    page_orders = decorate_orders_for_list(filtered_orders[start_index:end_index])
+
+    pagination_links = []
+    for page_number in range(1, total_pages + 1):
+        pagination_links.append(
+            {
+                "page": page_number,
+                "url": build_orders_page_url(
+                    page=page_number,
+                    search_query=search_query,
+                    status=selected_status,
+                    payment_status=selected_payment_status,
+                    month=selected_month,
+                ),
+            }
+        )
 
     return render_template(
         "orders.html",
@@ -3833,8 +4083,78 @@ def orders_page() -> str:
         total_orders=total_orders,
         start_number=start_index + 1 if total_orders else 0,
         end_number=min(end_index, total_orders),
+        total_unfiltered_orders=len(all_orders),
         last_updated=format_cache_timestamp(payload.get("cachedAt", 0.0)),
         message=payload.get("message"),
+        search_query=search_query,
+        selected_status=selected_status,
+        selected_payment_status=selected_payment_status,
+        selected_month=selected_month,
+        filter_options=filter_options,
+        has_active_filters=bool(search_query or selected_status or selected_payment_status or selected_month),
+        refresh_url=build_orders_page_url(
+            page=current_page,
+            search_query=search_query,
+            status=selected_status,
+            payment_status=selected_payment_status,
+            month=selected_month,
+        ),
+        reset_filters_url=url_for("orders_page"),
+        prev_page_url=(
+            build_orders_page_url(
+                page=current_page - 1,
+                search_query=search_query,
+                status=selected_status,
+                payment_status=selected_payment_status,
+                month=selected_month,
+            )
+            if current_page > 1
+            else ""
+        ),
+        next_page_url=(
+            build_orders_page_url(
+                page=current_page + 1,
+                search_query=search_query,
+                status=selected_status,
+                payment_status=selected_payment_status,
+                month=selected_month,
+            )
+            if current_page < total_pages
+            else ""
+        ),
+        pagination_links=pagination_links,
+    )
+
+
+@app.post("/bestellingen/teamindeling-export")
+def export_orders_team_assignment():
+    access_redirect = require_page_access("orders")
+    if access_redirect is not None:
+        return access_redirect
+
+    selected_ids = parse_selected_order_ids(request.form.getlist("selected_order_ids"))
+    if not selected_ids:
+        return redirect(url_for("orders_page"))
+
+    payload = fetch_ecwid_orders()
+    orders_by_id = {
+        str(order.get("id", "") or order.get("orderNumber", "")): order
+        for order in payload.get("items", [])
+    }
+    selected_orders = [orders_by_id[order_id] for order_id in selected_ids if order_id in orders_by_id]
+
+    if not selected_orders:
+        return redirect(url_for("orders_page"))
+
+    workbook_buffer = build_team_assignment_workbook(selected_orders)
+    filename = f"teamindeling-bestellingen-{datetime.now().strftime('%Y%m%d-%H%M')}.xlsx"
+    return (
+        workbook_buffer.getvalue(),
+        200,
+        {
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
     )
 
 
