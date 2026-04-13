@@ -10,6 +10,7 @@ const socialEditButtons = document.querySelectorAll("[data-open-social-edit='1']
 const socialIdeaEditId = document.querySelector("#socialIdeaEditId");
 const socialIdeaEditTitle = document.querySelector("#socialIdeaEditTitle");
 const socialIdeaEditPlatform = document.querySelector("#socialIdeaEditPlatform");
+const socialIdeaPlatformGroup = document.querySelector("#socialIdeaPlatformGroup");
 const socialIdeaEditContentType = document.querySelector("#socialIdeaEditContentType");
 const socialIdeaEditPriority = document.querySelector("#socialIdeaEditPriority");
 const socialIdeaEditNotes = document.querySelector("#socialIdeaEditNotes");
@@ -31,8 +32,8 @@ const socialEditDate = document.querySelector("#socialEditDate");
 const socialEditTime = document.querySelector("#socialEditTime");
 const socialEditNotes = document.querySelector("#socialEditNotes");
 
-function setSelectValues(select, values) {
-  if (!(select instanceof HTMLSelectElement)) {
+function setCheckboxGroupValues(group, values) {
+  if (!(group instanceof HTMLElement)) {
     return;
   }
 
@@ -43,8 +44,10 @@ function setSelectValues(select, values) {
       .filter(Boolean),
   );
 
-  Array.from(select.options).forEach((option) => {
-    option.selected = selectedValues.has(option.value);
+  Array.from(group.querySelectorAll("input[type='checkbox'][name='platform']")).forEach((input) => {
+    if (input instanceof HTMLInputElement) {
+      input.checked = selectedValues.has(input.value);
+    }
   });
 }
 
@@ -81,7 +84,14 @@ function resetSocialPlanForm() {
   }
 }
 
+function resetSocialIdeaForm() {
+  if (socialIdeaPlatformGroup) {
+    setCheckboxGroupValues(socialIdeaPlatformGroup, "");
+  }
+}
+
 openSocialIdeaModal?.addEventListener("click", () => {
+  resetSocialIdeaForm();
   setSocialModalOpen(socialIdeaModal, true);
 });
 
@@ -123,7 +133,7 @@ socialIdeaEditButtons.forEach((button) => {
       socialIdeaEditTitle.value = button.dataset.ideaTitle || "";
     }
     if (socialIdeaEditPlatform) {
-      setSelectValues(socialIdeaEditPlatform, button.dataset.ideaPlatform || "");
+      setCheckboxGroupValues(socialIdeaEditPlatform, button.dataset.ideaPlatform || "");
     }
     if (socialIdeaEditContentType) {
       socialIdeaEditContentType.value = button.dataset.ideaContentType || "";

@@ -173,17 +173,17 @@
           <input type="text" name="title" placeholder="Bijvoorbeeld: Highlightvideo van de training" required>
         </label>
         <div class="agenda-form-grid">
-          <label class="field">
+          <div class="field">
             <span>Platformen</span>
-            <select name="platform" multiple size="5" required>
-              <option value="Instagram">Instagram</option>
-              <option value="TikTok">TikTok</option>
-              <option value="Facebook">Facebook</option>
-              <option value="LinkedIn">LinkedIn</option>
-              <option value="YouTube">YouTube</option>
-            </select>
-            <small>Selecteer een of meerdere platformen.</small>
-          </label>
+            <div class="social-platform-grid" id="socialIdeaPlatformGroup">
+              <label class="social-platform-option"><input type="checkbox" name="platform" value="Instagram"><span>Instagram</span></label>
+              <label class="social-platform-option"><input type="checkbox" name="platform" value="TikTok"><span>TikTok</span></label>
+              <label class="social-platform-option"><input type="checkbox" name="platform" value="Facebook"><span>Facebook</span></label>
+              <label class="social-platform-option"><input type="checkbox" name="platform" value="LinkedIn"><span>LinkedIn</span></label>
+              <label class="social-platform-option"><input type="checkbox" name="platform" value="YouTube"><span>YouTube</span></label>
+            </div>
+            <small class="field-hint">Selecteer een of meerdere platformen.</small>
+          </div>
           <label class="field">
             <span>Type content</span>
             <select name="content_type" required>
@@ -232,17 +232,17 @@
           <input type="text" name="title" id="socialIdeaEditTitle" required>
         </label>
         <div class="agenda-form-grid">
-          <label class="field">
+          <div class="field">
             <span>Platformen</span>
-            <select name="platform" id="socialIdeaEditPlatform" multiple size="5" required>
-              <option value="Instagram">Instagram</option>
-              <option value="TikTok">TikTok</option>
-              <option value="Facebook">Facebook</option>
-              <option value="LinkedIn">LinkedIn</option>
-              <option value="YouTube">YouTube</option>
-            </select>
-            <small>Selecteer een of meerdere platformen.</small>
-          </label>
+            <div class="social-platform-grid" id="socialIdeaEditPlatform">
+              <label class="social-platform-option"><input type="checkbox" name="platform" value="Instagram"><span>Instagram</span></label>
+              <label class="social-platform-option"><input type="checkbox" name="platform" value="TikTok"><span>TikTok</span></label>
+              <label class="social-platform-option"><input type="checkbox" name="platform" value="Facebook"><span>Facebook</span></label>
+              <label class="social-platform-option"><input type="checkbox" name="platform" value="LinkedIn"><span>LinkedIn</span></label>
+              <label class="social-platform-option"><input type="checkbox" name="platform" value="YouTube"><span>YouTube</span></label>
+            </div>
+            <small class="field-hint">Selecteer een of meerdere platformen.</small>
+          </div>
           <label class="field">
             <span>Type content</span>
             <select name="content_type" id="socialIdeaEditContentType" required>

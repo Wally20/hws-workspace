@@ -462,6 +462,42 @@ a {
   margin: 0;
 }
 
+.social-platform-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.social-platform-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-soft);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.social-platform-option input {
+  width: 18px;
+  min-height: auto;
+  margin: 0;
+}
+
+.social-platform-option span {
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.social-platform-option:has(input:checked) {
+  border-color: rgba(0, 0, 0, 0.28);
+  background: rgba(17, 17, 17, 0.08);
+}
+
 .social-priority-pill {
   justify-self: start;
 }
