@@ -100,6 +100,7 @@
       </div>
 
       <form class="team-member-form" method="post" action="/trainers">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <section class="team-form-grid team-form-grid-single">
           <article class="team-form-section">
             <h3>Gegevens</h3>
@@ -160,6 +161,7 @@
       </div>
 
       <form class="team-member-form team-edit-form" method="post" action="/trainers">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="action" value="update">
         <input type="hidden" name="profile_id" id="trainerDetailProfileId">
         <div class="team-modal-identity">
@@ -218,6 +220,7 @@
       </form>
 
       <form method="post" action="/trainers" class="social-plan-delete-form" id="trainerDeleteForm">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="action" value="delete">
         <input type="hidden" name="profile_id" id="trainerDeleteProfileId">
         <button type="submit" class="subtle-button action-small action-danger">Verwijderen</button>

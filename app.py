@@ -6,6 +6,7 @@ import threading
 import time
 import secrets
 import hashlib
+import hmac
 import mimetypes
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -16,6 +17,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import requests
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -52,11 +54,58 @@ ecwid_orders_cache: Dict[str, Any] = {
 ecwid_orders_cache_lock = threading.Lock()
 ecwid_refresh_in_progress = False
 content_album_lock = threading.Lock()
+rate_limit_lock = threading.Lock()
+rate_limit_storage: Dict[str, List[float]] = {}
+
+PASSWORD_HASH_METHOD = os.getenv("PASSWORD_HASH_METHOD", "").strip() or "scrypt"
+SESSION_IDLE_TIMEOUT_SECONDS = max(300, int(os.getenv("SESSION_IDLE_TIMEOUT_SECONDS", "3600") or "3600"))
+SESSION_ABSOLUTE_TIMEOUT_SECONDS = max(
+    SESSION_IDLE_TIMEOUT_SECONDS,
+    int(os.getenv("SESSION_ABSOLUTE_TIMEOUT_SECONDS", "43200") or "43200"),
+)
+CSRF_TOKEN_LENGTH = 48
+GENERIC_AUTH_ERROR_MESSAGE = "De combinatie van inloggegevens is ongeldig of de actie kon niet worden voltooid."
+ALLOWED_IMAGE_EXTENSIONS = {
+    "image/jpeg": {".jpg", ".jpeg"},
+    "image/png": {".png"},
+    "image/webp": {".webp"},
+    "image/avif": {".avif"},
+}
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'; "
+        "object-src 'none'; "
+        "img-src 'self' data: https:; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "font-src 'self' data:; "
+        "connect-src 'self'; "
+        "upgrade-insecure-requests"
+    ),
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
+RATE_LIMIT_RULES = (
+    (re.compile(r"^/login$"), 5, 300, "login"),
+    (re.compile(r"^/uitnodiging/[^/]+$"), 5, 600, "invite"),
+    (re.compile(r"^/api/dashboard-events$"), 20, 300, "dashboard-events"),
+    (re.compile(r"^/content(?:/\d+)?$"), 20, 300, "content"),
+    (re.compile(r"^/trainers$"), 20, 300, "trainers"),
+)
 
 
 @app.context_processor
 def inject_asset_version():
-    return {"asset_version": ASSET_VERSION}
+    return {
+        "asset_version": ASSET_VERSION,
+        "legacy_csrf_token": ensure_csrf_token(),
+    }
 
 
 def load_dotenv() -> None:
@@ -92,6 +141,14 @@ def get_env_int(name: str, default: int) -> int:
         return int(value)
     except ValueError:
         return default
+
+
+PASSWORD_HASH_METHOD = get_env("PASSWORD_HASH_METHOD") or PASSWORD_HASH_METHOD
+SESSION_IDLE_TIMEOUT_SECONDS = max(300, get_env_int("SESSION_IDLE_TIMEOUT_SECONDS", SESSION_IDLE_TIMEOUT_SECONDS))
+SESSION_ABSOLUTE_TIMEOUT_SECONDS = max(
+    SESSION_IDLE_TIMEOUT_SECONDS,
+    get_env_int("SESSION_ABSOLUTE_TIMEOUT_SECONDS", SESSION_ABSOLUTE_TIMEOUT_SECONDS),
+)
 
 
 def is_placeholder_value(value: str) -> bool:
@@ -144,14 +201,16 @@ def get_env_int(name: str, default: int) -> int:
 
 def configure_app() -> None:
     trusted_hosts = [item.strip() for item in get_env("TRUSTED_HOSTS").split(",") if item.strip()]
+    session_cookie_secure_default = get_env_bool("SESSION_COOKIE_SECURE", default=not app.debug)
 
     app.config.update(
-        SECRET_KEY=get_env("FLASK_SECRET_KEY") or "hws-dev-secret-key-change-me",
+        SECRET_KEY=get_env("FLASK_SECRET_KEY") or secrets.token_urlsafe(48),
         SESSION_COOKIE_NAME=get_env("SESSION_COOKIE_NAME") or "overzicht_session",
         SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SECURE=get_env_bool("SESSION_COOKIE_SECURE", default=False),
+        SESSION_COOKIE_SECURE=session_cookie_secure_default,
         SESSION_COOKIE_SAMESITE=get_env("SESSION_COOKIE_SAMESITE") or "Lax",
         PREFERRED_URL_SCHEME=get_env("PREFERRED_URL_SCHEME") or "https",
+        PERMANENT_SESSION_LIFETIME=timedelta(seconds=SESSION_ABSOLUTE_TIMEOUT_SECONDS),
     )
 
     if trusted_hosts:
@@ -170,6 +229,181 @@ def configure_app() -> None:
 
 
 configure_app()
+
+
+def is_request_secure() -> bool:
+    forwarded_proto = str(request.headers.get("X-Forwarded-Proto", "") or "").split(",")[0].strip().lower()
+    if forwarded_proto:
+        return forwarded_proto == "https"
+    return bool(getattr(request, "is_secure", False))
+
+
+def should_enforce_https() -> bool:
+    return get_env_bool("FORCE_HTTPS", default=app.config.get("SESSION_COOKIE_SECURE", False))
+
+
+def should_skip_https_redirect() -> bool:
+    host = str(request.headers.get("Host", "") or "").split(":")[0].strip().lower()
+    return host in {"localhost", "127.0.0.1", "testserver"}
+
+
+def get_client_ip() -> str:
+    forwarded_for = str(request.headers.get("X-Forwarded-For", "") or "").strip()
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    for header_name in ("X-Real-IP", "CF-Connecting-IP"):
+        header_value = str(request.headers.get(header_name, "") or "").strip()
+        if header_value:
+            return header_value
+    return str(getattr(request, "remote_addr", "") or "unknown").strip() or "unknown"
+
+
+def hash_password(password: str) -> str:
+    return generate_password_hash(password.strip(), method=PASSWORD_HASH_METHOD, salt_length=16)
+
+
+def password_needs_rehash(password_hash: str) -> bool:
+    normalized_hash = str(password_hash or "").strip()
+    return bool(normalized_hash) and not normalized_hash.startswith(f"{PASSWORD_HASH_METHOD}:")
+
+
+def update_user_password_hash(profile_id: str, password: str) -> None:
+    with get_db_connection() as connection:
+        connection.execute(
+            "UPDATE trainer_profiles SET password_hash = ? WHERE id = ?",
+            (hash_password(password), profile_id.strip()),
+        )
+
+
+def ensure_csrf_token() -> str:
+    token = str(session.get("csrf_token", "") or "").strip()
+    if len(token) < CSRF_TOKEN_LENGTH:
+        token = secrets.token_urlsafe(36)
+        session["csrf_token"] = token
+    return token
+
+
+def is_safe_redirect_target(target: str) -> bool:
+    normalized = str(target or "").strip()
+    return normalized.startswith("/") and not normalized.startswith("//")
+
+
+def get_request_csrf_token() -> str:
+    header_token = str(
+        request.headers.get("X-CSRF-Token", "") or request.headers.get("X-CSRFToken", "") or ""
+    ).strip()
+    if header_token:
+        return header_token
+    environ = getattr(request, "environ", {}) or getattr(request, "META", {})
+    if isinstance(environ, dict):
+        header_token = str(environ.get("HTTP_X_CSRF_TOKEN", "") or environ.get("HTTP_X_CSRFTOKEN", "")).strip()
+        if header_token:
+            return header_token
+    return str(request.form.get("csrf_token", "") or "").strip()
+
+
+def csrf_error_response() -> Any:
+    if request.path.startswith("/api/") or request_prefers_json():
+        return jsonify({"error": "Ongeldig of ontbrekend CSRF-token."}), 403
+    return "Ongeldig of ontbrekend CSRF-token.", 403
+
+
+def validate_csrf_token() -> Optional[Any]:
+    if request.method in {"GET", "HEAD", "OPTIONS"}:
+        return None
+    session_token = ensure_csrf_token()
+    request_token = get_request_csrf_token()
+    if request_token and hmac.compare_digest(session_token, request_token):
+        return None
+    return csrf_error_response()
+
+
+def rotate_authenticated_session(user_id: str) -> None:
+    session.clear()
+    session.permanent = True
+    session["user_id"] = user_id
+    session["csrf_token"] = secrets.token_urlsafe(36)
+    now = int(time.time())
+    session["session_started_at"] = now
+    session["session_last_seen_at"] = now
+
+
+def handle_session_timeout() -> Optional[Any]:
+    user_id = str(session.get("user_id", "") or "").strip()
+    if not user_id:
+        ensure_csrf_token()
+        return None
+
+    now = int(time.time())
+    started_at = int(session.get("session_started_at", now) or now)
+    last_seen_at = int(session.get("session_last_seen_at", now) or now)
+    expired = (now - last_seen_at) > SESSION_IDLE_TIMEOUT_SECONDS or (now - started_at) > SESSION_ABSOLUTE_TIMEOUT_SECONDS
+    if expired:
+        session.clear()
+        ensure_csrf_token()
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "Sessie verlopen. Log opnieuw in."}), 401
+        return redirect(url_for("login_page", next=request.path))
+
+    session["session_last_seen_at"] = now
+    session.permanent = True
+    ensure_csrf_token()
+    return None
+
+
+def get_rate_limit_rule(path: str) -> Optional[Tuple[int, int, str]]:
+    for pattern, max_attempts, window_seconds, scope in RATE_LIMIT_RULES:
+        if pattern.match(path):
+            return max_attempts, window_seconds, scope
+    return None
+
+
+def apply_rate_limit(max_attempts: int, window_seconds: int, scope: str) -> Optional[int]:
+    user = get_current_user()
+    identity = str(user["id"]) if user is not None else ""
+    request_key = f"{scope}:{get_client_ip()}:{identity}:{request.path}"
+    if scope == "login":
+        request_key = f"{request_key}:{request.form.get('email', '').strip().lower()[:120]}"
+    if scope == "invite":
+        request_key = f"{request_key}:{request.path.rsplit('/', 1)[-1]}"
+
+    now = time.time()
+    with rate_limit_lock:
+        attempts = [stamp for stamp in rate_limit_storage.get(request_key, []) if now - stamp < window_seconds]
+        if len(attempts) >= max_attempts:
+            retry_after = max(1, int(window_seconds - (now - attempts[0])))
+            rate_limit_storage[request_key] = attempts
+            return retry_after
+        attempts.append(now)
+        rate_limit_storage[request_key] = attempts
+    return None
+
+
+def rate_limit_error_response(retry_after: int) -> Any:
+    message = "Te veel verzoeken. Probeer het over enkele minuten opnieuw."
+    if request.path.startswith("/api/") or request_prefers_json():
+        return jsonify({"error": message}), 429, {"Retry-After": str(retry_after)}
+    return message, 429, {"Retry-After": str(retry_after)}
+
+
+def validate_image_signature(content_type: str, file_bytes: bytes) -> bool:
+    if content_type == "image/jpeg":
+        return file_bytes.startswith(b"\xff\xd8\xff")
+    if content_type == "image/png":
+        return file_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+    if content_type == "image/webp":
+        return len(file_bytes) > 12 and file_bytes.startswith(b"RIFF") and file_bytes[8:12] == b"WEBP"
+    if content_type == "image/avif":
+        return len(file_bytes) > 12 and file_bytes[4:12] in {b"ftypavif", b"ftypavis"}
+    return False
+
+
+def apply_security_headers(response: Any) -> Any:
+    for header_name, header_value in SECURITY_HEADERS.items():
+        response.headers.setdefault(header_name, header_value)
+    if is_request_secure():
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
 
 
 def get_config() -> Dict[str, str]:
@@ -283,6 +517,26 @@ def inject_navigation_permissions():
 
 @app.before_request
 def require_login():
+    if should_enforce_https() and not is_request_secure() and not should_skip_https_redirect():
+        secure_url = request.url.replace("http://", "https://", 1)
+        return redirect(secure_url, code=301)
+
+    session_response = handle_session_timeout()
+    if session_response is not None:
+        return session_response
+
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        rate_limit_rule = get_rate_limit_rule(request.path)
+        if rate_limit_rule is not None:
+            max_attempts, window_seconds, scope = rate_limit_rule
+            retry_after = apply_rate_limit(max_attempts, window_seconds, scope)
+            if retry_after is not None:
+                return rate_limit_error_response(retry_after)
+
+        csrf_response = validate_csrf_token()
+        if csrf_response is not None:
+            return csrf_response
+
     if is_public_path(request.path):
         return None
 
@@ -1705,6 +1959,11 @@ def prepare_content_upload_entry(album: Dict[str, Any], uploaded_file: Any, conf
     if not extension:
         guessed_extension = mimetypes.guess_extension(content_type) or ""
         extension = guessed_extension.lower()
+    allowed_extensions = ALLOWED_IMAGE_EXTENSIONS.get(content_type, set())
+    if allowed_extensions and extension not in allowed_extensions:
+        raise ValueError(f"Bestandsextensie niet toegestaan: {original_name}")
+    if not validate_image_signature(content_type, file_bytes):
+        raise ValueError(f"Bestandsinhoud niet geldig voor type: {original_name}")
 
     unique_name = f"{int(time.time() * 1000)}-{secrets.token_hex(4)}{extension}"
     remote_path = "/".join(
@@ -2123,7 +2382,7 @@ def add_trainer_profile(
                 full_name.strip(),
                 email.strip(),
                 username.strip(),
-                generate_password_hash(password.strip(), method="pbkdf2:sha256"),
+                hash_password(password),
                 None,
                 None,
                 utcnow_iso(),
@@ -2292,7 +2551,7 @@ def accept_trainer_invite(profile_id: str, password: str) -> None:
             WHERE id = ?
             """,
             (
-                generate_password_hash(password.strip(), method="pbkdf2:sha256"),
+                hash_password(password),
                 utcnow_iso(),
                 profile_id.strip(),
             ),
@@ -2305,6 +2564,9 @@ def authenticate_user(login_value: str, password: str) -> Optional[Dict[str, Any
         return None
     if not check_password_hash(user["passwordHash"], password):
         return None
+    if password_needs_rehash(user["passwordHash"]):
+        update_user_password_hash(user["id"], password)
+        user = get_user_by_id(user["id"]) or user
     return user
 
 
@@ -2316,8 +2578,11 @@ def ensure_admin_account() -> None:
     if row is not None:
         return
 
-    admin_password = get_env("ADMIN_PASSWORD") or "WelkomHWS!2026"
-    admin_email = get_env("ADMIN_EMAIL") or "admin@hwsvoetbalschool.nl"
+    admin_password = get_env("ADMIN_PASSWORD")
+    admin_email = get_env("ADMIN_EMAIL")
+    if not admin_email or not admin_password or is_placeholder_value(admin_password):
+        app.logger.warning("Geen automatisch admin-account aangemaakt: ADMIN_EMAIL/ADMIN_PASSWORD ontbreken.")
+        return
 
     add_trainer_profile(
         full_name="Beheerder",
@@ -2348,6 +2613,11 @@ def get_default_post_login_path(user: Dict[str, Any]) -> str:
     if is_social_media_manager(user):
         return "/"
     return "/profiel"
+
+
+def is_valid_email_address(value: str) -> bool:
+    normalized = str(value or "").strip()
+    return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", normalized))
 
 
 def combine_date_and_time(date_value: str, time_value: str) -> datetime:
@@ -3389,12 +3659,12 @@ def login_page() -> str:
         password = request.form.get("password", "")
         user = authenticate_user(login_value, password)
         if user is None:
-            login_error = "Onjuist e-mailadres of wachtwoord."
+            login_error = GENERIC_AUTH_ERROR_MESSAGE
         else:
-            session["user_id"] = user["id"]
+            rotate_authenticated_session(user["id"])
             if not next_path or next_path == "/":
                 next_path = get_default_post_login_path(user)
-            if not next_path.startswith("/"):
+            if not is_safe_redirect_target(next_path):
                 next_path = get_default_post_login_path(user)
             return redirect(next_path)
 
@@ -3434,15 +3704,15 @@ def invite_accept_page(invite_token: str) -> str:
         password = request.form.get("password", "")
         password_confirm = request.form.get("password_confirm", "")
 
-        if len(password) < 8:
-            invite_error = "Kies een wachtwoord van minimaal 8 tekens."
+        if len(password) < 12:
+            invite_error = "Kies een wachtwoord van minimaal 12 tekens."
         elif password != password_confirm:
             invite_error = "De wachtwoorden komen niet overeen."
         else:
             accept_trainer_invite(invited_user["id"], password)
             refreshed_user = get_user_by_id(invited_user["id"])
             if refreshed_user is not None:
-                session["user_id"] = refreshed_user["id"]
+                rotate_authenticated_session(refreshed_user["id"])
             invite_success = "Wachtwoord opgeslagen. Je account is geactiveerd."
             if refreshed_user is not None:
                 return redirect(get_default_post_login_path(refreshed_user))
@@ -3455,7 +3725,7 @@ def invite_accept_page(invite_token: str) -> str:
     )
 
 
-@app.get("/logout")
+@app.post("/logout")
 def logout_page():
     session.clear()
     return redirect(url_for("login_page"))
@@ -3742,6 +4012,8 @@ def personal_profile_page() -> str:
 
         if not full_name or not email or not system_role:
             return redirect(url_for("personal_profile_page", error="Vul alle verplichte velden in."))
+        if not is_valid_email_address(email):
+            return redirect(url_for("personal_profile_page", error="Vul een geldig e-mailadres in."))
         if user.get("isAdmin") and not is_allowed_system_role(system_role):
             return redirect(url_for("personal_profile_page", error="Kies een geldige rol."))
         if trainer_email_exists(email, exclude_profile_id=user["id"]):
@@ -3808,6 +4080,8 @@ def trainers_page() -> str:
 
             if not profile_id or not full_name or not email or not system_role:
                 return redirect(url_for("trainers_page", error="Vul alle verplichte velden in."))
+            if not is_valid_email_address(email):
+                return redirect(url_for("trainers_page", error="Vul een geldig e-mailadres in."))
             if not is_allowed_system_role(system_role):
                 return redirect(url_for("trainers_page", error="Kies een geldige rol."))
 
@@ -3868,6 +4142,8 @@ def trainers_page() -> str:
 
         if not full_name or not email or not system_role:
             return redirect(url_for("trainers_page", error="Vul alle verplichte velden in."))
+        if not is_valid_email_address(email):
+            return redirect(url_for("trainers_page", error="Vul een geldig e-mailadres in."))
         if not is_allowed_system_role(system_role):
             return redirect(url_for("trainers_page", error="Kies een geldige rol."))
 
@@ -4137,10 +4413,10 @@ def content_page() -> str:
                 if created_new_album:
                     delete_empty_content_album(album_id)
                 return redirect(url_for("content_page", error=str(exc)))
-            except requests.RequestException as exc:
+            except requests.RequestException:
                 if created_new_album:
                     delete_empty_content_album(album_id)
-                return redirect(url_for("content_page", error=f"Upload naar Bunny mislukt: {exc}"))
+                return redirect(url_for("content_page", error="Upload mislukt. Probeer het opnieuw."))
 
             return redirect(
                 url_for(
@@ -4155,8 +4431,8 @@ def content_page() -> str:
                 return redirect(url_for("content_page", error="Geen album geselecteerd om te verwijderen."))
             try:
                 deleted = delete_content_album(album_id)
-            except requests.RequestException as exc:
-                return redirect(url_for("content_page", error=f"Album verwijderen op Bunny mislukt: {exc}"))
+            except requests.RequestException:
+                return redirect(url_for("content_page", error="Album verwijderen mislukt. Probeer het opnieuw."))
             if not deleted:
                 return redirect(url_for("content_page", error="Het gekozen album kon niet worden gevonden."))
             return redirect(url_for("content_page", success="Fotoalbum verwijderd."))
@@ -4195,8 +4471,8 @@ def content_album_page(album_id: int) -> str:
                 uploaded_count = upload_files_to_content_album(album_id, uploaded_files)
             except ValueError as exc:
                 return redirect(url_for("content_album_page", album_id=album_id, error=str(exc)))
-            except requests.RequestException as exc:
-                return redirect(url_for("content_album_page", album_id=album_id, error=f"Upload naar Bunny mislukt: {exc}"))
+            except requests.RequestException:
+                return redirect(url_for("content_album_page", album_id=album_id, error="Upload mislukt. Probeer het opnieuw."))
             return redirect(
                 url_for(
                     "content_album_page",
@@ -4210,16 +4486,16 @@ def content_album_page(album_id: int) -> str:
                 return redirect(url_for("content_album_page", album_id=album_id, error="Geen foto geselecteerd om te verwijderen."))
             try:
                 deleted = delete_content_photo(photo_id, album_id)
-            except requests.RequestException as exc:
-                return redirect(url_for("content_album_page", album_id=album_id, error=f"Verwijderen op Bunny mislukt: {exc}"))
+            except requests.RequestException:
+                return redirect(url_for("content_album_page", album_id=album_id, error="Foto verwijderen mislukt. Probeer het opnieuw."))
             if not deleted:
                 return redirect(url_for("content_album_page", album_id=album_id, error="De gekozen foto kon niet worden gevonden."))
             return redirect(url_for("content_album_page", album_id=album_id, success="Foto verwijderd."))
         if action == "delete_album":
             try:
                 deleted = delete_content_album(album_id)
-            except requests.RequestException as exc:
-                return redirect(url_for("content_album_page", album_id=album_id, error=f"Album verwijderen op Bunny mislukt: {exc}"))
+            except requests.RequestException:
+                return redirect(url_for("content_album_page", album_id=album_id, error="Album verwijderen mislukt. Probeer het opnieuw."))
             if not deleted:
                 return redirect(url_for("content_page", error="Het gekozen album kon niet worden gevonden."))
             return redirect(url_for("content_page", success="Fotoalbum verwijderd."))
@@ -4248,18 +4524,9 @@ def api_orders():
         return jsonify(fetch_ecwid_orders(force_refresh=force_refresh))
     except requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else 502
-        error_text = exc.response.text if exc.response is not None else str(exc)
-        return (
-            jsonify(
-                {
-                    "error": "Ecwid API request mislukt",
-                    "details": error_text,
-                }
-            ),
-            status_code,
-        )
-    except requests.RequestException as exc:
-        return jsonify({"error": "Netwerkfout bij Ecwid", "details": str(exc)}), 502
+        return jsonify({"error": "Ecwid API request mislukt"}), status_code
+    except requests.RequestException:
+        return jsonify({"error": "Netwerkfout bij Ecwid"}), 502
 
 
 @app.get("/api/dashboard-summary")
@@ -4281,10 +4548,9 @@ def api_dashboard_summary():
         return jsonify(frontend_payload)
     except requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else 502
-        error_text = exc.response.text if exc.response is not None else str(exc)
-        return jsonify({"error": "Dashboardgegevens ophalen mislukt", "details": error_text}), status_code
-    except requests.RequestException as exc:
-        return jsonify({"error": "Netwerkfout bij dashboardgegevens", "details": str(exc)}), 502
+        return jsonify({"error": "Dashboardgegevens ophalen mislukt"}), status_code
+    except requests.RequestException:
+        return jsonify({"error": "Netwerkfout bij dashboardgegevens"}), 502
 
 
 @app.get("/api/products/search")
@@ -4298,10 +4564,9 @@ def api_product_search():
         return jsonify({"items": search_catalog_products(query)})
     except requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else 502
-        error_text = exc.response.text if exc.response is not None else str(exc)
-        return jsonify({"error": "Productzoekopdracht mislukt", "details": error_text}), status_code
-    except requests.RequestException as exc:
-        return jsonify({"error": "Netwerkfout bij productzoekopdracht", "details": str(exc)}), 502
+        return jsonify({"error": "Productzoekopdracht mislukt"}), status_code
+    except requests.RequestException:
+        return jsonify({"error": "Netwerkfout bij productzoekopdracht"}), 502
 
 
 @app.get("/api/dashboard-events")
@@ -4323,12 +4588,14 @@ def api_save_dashboard_events():
     items = payload.get("items", [])
     if not isinstance(items, list):
         return jsonify({"error": "Ongeldige payload"}), 400
+    if len(items) > 50:
+        return jsonify({"error": "Te veel items in één verzoek."}), 400
 
     sanitized_items = []
     for item in items:
         if not isinstance(item, dict):
             continue
-        label = str(item.get("label", "")).strip()
+        label = str(item.get("label", "")).strip()[:120]
         if not label:
             continue
         product_id = item.get("productId")
@@ -4337,10 +4604,10 @@ def api_save_dashboard_events():
                 "productId": product_id,
                 "label": label,
                 "matchTerms": [
-                    str(term).strip()
+                    str(term).strip()[:120]
                     for term in item.get("matchTerms", [label])
                     if str(term).strip()
-                ] or [label],
+                ][:10] or [label],
             }
         )
 
@@ -4398,8 +4665,8 @@ def api_dashboard_weather():
                 "isWarning": weather_code >= 61,
             }
         )
-    except (requests.RequestException, TypeError, ValueError) as exc:
-        return jsonify({"error": "Weergegevens ophalen mislukt", "details": str(exc)}), 502
+    except (requests.RequestException, TypeError, ValueError):
+        return jsonify({"error": "Weergegevens ophalen mislukt"}), 502
 
 
 @app.after_request
@@ -4425,7 +4692,25 @@ def set_response_headers(response):
         response.cache_control.no_cache = True
         response.cache_control.must_revalidate = True
     response.headers["Vary"] = "Cookie, Accept-Encoding"
-    return response
+    return apply_security_headers(response)
+
+
+@app.errorhandler(413)
+def handle_request_entity_too_large(_exc):
+    message = "Upload te groot. Verklein het bestand of upload minder bestanden tegelijk."
+    if request.path.startswith("/api/") or request_prefers_json():
+        return jsonify({"error": message}), 413
+    return redirect(url_for("content_page", error=message))
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_exception(exc):
+    if isinstance(exc, HTTPException):
+        return exc
+    app.logger.exception("Onverwachte fout tijdens request", exc_info=exc)
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Interne serverfout"}), 500
+    return "Er is een interne fout opgetreden.", 500
 
 
 if __name__ == "__main__":

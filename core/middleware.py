@@ -46,4 +46,17 @@ class LegacyResponseHeadersMiddleware:
 
         vary = response.get("Vary")
         response["Vary"] = "Cookie, Accept-Encoding" if not vary else f"{vary}, Cookie, Accept-Encoding"
+        response.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; "
+            "img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+            "font-src 'self' data:; connect-src 'self'; upgrade-insecure-requests",
+        )
+        response.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.setdefault("X-Content-Type-Options", "nosniff")
+        response.setdefault("X-Frame-Options", "DENY")
+        response.setdefault("Permissions-Policy", "camera=(), geolocation=(), microphone=()")
+        response.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        if request.is_secure():
+            response.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response

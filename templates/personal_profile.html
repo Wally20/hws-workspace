@@ -32,6 +32,7 @@
     </section>
 
     <form method="post" action="/profiel" class="team-member-form personal-profile-form">
+      <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
       <section class="team-form-grid">
         <article class="team-form-section">
         <h3>Gegevens</h3>

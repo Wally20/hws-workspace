@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ legacy_csrf_token }}">
     <title>Inloggen | HWS Voetbalschool Workspace</title>
     <link rel="stylesheet" href="../static/styles.css?v={{ asset_version }}">
   </head>
@@ -32,6 +33,7 @@
         {% endif %}
 
         <form class="agenda-form" method="post" action="/login">
+          <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
           <input type="hidden" name="next" value="{{ next_path }}">
 
           <label class="field">

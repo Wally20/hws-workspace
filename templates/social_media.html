@@ -65,6 +65,7 @@
 
             <div class="feature-inline-actions social-idea-actions">
               <form method="post" action="/social-media" class="social-idea-check-form">
+                <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
                 <input type="hidden" name="action" value="toggle_idea_scheduled">
                 <input type="hidden" name="idea_id" value="{{ idea.id }}">
                 <input type="hidden" name="week_offset" value="{{ week_offset }}">
@@ -92,6 +93,7 @@
               </button>
 
               <form method="post" action="/social-media">
+                <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
                 <input type="hidden" name="action" value="delete_idea">
                 <input type="hidden" name="idea_id" value="{{ idea.id }}">
                 <input type="hidden" name="week_offset" value="{{ week_offset }}">
@@ -166,6 +168,7 @@
       </div>
 
       <form class="feature-form" method="post" action="/social-media">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="action" value="create_idea">
         <input type="hidden" name="week_offset" value="{{ week_offset }}">
         <label class="field">
@@ -224,6 +227,7 @@
       </div>
 
       <form class="feature-form" method="post" action="/social-media">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="action" value="update_idea">
         <input type="hidden" name="idea_id" id="socialIdeaEditId">
         <input type="hidden" name="week_offset" value="{{ week_offset }}">
@@ -273,6 +277,7 @@
       </form>
 
       <form method="post" action="/social-media" class="social-plan-delete-form" id="socialIdeaDeleteForm">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="action" value="delete_idea">
         <input type="hidden" name="idea_id" id="socialIdeaDeleteId">
         <input type="hidden" name="week_offset" value="{{ week_offset }}">
@@ -290,6 +295,7 @@
       </div>
 
       <form class="feature-form" method="post" action="/social-media">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="action" value="create_plan">
         <input type="hidden" name="idea_id" id="socialPlanIdeaId">
         <input type="hidden" name="week_offset" value="{{ week_offset }}">
@@ -349,6 +355,7 @@
       </div>
 
       <form class="feature-form" method="post" action="/social-media">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="action" value="update_plan">
         <input type="hidden" name="plan_id" id="socialEditPlanId">
         <input type="hidden" name="week_offset" value="{{ week_offset }}">
@@ -398,6 +405,7 @@
       </form>
 
       <form method="post" action="/social-media" class="social-plan-delete-form">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="action" value="delete_plan">
         <input type="hidden" name="plan_id" id="socialDeletePlanId">
         <input type="hidden" name="week_offset" value="{{ week_offset }}">

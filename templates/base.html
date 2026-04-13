@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ legacy_csrf_token }}">
     <title>{% block title %}HWS Voetbalschool Workspace{% endblock %}</title>
     <link rel="icon" type="image/png" href="../static/assets/hws-logo.png">
     <link rel="stylesheet" href="../static/styles.css?v={{ asset_version }}">
@@ -131,7 +132,10 @@
         </nav>
 
         <div class="sidebar-footer">
-          <a class="sidebar-logout-button" href="/logout">Uitloggen</a>
+          <form method="post" action="/logout" class="sidebar-logout-form">
+            <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+            <button type="submit" class="sidebar-logout-button">Uitloggen</button>
+          </form>
         </div>
       </aside>
 

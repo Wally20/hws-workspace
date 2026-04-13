@@ -106,6 +106,26 @@ class LegacyRequestProxy:
         return get_current_request().path
 
     @property
+    def url(self) -> str:
+        return get_current_request().build_absolute_uri()
+
+    @property
+    def remote_addr(self) -> str:
+        return str(get_current_request().META.get("REMOTE_ADDR", "") or "")
+
+    @property
+    def is_secure(self) -> bool:
+        return bool(get_current_request().is_secure())
+
+    @property
+    def META(self):
+        return get_current_request().META
+
+    @property
+    def environ(self):
+        return get_current_request().META
+
+    @property
     def args(self) -> LegacyParamSource:
         return LegacyParamSource(get_current_request().GET)
 
@@ -134,6 +154,8 @@ class LegacyRequestProxy:
 
 
 class LegacySessionProxy:
+    permanent = False
+
     def __getitem__(self, key: str):
         return get_current_request().session[key]
 
@@ -159,6 +181,7 @@ def legacy_render_template(template_name: str, **context: Any) -> HttpResponse:
     template = engines["jinja2"].get_template(template_name)
     merged_context = {
         "asset_version": legacy.ASSET_VERSION,
+        "legacy_csrf_token": legacy.ensure_csrf_token(),
         "current_user": user,
         "visible_pages": legacy.get_visible_pages_for_user(user),
         "can_view_revenue": bool(user and user.get("isAdmin")),
@@ -204,12 +227,25 @@ def legacy_url_for(endpoint: str, **kwargs: Any) -> str:
 
 def convert_response(response: Any):
     if isinstance(response, tuple):
-        base, status = response
+        headers = None
+        if len(response) == 3:
+            base, status, headers = response
+        else:
+            base, status = response
         if isinstance(base, HttpResponse):
             base.status_code = status
+            if headers:
+                for header_name, header_value in headers.items():
+                    base[header_name] = header_value
             return base
         if isinstance(base, (dict, list)):
-            return JsonResponse(base, safe=isinstance(base, dict), status=status)
+            converted = JsonResponse(base, safe=isinstance(base, dict), status=status)
+        else:
+            converted = HttpResponse(base, status=status)
+        if headers:
+            for header_name, header_value in headers.items():
+                converted[header_name] = header_value
+        return converted
     if isinstance(response, HttpResponse):
         return response
     if isinstance(response, (dict, list)):

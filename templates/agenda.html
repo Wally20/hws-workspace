@@ -68,6 +68,7 @@
       </div>
 
       <form class="agenda-form" method="post" action="/agenda">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <label class="field">
           <span>Titel</span>
           <input type="text" name="title" placeholder="Bijvoorbeeld: Techniektraining O15" required>

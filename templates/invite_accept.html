@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ legacy_csrf_token }}">
     <title>Account activeren | HWS Voetbalschool Workspace</title>
     <link rel="stylesheet" href="../static/styles.css?v={{ asset_version }}">
   </head>
@@ -43,6 +44,7 @@
           </div>
 
           <form class="agenda-form" method="post">
+            <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
             <label class="field">
               <span>Wachtwoord</span>
               <input type="password" name="password" autocomplete="new-password" required>

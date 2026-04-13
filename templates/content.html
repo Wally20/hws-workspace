@@ -52,6 +52,7 @@
       </div>
 
       <form class="feature-form" method="post" action="/content" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="action" value="upload_album_photos">
         <div class="content-upload-grid">
           <label class="field">
@@ -114,6 +115,7 @@
               <a href="/content/{{ album.id }}" class="subtle-button action-small">Open album</a>
               {% if can_manage_content %}
                 <form method="post" action="/content">
+                  <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
                   <input type="hidden" name="action" value="delete_album">
                   <input type="hidden" name="album_id" value="{{ album.id }}">
                   <button type="submit" class="subtle-button action-small">Verwijder album</button>
@@ -133,6 +135,7 @@
       (() => {
         const uploadForm = document.querySelector('form[action="/content"][enctype="multipart/form-data"]');
         if (!uploadForm) return;
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
         const formActionUrl = uploadForm.getAttribute("action") || "/content";
         const submitButton = uploadForm.querySelector('button[type="submit"]');
         const photosInput = uploadForm.querySelector('input[name="photos"]');
@@ -221,6 +224,7 @@
 
         const buildBatchFormData = (batch, albumId, albumTitle) => {
           const formData = new FormData();
+          formData.append("csrf_token", csrfToken);
           formData.append("action", "upload_album_photos");
 
           if (albumId) {
@@ -240,6 +244,7 @@
 
         const createAlbum = async (existingAlbumId, albumTitle) => {
           const formData = new FormData();
+          formData.append("csrf_token", csrfToken);
           formData.append("action", "create_album");
           formData.append("album_id", existingAlbumId ? String(existingAlbumId) : "0");
           formData.append("album_title", albumTitle || "");
@@ -250,6 +255,7 @@
             credentials: "same-origin",
             headers: {
               "Accept": "application/json",
+              "X-CSRF-Token": csrfToken,
               "X-Requested-With": "XMLHttpRequest",
             },
           });
@@ -322,6 +328,7 @@
           xhr.open("POST", url, true);
           xhr.withCredentials = true;
           xhr.responseType = "document";
+          xhr.setRequestHeader("X-CSRF-Token", csrfToken);
 
           xhr.upload.addEventListener("progress", (event) => {
             if (event.lengthComputable) {
