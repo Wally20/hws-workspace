@@ -182,6 +182,7 @@ def legacy_render_template(template_name: str, **context: Any) -> HttpResponse:
     merged_context = {
         "asset_version": legacy.ASSET_VERSION,
         "legacy_csrf_token": legacy.ensure_csrf_token(),
+        "csp_nonce": getattr(request, "csp_nonce", ""),
         "current_user": user,
         "visible_pages": legacy.get_visible_pages_for_user(user),
         "can_view_revenue": bool(user and user.get("isAdmin")),

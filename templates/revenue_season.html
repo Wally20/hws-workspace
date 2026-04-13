@@ -21,7 +21,7 @@
     </div>
     <form method="get" action="/omzet/per-seizoen" class="revenue-filter-form">
       <label for="seasonSelect" class="visually-hidden">Kies seizoen</label>
-      <select id="seasonSelect" name="season" class="revenue-select" onchange="this.form.submit()">
+      <select id="seasonSelect" name="season" class="revenue-select" data-auto-submit="1">
         {% for option in season_options %}
           <option value="{{ option.value }}" {% if option.value == season_summary.selectedPeriod %}selected{% endif %}>
             {{ option.label }}

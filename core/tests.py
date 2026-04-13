@@ -14,7 +14,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
     TEST_CSRF_TOKEN = "test-csrf-token-value-with-sufficient-length-1234567890"
 
     def tearDown(self):
-        legacy.rate_limit_storage.clear()
+        with legacy.get_db_connection() as connection:
+            connection.execute("DELETE FROM rate_limit_attempts")
         super().tearDown()
 
     def extract_csrf_token(self, response) -> str:
@@ -139,6 +140,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("default-src 'self'", response["Content-Security-Policy"])
+        self.assertIn("script-src 'self' 'nonce-", response["Content-Security-Policy"])
         self.assertEqual(response["X-Content-Type-Options"], "nosniff")
         self.assertEqual(response["X-Frame-Options"], "DENY")
 

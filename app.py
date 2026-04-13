@@ -54,8 +54,6 @@ ecwid_orders_cache: Dict[str, Any] = {
 ecwid_orders_cache_lock = threading.Lock()
 ecwid_refresh_in_progress = False
 content_album_lock = threading.Lock()
-rate_limit_lock = threading.Lock()
-rate_limit_storage: Dict[str, List[float]] = {}
 
 PASSWORD_HASH_METHOD = os.getenv("PASSWORD_HASH_METHOD", "").strip() or "scrypt"
 SESSION_IDLE_TIMEOUT_SECONDS = max(300, int(os.getenv("SESSION_IDLE_TIMEOUT_SECONDS", "3600") or "3600"))
@@ -182,6 +180,27 @@ def is_placeholder_value(value: str) -> bool:
     }
 
 
+def get_secret_env(name: str) -> str:
+    value = get_env(name)
+    if value and not is_placeholder_value(value) and len(value) >= 32:
+        return value
+    return ""
+
+
+def trusted_hosts_are_local(hosts: List[str]) -> bool:
+    local_hosts = {"127.0.0.1", "localhost", "testserver"}
+    normalized_hosts = {
+        host.split(":", 1)[0].strip().lower()
+        for host in hosts
+        if host.strip()
+    }
+    return not normalized_hosts or normalized_hosts.issubset(local_hosts)
+
+
+def should_require_configured_secret(trusted_hosts: List[str]) -> bool:
+    return not app.debug and not trusted_hosts_are_local(trusted_hosts)
+
+
 def get_env_bool(name: str, default: bool = False) -> bool:
     value = get_env(name)
     if not value:
@@ -202,9 +221,13 @@ def get_env_int(name: str, default: int) -> int:
 def configure_app() -> None:
     trusted_hosts = [item.strip() for item in get_env("TRUSTED_HOSTS").split(",") if item.strip()]
     session_cookie_secure_default = get_env_bool("SESSION_COOKIE_SECURE", default=not app.debug)
+    configured_secret = get_secret_env("FLASK_SECRET_KEY")
+
+    if not configured_secret and should_require_configured_secret(trusted_hosts):
+        raise RuntimeError("FLASK_SECRET_KEY ontbreekt of is te zwak. Gebruik een random secret van minimaal 32 tekens.")
 
     app.config.update(
-        SECRET_KEY=get_env("FLASK_SECRET_KEY") or secrets.token_urlsafe(48),
+        SECRET_KEY=configured_secret or secrets.token_urlsafe(48),
         SESSION_COOKIE_NAME=get_env("SESSION_COOKIE_NAME") or "overzicht_session",
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SECURE=session_cookie_secure_default,
@@ -368,14 +391,32 @@ def apply_rate_limit(max_attempts: int, window_seconds: int, scope: str) -> Opti
         request_key = f"{request_key}:{request.path.rsplit('/', 1)[-1]}"
 
     now = time.time()
-    with rate_limit_lock:
-        attempts = [stamp for stamp in rate_limit_storage.get(request_key, []) if now - stamp < window_seconds]
-        if len(attempts) >= max_attempts:
-            retry_after = max(1, int(window_seconds - (now - attempts[0])))
-            rate_limit_storage[request_key] = attempts
+    window_start = now - window_seconds
+
+    with get_db_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "DELETE FROM rate_limit_attempts WHERE created_at < ?",
+            (window_start,),
+        )
+        row = connection.execute(
+            """
+            SELECT COUNT(*) AS total, MIN(created_at) AS first_attempt
+            FROM rate_limit_attempts
+            WHERE request_key = ? AND created_at >= ?
+            """,
+            (request_key, window_start),
+        ).fetchone()
+        total_attempts = int(row["total"] or 0)
+        first_attempt = float(row["first_attempt"] or now)
+        if total_attempts >= max_attempts:
+            retry_after = max(1, int(window_seconds - (now - first_attempt)))
             return retry_after
-        attempts.append(now)
-        rate_limit_storage[request_key] = attempts
+
+        connection.execute(
+            "INSERT INTO rate_limit_attempts (request_key, created_at) VALUES (?, ?)",
+            (request_key, now),
+        )
     return None
 
 
@@ -856,6 +897,12 @@ def init_db() -> None:
                 uploaded_at TEXT NOT NULL,
                 FOREIGN KEY (album_id) REFERENCES content_albums(id)
             );
+
+            CREATE TABLE IF NOT EXISTS rate_limit_attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_key TEXT NOT NULL,
+                created_at REAL NOT NULL
+            );
             """
         )
 
@@ -933,6 +980,12 @@ def init_db() -> None:
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_trainer_profiles_invite_token
             ON trainer_profiles (invite_token)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_rate_limit_attempts_lookup
+            ON rate_limit_attempts (request_key, created_at)
             """
         )
 

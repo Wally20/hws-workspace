@@ -74,7 +74,6 @@
                   <input
                     type="checkbox"
                     {% if idea.isScheduled %}checked{% endif %}
-                    onchange="this.form.querySelector('input[name=is_scheduled]').value = this.checked ? '1' : '0'; this.form.submit();"
                   >
                   <span>Ingepland</span>
                 </label>

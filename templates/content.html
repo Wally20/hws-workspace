@@ -131,7 +131,7 @@
   </section>
 
   {% if can_manage_content %}
-    <script>
+    <script nonce="{{ csp_nonce }}">
       (() => {
         const uploadForm = document.querySelector('form[action="/content"][enctype="multipart/form-data"]');
         if (!uploadForm) return;

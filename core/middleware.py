@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import secrets
+
 from django.http import HttpResponse
 
 import app as legacy
@@ -33,6 +35,8 @@ class LegacyResponseHeadersMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+        if not getattr(request, "csp_nonce", ""):
+            request.csp_nonce = secrets.token_urlsafe(16)
         response = self.get_response(request)
 
         if request.path.startswith("/static/"):
@@ -49,7 +53,9 @@ class LegacyResponseHeadersMiddleware:
         response.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; "
-            "img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: https:; "
+            f"script-src 'self' 'nonce-{request.csp_nonce}'; "
+            "style-src 'self' 'unsafe-inline'; "
             "font-src 'self' data:; connect-src 'self'; upgrade-insecure-requests",
         )
         response.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")

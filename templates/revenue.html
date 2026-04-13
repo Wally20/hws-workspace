@@ -21,7 +21,7 @@
     </div>
     <form method="get" action="/omzet" class="revenue-filter-form">
       <label for="monthSelect" class="visually-hidden">Kies maand</label>
-      <select id="monthSelect" name="month" class="revenue-select" onchange="this.form.submit()">
+      <select id="monthSelect" name="month" class="revenue-select" data-auto-submit="1">
         {% for option in month_options %}
           <option value="{{ option.value }}" {% if option.value == monthly_summary.selectedMonth %}selected{% endif %}>
             {{ option.label }}
