@@ -244,7 +244,8 @@ async function fetchSchoolHolidays(schoolYears, region = "midden") {
       return;
     }
 
-    const records = Array.isArray(result.value) ? result.value : [];
+    // The schoolyear endpoint returns a single object, while the overview endpoint returns an array.
+    const records = Array.isArray(result.value) ? result.value : result.value ? [result.value] : [];
     records.forEach((record) => {
       const contentItems = Array.isArray(record?.content) ? record.content : [];
       contentItems.forEach((contentItem) => {
