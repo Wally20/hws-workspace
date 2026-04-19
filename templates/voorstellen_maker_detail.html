@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}{{ proposal.clubName }} | Voorstellen Maker{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div class="agenda-header">
+      <div>
+        <h1>{{ proposal.clubName }}</h1>
+        <p class="welcome-line">{{ proposal.proposalTypeLabel }} · Seizoen {{ proposal.seasonLabel }}</p>
+      </div>
+      <div class="agenda-header-actions">
+        <a href="/voorstellen-maker" class="subtle-button">Terug naar Voorstellen Maker</a>
+      </div>
+    </div>
+  </header>
+
+  {% if success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+  {% endif %}
+
+  {% if error %}
+    <section class="notice trainers-notice trainers-notice-error">{{ error }}</section>
+  {% endif %}
+
+  <section class="dashboard-panels dashboard-panels-triple">
+    <article class="summary-card compact-summary-card old-function-tile">
+      <p class="panel-title">Totaal trainingen</p>
+      <p class="agenda-plan-summary-value">{{ proposal.totalTrainings }}</p>
+      <p class="agenda-plan-summary-caption">automatisch berekend uit de agenda</p>
+    </article>
+    <article class="summary-card compact-summary-card old-function-tile">
+      <p class="panel-title">Bedrag per training</p>
+      <p class="agenda-plan-summary-value">{{ proposal.pricePerTrainingLabel }}</p>
+      <p class="agenda-plan-summary-caption">{{ proposal.agendaPlanType }}</p>
+    </article>
+    <article class="summary-card compact-summary-card old-function-tile">
+      <p class="panel-title">Totaalbedrag</p>
+      <p class="agenda-plan-summary-value">{{ proposal.totalAmountLabel }}</p>
+      <p class="agenda-plan-summary-caption">laatst bijgewerkt {{ proposal.updatedAtLabel }}</p>
+    </article>
+  </section>
+
+  <section class="summary-card feature-list-card old-function-tile">
+    <div class="feature-list-head">
+      <div>
+        <p class="panel-title">Voorstelregels</p>
+        <p class="feature-list-subtitle">Per regel zie je welke dag is gekozen, wat er gebeurt en hoeveel trainingen in het geselecteerde seizoen zijn gevonden.</p>
+      </div>
+    </div>
+
+    <div class="feature-record-list">
+      {% for line in proposal.lines %}
+        <article class="feature-record-card old-function-card">
+          <div class="feature-record-head">
+            <div>
+              <h2>{{ line.weekdayLabel }}</h2>
+              <p class="feature-record-meta">{{ line.activityDescription }}</p>
+            </div>
+            <span class="pill">{{ line.trainingCount }} trainingen</span>
+          </div>
+          <div class="compact-stat-list">
+            <div class="compact-stat-row">
+              <span>Regelbedrag</span>
+              <span class="compact-stat-value">{{ line.lineTotalAmountLabel }}</span>
+            </div>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

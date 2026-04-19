@@ -42,6 +42,27 @@ AGENDA_DAY_PLAN_OPTIONS = (
     "Samenwerkende amateurclubs",
     "Techniektrainingen",
 )
+PROPOSAL_TYPE_OPTIONS = (
+    {
+        "value": "amateurclub",
+        "label": "Samenwerkende amateurclub",
+        "agenda_plan_type": "Samenwerkende amateurclubs",
+    },
+    {
+        "value": "techniektrainingen",
+        "label": "Club voor techniektrainingen",
+        "agenda_plan_type": "Techniektrainingen",
+    },
+)
+PROPOSAL_WEEKDAY_OPTIONS = (
+    {"value": "monday", "label": "Maandag", "python_weekday": 0},
+    {"value": "tuesday", "label": "Dinsdag", "python_weekday": 1},
+    {"value": "wednesday", "label": "Woensdag", "python_weekday": 2},
+    {"value": "thursday", "label": "Donderdag", "python_weekday": 3},
+    {"value": "friday", "label": "Vrijdag", "python_weekday": 4},
+    {"value": "saturday", "label": "Zaterdag", "python_weekday": 5},
+    {"value": "sunday", "label": "Zondag", "python_weekday": 6},
+)
 AGENDA_SUMMARY_FILTER_OPTIONS = (
     {
         "key": "total",
@@ -1236,6 +1257,29 @@ def init_db() -> None:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS proposals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                club_name TEXT NOT NULL,
+                proposal_type TEXT NOT NULL,
+                season_start_year INTEGER NOT NULL,
+                price_per_training TEXT NOT NULL,
+                total_trainings INTEGER NOT NULL DEFAULT 0,
+                total_amount REAL NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS proposal_lines (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                proposal_id INTEGER NOT NULL,
+                weekday_key TEXT NOT NULL,
+                activity_description TEXT NOT NULL,
+                training_count INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (proposal_id) REFERENCES proposals(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS dashboard_preferences (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -1378,6 +1422,18 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_agenda_day_plans_date
             ON agenda_day_plans (date)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_proposals_created
+            ON proposals (created_at DESC, id DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_proposal_lines_proposal_sort
+            ON proposal_lines (proposal_id, sort_order ASC, id ASC)
             """
         )
 
@@ -1807,6 +1863,452 @@ def toggle_task(task_id: int) -> None:
 def delete_task(task_id: int) -> None:
     with get_db_connection() as connection:
         connection.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+
+
+def normalize_proposal_type(value: Any) -> str:
+    normalized_value = str(value or "").strip().lower()
+    valid_values = {str(option["value"]) for option in PROPOSAL_TYPE_OPTIONS}
+    return normalized_value if normalized_value in valid_values else ""
+
+
+def get_proposal_type_option(value: Any) -> Optional[Dict[str, Any]]:
+    normalized_value = normalize_proposal_type(value)
+    for option in PROPOSAL_TYPE_OPTIONS:
+        if option["value"] == normalized_value:
+            return option
+    return None
+
+
+def normalize_proposal_weekday(value: Any) -> str:
+    normalized_value = str(value or "").strip().lower()
+    valid_values = {str(option["value"]) for option in PROPOSAL_WEEKDAY_OPTIONS}
+    return normalized_value if normalized_value in valid_values else ""
+
+
+def get_proposal_weekday_option(value: Any) -> Optional[Dict[str, Any]]:
+    normalized_value = normalize_proposal_weekday(value)
+    for option in PROPOSAL_WEEKDAY_OPTIONS:
+        if option["value"] == normalized_value:
+            return option
+    return None
+
+
+def normalize_price_input(value: Any) -> str:
+    normalized = str(value or "").strip().replace(" ", "")
+    if not normalized:
+        return ""
+    if "," in normalized and "." in normalized:
+        normalized = normalized.replace(".", "").replace(",", ".")
+    else:
+        normalized = normalized.replace(",", ".")
+    return normalized
+
+
+def format_decimal_price(value: Decimal) -> str:
+    formatted = f"{value.quantize(Decimal('0.01')):.2f}"
+    return formatted
+
+
+def build_proposal_form_state(
+    club_name: str = "",
+    proposal_type: str = "",
+    season_start_year: str = "",
+    price_per_training: str = "",
+    lines: Optional[List[Dict[str, str]]] = None,
+) -> Dict[str, Any]:
+    cleaned_lines = []
+    for line in (lines or []):
+        cleaned_lines.append(
+            {
+                "weekday": normalize_proposal_weekday(line.get("weekday", "")),
+                "activity": str(line.get("activity", "")).strip(),
+            }
+        )
+
+    if not cleaned_lines:
+        cleaned_lines = [{"weekday": "", "activity": ""}]
+
+    return {
+        "clubName": str(club_name or "").strip(),
+        "proposalType": normalize_proposal_type(proposal_type),
+        "seasonStartYear": str(season_start_year or "").strip(),
+        "pricePerTraining": str(price_per_training or "").strip(),
+        "lines": cleaned_lines,
+    }
+
+
+def parse_proposal_lines_from_form(form: Any) -> List[Dict[str, str]]:
+    weekdays = form.getlist("line_weekday")
+    activities = form.getlist("line_activity")
+    line_count = max(len(weekdays), len(activities))
+    lines: List[Dict[str, str]] = []
+
+    for index in range(line_count):
+        weekday = weekdays[index] if index < len(weekdays) else ""
+        activity = activities[index] if index < len(activities) else ""
+        lines.append(
+            {
+                "weekday": normalize_proposal_weekday(weekday),
+                "activity": str(activity or "").strip(),
+            }
+        )
+
+    return lines
+
+
+def validate_proposal_input(
+    club_name: str,
+    proposal_type: str,
+    season_start_year: str,
+    price_per_training: str,
+    lines: List[Dict[str, str]],
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    normalized_club_name = str(club_name or "").strip()
+    normalized_type = normalize_proposal_type(proposal_type)
+    normalized_price = normalize_price_input(price_per_training)
+
+    if not normalized_club_name:
+        return None, "Vul een clubnaam in."
+    if not normalized_type:
+        return None, "Kies of het om een samenwerkende amateurclub of techniektrainingen gaat."
+
+    try:
+        parsed_season_start_year = int(str(season_start_year or "").strip())
+    except ValueError:
+        return None, "Kies een geldig seizoen."
+
+    available_seasons = {
+        int(option["value"])
+        for option in build_football_season_options(start_year=2022)
+        if str(option.get("value", "")).isdigit()
+    }
+    if parsed_season_start_year not in available_seasons:
+        return None, "Kies een seizoen uit de lijst."
+
+    if not normalized_price:
+        return None, "Vul een bedrag per training in."
+
+    price_decimal = decimal_from_value(normalized_price)
+    if price_decimal < 0:
+        return None, "Het bedrag per training mag niet negatief zijn."
+
+    cleaned_lines: List[Dict[str, str]] = []
+    has_partial_line = False
+    for line in lines:
+        weekday = normalize_proposal_weekday(line.get("weekday", ""))
+        activity = str(line.get("activity", "")).strip()
+        if not weekday and not activity:
+            continue
+        if not weekday or not activity:
+            has_partial_line = True
+            continue
+        cleaned_lines.append({"weekday": weekday, "activity": activity})
+
+    if has_partial_line:
+        return None, "Vul per regel zowel een dag als een omschrijving van de activiteit in."
+    if not cleaned_lines:
+        return None, "Voeg minimaal een regel toe met een dag en activiteit."
+
+    return {
+        "clubName": normalized_club_name,
+        "proposalType": normalized_type,
+        "seasonStartYear": parsed_season_start_year,
+        "pricePerTraining": format_decimal_price(price_decimal),
+        "lines": cleaned_lines,
+    }, None
+
+
+def calculate_training_counts_for_proposal(
+    season_start_year: int,
+    proposal_type: str,
+    lines: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    proposal_type_option = get_proposal_type_option(proposal_type)
+    if proposal_type_option is None:
+        return {
+            "lineCounts": {},
+            "totalTrainings": 0,
+        }
+
+    season_range = get_football_season_range(season_start_year)
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT date
+            FROM agenda_day_plans
+            WHERE date >= ? AND date <= ? AND plan_type = ?
+            ORDER BY date ASC
+            """,
+            (
+                season_range["start"].isoformat(),
+                season_range["end"].isoformat(),
+                proposal_type_option["agenda_plan_type"],
+            ),
+        ).fetchall()
+
+    counts_by_weekday = {
+        str(option["value"]): 0
+        for option in PROPOSAL_WEEKDAY_OPTIONS
+    }
+    weekday_lookup = {
+        int(option["python_weekday"]): str(option["value"])
+        for option in PROPOSAL_WEEKDAY_OPTIONS
+    }
+
+    for row in rows:
+        current_date = parse_iso_date(str(row["date"] or "").strip())
+        if current_date is None:
+            continue
+        weekday_key = weekday_lookup.get(current_date.weekday())
+        if weekday_key:
+            counts_by_weekday[weekday_key] = counts_by_weekday.get(weekday_key, 0) + 1
+
+    line_counts: Dict[int, int] = {}
+    total_trainings = 0
+    for line in lines:
+        weekday_key = normalize_proposal_weekday(line.get("weekdayKey", line.get("weekday", "")))
+        line_id = int(line.get("id") or 0)
+        count = counts_by_weekday.get(weekday_key, 0)
+        if line_id:
+            line_counts[line_id] = count
+        total_trainings += count
+
+    return {
+        "lineCounts": line_counts,
+        "totalTrainings": total_trainings,
+    }
+
+
+def create_proposal(
+    club_name: str,
+    proposal_type: str,
+    season_start_year: int,
+    price_per_training: str,
+    lines: List[Dict[str, str]],
+) -> int:
+    timestamp = utcnow_iso()
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO proposals (
+                club_name,
+                proposal_type,
+                season_start_year,
+                price_per_training,
+                total_trainings,
+                total_amount,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, 0, 0, ?, ?)
+            """,
+            (
+                club_name.strip(),
+                normalize_proposal_type(proposal_type),
+                int(season_start_year),
+                normalize_price_input(price_per_training),
+                timestamp,
+                timestamp,
+            ),
+        )
+        proposal_id = int(cursor.lastrowid)
+        connection.executemany(
+            """
+            INSERT INTO proposal_lines (
+                proposal_id,
+                weekday_key,
+                activity_description,
+                training_count,
+                sort_order,
+                created_at
+            )
+            VALUES (?, ?, ?, 0, ?, ?)
+            """,
+            [
+                (
+                    proposal_id,
+                    normalize_proposal_weekday(line.get("weekday", "")),
+                    str(line.get("activity", "")).strip(),
+                    index,
+                    timestamp,
+                )
+                for index, line in enumerate(lines)
+            ],
+        )
+
+    refresh_proposal_metrics(proposal_id)
+    return proposal_id
+
+
+def refresh_proposal_metrics(proposal_id: int) -> None:
+    with get_db_connection() as connection:
+        proposal_row = connection.execute(
+            """
+            SELECT id, proposal_type, season_start_year, price_per_training, total_trainings, total_amount
+            FROM proposals
+            WHERE id = ?
+            """,
+            (proposal_id,),
+        ).fetchone()
+        if proposal_row is None:
+            return
+
+        line_rows = connection.execute(
+            """
+            SELECT id, weekday_key
+            FROM proposal_lines
+            WHERE proposal_id = ?
+            ORDER BY sort_order ASC, id ASC
+            """,
+            (proposal_id,),
+        ).fetchall()
+
+        counts_payload = calculate_training_counts_for_proposal(
+            int(proposal_row["season_start_year"]),
+            str(proposal_row["proposal_type"] or "").strip(),
+            [
+                {
+                    "id": int(row["id"]),
+                    "weekdayKey": str(row["weekday_key"] or "").strip(),
+                }
+                for row in line_rows
+            ],
+        )
+        line_counts = counts_payload["lineCounts"]
+        total_trainings = int(counts_payload["totalTrainings"])
+        price_decimal = decimal_from_value(proposal_row["price_per_training"])
+        total_amount = round(float(price_decimal * Decimal(total_trainings)), 2)
+
+        connection.executemany(
+            """
+            UPDATE proposal_lines
+            SET training_count = ?
+            WHERE id = ?
+            """,
+            [
+                (int(line_counts.get(int(row["id"]), 0)), int(row["id"]))
+                for row in line_rows
+            ],
+        )
+        current_total_trainings = int(proposal_row["total_trainings"] or 0)
+        current_total_amount = round(float(proposal_row["total_amount"] or 0), 2)
+        if current_total_trainings != total_trainings or current_total_amount != total_amount:
+            connection.execute(
+                """
+                UPDATE proposals
+                SET total_trainings = ?, total_amount = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    total_trainings,
+                    total_amount,
+                    utcnow_iso(),
+                    proposal_id,
+                ),
+            )
+
+
+def build_proposal_payload(proposal_row: sqlite3.Row, line_rows: List[sqlite3.Row]) -> Dict[str, Any]:
+    proposal_type_option = get_proposal_type_option(proposal_row["proposal_type"])
+    season_start_year = int(proposal_row["season_start_year"])
+    price_decimal = decimal_from_value(proposal_row["price_per_training"])
+
+    lines = []
+    for row in line_rows:
+        weekday_option = get_proposal_weekday_option(row["weekday_key"])
+        training_count = int(row["training_count"] or 0)
+        line_total = round(float(price_decimal * Decimal(training_count)), 2)
+        lines.append(
+            {
+                "id": int(row["id"]),
+                "weekdayKey": str(row["weekday_key"] or "").strip(),
+                "weekdayLabel": weekday_option["label"] if weekday_option else str(row["weekday_key"] or "").strip(),
+                "activityDescription": str(row["activity_description"] or "").strip(),
+                "trainingCount": training_count,
+                "lineTotalAmount": line_total,
+                "lineTotalAmountLabel": format_currency(line_total),
+            }
+        )
+
+    total_amount = round(float(proposal_row["total_amount"] or 0), 2)
+    return {
+        "id": int(proposal_row["id"]),
+        "clubName": str(proposal_row["club_name"] or "").strip(),
+        "proposalType": str(proposal_row["proposal_type"] or "").strip(),
+        "proposalTypeLabel": proposal_type_option["label"] if proposal_type_option else str(proposal_row["proposal_type"] or "").strip(),
+        "agendaPlanType": proposal_type_option["agenda_plan_type"] if proposal_type_option else "",
+        "seasonStartYear": season_start_year,
+        "seasonLabel": get_football_season_label(season_start_year),
+        "pricePerTraining": format_decimal_price(price_decimal),
+        "pricePerTrainingLabel": format_currency(float(price_decimal)),
+        "totalTrainings": int(proposal_row["total_trainings"] or 0),
+        "totalAmount": total_amount,
+        "totalAmountLabel": format_currency(total_amount),
+        "createdAt": str(proposal_row["created_at"] or "").strip(),
+        "updatedAt": str(proposal_row["updated_at"] or "").strip(),
+        "createdAtLabel": format_datetime_display(str(proposal_row["created_at"] or "").strip()),
+        "updatedAtLabel": format_datetime_display(str(proposal_row["updated_at"] or "").strip()),
+        "lines": lines,
+    }
+
+
+def load_proposal_by_id(proposal_id: int, refresh_metrics: bool = True) -> Optional[Dict[str, Any]]:
+    if refresh_metrics:
+        refresh_proposal_metrics(proposal_id)
+
+    with get_db_connection() as connection:
+        proposal_row = connection.execute(
+            """
+            SELECT
+                id,
+                club_name,
+                proposal_type,
+                season_start_year,
+                price_per_training,
+                total_trainings,
+                total_amount,
+                created_at,
+                updated_at
+            FROM proposals
+            WHERE id = ?
+            """,
+            (proposal_id,),
+        ).fetchone()
+        if proposal_row is None:
+            return None
+
+        line_rows = connection.execute(
+            """
+            SELECT id, weekday_key, activity_description, training_count, sort_order, created_at
+            FROM proposal_lines
+            WHERE proposal_id = ?
+            ORDER BY sort_order ASC, id ASC
+            """,
+            (proposal_id,),
+        ).fetchall()
+
+    return build_proposal_payload(proposal_row, list(line_rows))
+
+
+def load_proposals(refresh_metrics: bool = True) -> List[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        proposal_ids = [
+            int(row["id"])
+            for row in connection.execute(
+                """
+                SELECT id
+                FROM proposals
+                ORDER BY created_at DESC, id DESC
+                """
+            ).fetchall()
+        ]
+
+    proposals = []
+    for proposal_id in proposal_ids:
+        proposal = load_proposal_by_id(proposal_id, refresh_metrics=refresh_metrics)
+        if proposal is not None:
+            proposals.append(proposal)
+    return proposals
 
 
 def load_social_media_ideas() -> List[Dict[str, Any]]:
@@ -5583,15 +6085,94 @@ def tasks_page() -> str:
     )
 
 
-@app.get("/voorstellen-maker")
+@app.route("/voorstellen-maker", methods=["GET", "POST"])
 def voorstellen_maker_page() -> str:
     access_redirect = require_page_access("voorstellen-maker")
     if access_redirect is not None:
         return access_redirect
 
+    form_state = build_proposal_form_state()
+
+    if request.method == "POST":
+        action = request.form.get("action", "").strip()
+        if action == "create_proposal":
+            club_name = request.form.get("club_name", "").strip()
+            proposal_type = request.form.get("proposal_type", "").strip()
+            season_start_year = request.form.get("season_start_year", "").strip()
+            price_per_training = request.form.get("price_per_training", "").strip()
+            lines = parse_proposal_lines_from_form(request.form)
+
+            form_state = build_proposal_form_state(
+                club_name=club_name,
+                proposal_type=proposal_type,
+                season_start_year=season_start_year,
+                price_per_training=price_per_training,
+                lines=lines,
+            )
+            validated_payload, error_message = validate_proposal_input(
+                club_name,
+                proposal_type,
+                season_start_year,
+                price_per_training,
+                lines,
+            )
+            if error_message:
+                return render_template(
+                    "voorstellen_maker.html",
+                    active_page="voorstellen-maker",
+                    proposal_form=form_state,
+                    proposal_type_options=PROPOSAL_TYPE_OPTIONS,
+                    proposal_weekday_options=PROPOSAL_WEEKDAY_OPTIONS,
+                    proposal_season_options=build_football_season_options(start_year=2022),
+                    proposals=load_proposals(),
+                    error=error_message,
+                    success="",
+                )
+
+            proposal_id = create_proposal(
+                validated_payload["clubName"],
+                validated_payload["proposalType"],
+                validated_payload["seasonStartYear"],
+                validated_payload["pricePerTraining"],
+                validated_payload["lines"],
+            )
+            return redirect(
+                url_for(
+                    "voorstellen_maker_detail_page",
+                    proposal_id=proposal_id,
+                    success="Voorstel opgeslagen.",
+                )
+            )
+
     return render_template(
         "voorstellen_maker.html",
         active_page="voorstellen-maker",
+        proposal_form=form_state,
+        proposal_type_options=PROPOSAL_TYPE_OPTIONS,
+        proposal_weekday_options=PROPOSAL_WEEKDAY_OPTIONS,
+        proposal_season_options=build_football_season_options(start_year=2022),
+        proposals=load_proposals(),
+        success=request.args.get("success", "").strip(),
+        error=request.args.get("error", "").strip(),
+    )
+
+
+@app.get("/voorstellen-maker/<int:proposal_id>")
+def voorstellen_maker_detail_page(proposal_id: int) -> str:
+    access_redirect = require_page_access("voorstellen-maker")
+    if access_redirect is not None:
+        return access_redirect
+
+    proposal = load_proposal_by_id(proposal_id)
+    if proposal is None:
+        return redirect(url_for("voorstellen_maker_page", error="Dit voorstel bestaat niet."))
+
+    return render_template(
+        "voorstellen_maker_detail.html",
+        active_page="voorstellen-maker",
+        proposal=proposal,
+        success=request.args.get("success", "").strip(),
+        error=request.args.get("error", "").strip(),
     )
 
 

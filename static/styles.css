@@ -1033,6 +1033,65 @@ textarea:focus {
   border-color: rgba(148, 163, 184, 0.2);
 }
 
+.voorstellen-layout {
+  grid-template-columns: minmax(360px, 520px) minmax(0, 1fr);
+}
+
+.proposal-lines-section {
+  display: grid;
+  gap: 16px;
+}
+
+.proposal-lines-list {
+  grid-template-columns: 1fr;
+}
+
+.proposal-line-card {
+  padding: 16px 18px;
+}
+
+.proposal-line-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.proposal-line-activity-field {
+  min-width: 0;
+}
+
+.proposal-line-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  min-height: 54px;
+}
+
+.proposal-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.proposal-tile {
+  display: grid;
+  gap: 18px;
+  color: inherit;
+  text-decoration: none;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+
+.proposal-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+  border-color: rgba(17, 17, 17, 0.14);
+}
+
+.proposal-tile .feature-record-head {
+  align-items: flex-start;
+}
+
 .agenda-plan-summary-value {
   margin: 0;
   font-size: clamp(2rem, 3vw, 2.8rem);
@@ -2404,6 +2463,15 @@ textarea:focus {
 
   .social-idea-actions {
     justify-content: flex-start;
+  }
+
+  .proposal-line-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .proposal-line-actions {
+    justify-content: flex-start;
+    min-height: auto;
   }
 
   .team-user-grid,

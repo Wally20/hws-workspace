@@ -6,48 +6,209 @@
   <header class="page-header">
     <div>
       <h1>Voorstellen Maker</h1>
-      <p class="welcome-line">Werk hier straks nieuwe voorstellen uit en bundel input op een centrale plek.</p>
+      <p class="welcome-line">Maak voorstellen per club, laat het aantal trainingen automatisch uit de agenda berekenen en sla alles direct op in de database.</p>
     </div>
   </header>
 
-  <section class="feature-layout">
+  {% if success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+  {% endif %}
+
+  {% if error %}
+    <section class="notice trainers-notice trainers-notice-error">{{ error }}</section>
+  {% endif %}
+
+  <section class="feature-layout voorstellen-layout">
     <article class="summary-card feature-form-card old-function-tile">
-      <p class="panel-title">Nieuwe werkplek</p>
-      <p class="feature-list-subtitle">Deze pagina staat klaar als basis voor de voorstellenmodule.</p>
-      <div class="feature-record-list">
-        <div class="empty-state">
-          Hier kunnen we de volgende stap toevoegen: een formulier, generator of workflow voor voorstellen.
-        </div>
+      <div>
+        <p class="panel-title">Nieuw voorstel</p>
+        <p class="feature-list-subtitle">Kies een club, type voorstel, seizoen en voeg daarna meerdere dagen met activiteiten toe.</p>
       </div>
+
+      <form class="feature-form" method="post" action="/voorstellen-maker" id="proposalBuilderForm">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <input type="hidden" name="action" value="create_proposal">
+
+        <label class="field">
+          <span>Club</span>
+          <input type="text" name="club_name" value="{{ proposal_form.clubName }}" placeholder="Bijvoorbeeld: SV Voorbeeld" required>
+        </label>
+
+        <div class="agenda-form-grid">
+          <label class="field">
+            <span>Type voorstel</span>
+            <select name="proposal_type" required>
+              <option value="">Kies type</option>
+              {% for option in proposal_type_options %}
+                <option value="{{ option.value }}"{% if proposal_form.proposalType == option.value %} selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Seizoen</span>
+            <select name="season_start_year" required>
+              <option value="">Kies seizoen</option>
+              {% for option in proposal_season_options %}
+                <option value="{{ option.value }}"{% if proposal_form.seasonStartYear == option.value %} selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Bedrag per training</span>
+            <input type="text" name="price_per_training" value="{{ proposal_form.pricePerTraining }}" inputmode="decimal" placeholder="Bijvoorbeeld: 85,00" required>
+          </label>
+        </div>
+
+        <div class="proposal-lines-section">
+          <div class="feature-list-head">
+            <div>
+              <p class="panel-title">Dagen en activiteiten</p>
+              <p class="feature-list-subtitle">Elke regel telt binnen het gekozen seizoen hoeveel trainingsdagen in de agenda bij deze combinatie horen.</p>
+            </div>
+            <button type="button" class="subtle-button action-small" id="addProposalLineButton">+ Regel toevoegen</button>
+          </div>
+
+          <div class="feature-record-list proposal-lines-list" id="proposalLinesList">
+            {% for line in proposal_form.lines %}
+              <article class="feature-record-card old-function-card proposal-line-card" data-proposal-line>
+                <div class="proposal-line-grid">
+                  <label class="field">
+                    <span>Dag</span>
+                    <select name="line_weekday" required>
+                      <option value="">Kies dag</option>
+                      {% for option in proposal_weekday_options %}
+                        <option value="{{ option.value }}"{% if line.weekday == option.value %} selected{% endif %}>{{ option.label }}</option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                  <label class="field proposal-line-activity-field">
+                    <span>Wat doe je?</span>
+                    <input type="text" name="line_activity" value="{{ line.activity }}" placeholder="Bijvoorbeeld: Techniektraining onderbouw" required>
+                  </label>
+                  <div class="proposal-line-actions">
+                    <button type="button" class="subtle-button action-small" data-remove-proposal-line {% if proposal_form.lines|length == 1 %}hidden{% endif %}>Verwijder</button>
+                  </div>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="feature-actions">
+          <button type="submit" class="subtle-button subtle-button-strong">Voorstel opslaan</button>
+        </div>
+      </form>
     </article>
 
     <article class="summary-card feature-list-card old-function-tile">
       <div class="feature-list-head">
         <div>
-          <p class="panel-title">Wat hier kan komen</p>
-          <p class="feature-list-subtitle">Handige bouwstenen voor de volgende iteratie.</p>
+          <p class="panel-title">Opgeslagen voorstellen</p>
+          <p class="feature-list-subtitle">{{ proposals|length }} voorstel{{ "" if proposals|length == 1 else "len" }} in de database</p>
         </div>
       </div>
       <div class="feature-record-list">
-        <article class="feature-record-card old-function-card">
-          <div>
-            <h2>Voorstelgegevens</h2>
-            <p class="feature-record-meta">Denk aan klantnaam, type voorstel, datum en status.</p>
+        {% if proposals %}
+          <div class="proposal-card-grid">
+            {% for proposal in proposals %}
+              <a class="feature-record-card old-function-card proposal-tile" href="/voorstellen-maker/{{ proposal.id }}">
+                <div class="feature-record-head">
+                  <div>
+                    <h2>{{ proposal.clubName }}</h2>
+                    <p class="feature-record-meta">{{ proposal.proposalTypeLabel }} · Seizoen {{ proposal.seasonLabel }}</p>
+                  </div>
+                  <span class="pill">{{ proposal.totalTrainings }} trainingen</span>
+                </div>
+                <div class="compact-stat-list">
+                  <div class="compact-stat-row">
+                    <span>Bedrag per training</span>
+                    <span class="compact-stat-value">{{ proposal.pricePerTrainingLabel }}</span>
+                  </div>
+                  <div class="compact-stat-row">
+                    <span>Totaalbedrag</span>
+                    <span class="compact-stat-value">{{ proposal.totalAmountLabel }}</span>
+                  </div>
+                  <div class="compact-stat-row">
+                    <span>Regels</span>
+                    <span class="compact-stat-value">{{ proposal.lines|length }}</span>
+                  </div>
+                </div>
+              </a>
+            {% endfor %}
           </div>
-        </article>
-        <article class="feature-record-card old-function-card">
-          <div>
-            <h2>Opbouw per onderdeel</h2>
-            <p class="feature-record-meta">Bijvoorbeeld introductie, aanbod, prijs en vervolgstappen.</p>
-          </div>
-        </article>
-        <article class="feature-record-card old-function-card">
-          <div>
-            <h2>Export of kopieerfunctie</h2>
-            <p class="feature-record-meta">Handig voor delen via mail, PDF of interne afstemming.</p>
-          </div>
-        </article>
+        {% else %}
+          <div class="empty-state">Er zijn nog geen voorstellen opgeslagen.</div>
+        {% endif %}
       </div>
     </article>
   </section>
+
+  <template id="proposalLineTemplate">
+    <article class="feature-record-card old-function-card proposal-line-card" data-proposal-line>
+      <div class="proposal-line-grid">
+        <label class="field">
+          <span>Dag</span>
+          <select name="line_weekday" required>
+            <option value="">Kies dag</option>
+            {% for option in proposal_weekday_options %}
+              <option value="{{ option.value }}">{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field proposal-line-activity-field">
+          <span>Wat doe je?</span>
+          <input type="text" name="line_activity" placeholder="Bijvoorbeeld: Techniektraining bovenbouw" required>
+        </label>
+        <div class="proposal-line-actions">
+          <button type="button" class="subtle-button action-small" data-remove-proposal-line>Verwijder</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <script>
+    (() => {
+      const list = document.getElementById("proposalLinesList");
+      const addButton = document.getElementById("addProposalLineButton");
+      const template = document.getElementById("proposalLineTemplate");
+
+      if (!list || !addButton || !template) {
+        return;
+      }
+
+      const updateRemoveButtons = () => {
+        const lines = list.querySelectorAll("[data-proposal-line]");
+        lines.forEach((line, index) => {
+          const removeButton = line.querySelector("[data-remove-proposal-line]");
+          if (!removeButton) {
+            return;
+          }
+          removeButton.hidden = lines.length === 1 && index === 0;
+        });
+      };
+
+      addButton.addEventListener("click", () => {
+        const fragment = template.content.cloneNode(true);
+        list.appendChild(fragment);
+        updateRemoveButtons();
+      });
+
+      list.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement) || !target.hasAttribute("data-remove-proposal-line")) {
+          return;
+        }
+        const line = target.closest("[data-proposal-line]");
+        if (!line) {
+          return;
+        }
+        line.remove();
+        updateRemoveButtons();
+      });
+
+      updateRemoveButtons();
+    })();
+  </script>
 {% endblock %}
