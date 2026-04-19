@@ -51,13 +51,19 @@ De app gebruikt nu een SQLite-database op `data/app.db` voor:
 
 Bestaande data uit `data/dashboard_events.json` en `data/agenda_trainings.json` wordt bij de eerste start automatisch naar SQLite gemigreerd als de database nog leeg is.
 
+Voor productie hoort runtime-data niet in de git-worktree te staan. Zet daarom in `.env`:
+
+```dotenv
+DATA_DIR=/var/lib/overzicht/data
+```
+
 ## Server checklist
 
 Zorg op je server voor:
 
 1. Een Python-omgeving met de packages uit `requirements.txt`.
-2. Schrijfrechten voor de app-gebruiker op de map `data/`.
-3. Dat `data/app.db` meegenomen wordt in je back-ups.
+2. Schrijfrechten voor de app-gebruiker op `DATA_DIR` en `static/uploads/`.
+3. Dat `DATA_DIR` meegenomen wordt in je back-ups, inclusief `app.db`.
 4. Je `.env` met:
    - `ECWID_STORE_ID`
    - `ECWID_SECRET_TOKEN`
@@ -65,6 +71,7 @@ Zorg op je server voor:
    - `MONEYBIRD_ADMINISTRATION_ID`
    - `DJANGO_SECRET_KEY`
    - `FLASK_SECRET_KEY` (nog gebruikt door de legacy compatibiliteitslaag)
+   - `DATA_DIR` (bijvoorbeeld `/var/lib/overzicht/data`)
    - optioneel: `ADMIN_PASSWORD`, `ADMIN_EMAIL`
 
 ## Inloggen
@@ -81,10 +88,25 @@ cd /pad/naar/Overzicht
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-mkdir -p data
-chmod 775 data
+mkdir -p /var/lib/overzicht/data
+chmod 775 /var/lib/overzicht/data
 python3 manage.py runserver 127.0.0.1:8000
 ```
+
+## Eenmalige serverfix voor vastlopende `git pull`
+
+Als je server eerder live schreef naar `/srv/overzicht/data/app.db`, verplaats die data dan eenmalig buiten de repo:
+
+```bash
+sudo systemctl stop overzicht
+sudo mkdir -p /var/lib/overzicht/data
+sudo cp /srv/overzicht/data/app.db /var/lib/overzicht/data/app.db
+sudo cp /srv/overzicht/data/dashboard_events.json /var/lib/overzicht/data/dashboard_events.json
+sudo cp /srv/overzicht/data/agenda_trainings.json /var/lib/overzicht/data/agenda_trainings.json
+sudo chown -R www-data:www-data /var/lib/overzicht
+```
+
+Zet daarna `DATA_DIR=/var/lib/overzicht/data` in `/srv/overzicht/.env`, pull de nieuwe versie en start de service opnieuw. Vanaf dat moment schrijft productie niet meer in een door git beheerde map en blokkeert `git pull` hier niet meer op.
 
 ## Opmerking
 

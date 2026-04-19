@@ -48,6 +48,9 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
+DATA_DIR = Path(env("DATA_DIR", str(BASE_DIR / "data")) or (BASE_DIR / "data")).resolve()
+
+
 DEBUG = env_bool("DJANGO_DEBUG", default=env("FLASK_DEBUG", "0") != "0")
 ALLOWED_HOSTS = [item.strip() for item in env("DJANGO_ALLOWED_HOSTS", env("TRUSTED_HOSTS", "127.0.0.1,localhost,testserver")).split(",") if item.strip()]
 CSRF_TRUSTED_ORIGINS = [item.strip() for item in env("DJANGO_CSRF_TRUSTED_ORIGINS").split(",") if item.strip()]
@@ -140,7 +143,7 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 
 SESSION_ENGINE = "django.contrib.sessions.backends.file"
-SESSION_FILE_PATH = str(BASE_DIR / "data" / "django_sessions")
+SESSION_FILE_PATH = env("SESSION_FILE_PATH", str(DATA_DIR / "django_sessions"))
 SESSION_COOKIE_NAME = env("SESSION_COOKIE_NAME", "overzicht_session")
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", default=not DEBUG)

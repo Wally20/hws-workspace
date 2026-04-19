@@ -17,6 +17,8 @@ Deze app gebruikt:
 - Static files: `static/`
 - Uploads/media-achtig pad: `static/uploads/`
 
+Gebruik in productie altijd een `DATA_DIR` buiten de git-worktree, bijvoorbeeld `/var/lib/overzicht/data`. Dan kunnen SQLite en sessiebestanden vrij schrijven zonder toekomstige `git pull` blokkades.
+
 Voor de legacy businessdata zijn geen Django model-migraties nodig; de bestaande SQLite-tabellen in `data/app.db` blijven in gebruik.
 
 ## 2. Benodigde `.env` variabelen
@@ -28,6 +30,7 @@ DJANGO_SECRET_KEY=<lange-random-secret>
 DJANGO_DEBUG=0
 DJANGO_ALLOWED_HOSTS=www.workspace.hwsvoetbalschool.nl
 DJANGO_CSRF_TRUSTED_ORIGINS=https://www.workspace.hwsvoetbalschool.nl
+DATA_DIR=/var/lib/overzicht/data
 FLASK_SECRET_KEY=<lange-random-secret>
 TRUSTED_HOSTS=www.workspace.hwsvoetbalschool.nl
 SESSION_COOKIE_NAME=overzicht_session
@@ -156,8 +159,8 @@ server {
 
 - Static root voor `nginx`: `/srv/overzicht/staticfiles/`
 - Uploads/media-achtig pad: `/srv/overzicht/static/uploads/`
-- SQLite data: `/srv/overzicht/data/`
-- Databasebestand: `/srv/overzicht/data/app.db`
+- SQLite data: `/var/lib/overzicht/data/`
+- Databasebestand: `/var/lib/overzicht/data/app.db`
 - Aanbevolen limiet voor mapuploads: `CONTENT_UPLOAD_MAX_REQUEST_MB=250` en `CONTENT_UPLOAD_MAX_FILES=500`
 
 Gebruik in productie bij voorkeur `collectstatic`, zodat `nginx` uit `staticfiles/` kan serveren.
@@ -169,8 +172,8 @@ Voorbeeld met een nieuwe map `/srv/overzicht` en subdomein `www.workspace.hwsvoe
 ### Servermap en bestanden
 
 ```bash
-sudo mkdir -p /srv/overzicht
-sudo chown -R $USER:www-data /srv/overzicht
+sudo mkdir -p /srv/overzicht /var/lib/overzicht/data
+sudo chown -R $USER:www-data /srv/overzicht /var/lib/overzicht
 rsync -av --delete /pad/naar/lokale/Overzicht/ /srv/overzicht/
 cd /srv/overzicht
 ```
@@ -194,11 +197,14 @@ nano .env
 ### Rechten voor database en uploads
 
 ```bash
-mkdir -p data static/uploads
-sudo chown -R www-data:www-data /srv/overzicht
+mkdir -p static/uploads
+sudo mkdir -p /var/lib/overzicht/data
+sudo chown -R www-data:www-data /srv/overzicht /var/lib/overzicht
 sudo find /srv/overzicht -type d -exec chmod 755 {} \;
 sudo find /srv/overzicht -type f -exec chmod 644 {} \;
-sudo chmod 775 /srv/overzicht/data /srv/overzicht/static/uploads
+sudo find /var/lib/overzicht -type d -exec chmod 755 {} \;
+sudo find /var/lib/overzicht -type f -exec chmod 644 {} \;
+sudo chmod 775 /var/lib/overzicht/data /srv/overzicht/static/uploads
 ```
 
 ### Eenmalige app-initialisatie
@@ -212,6 +218,21 @@ cd /srv/overzicht
 .venv/bin/python manage.py check
 .venv/bin/python manage.py collectstatic --noinput
 ```
+
+### Eenmalige migratie voor bestaande servers
+
+Als je eerder live draaide met `/srv/overzicht/data/app.db`, verplaats die data eerst buiten de repo voordat je nieuwe deploys doet:
+
+```bash
+sudo systemctl stop overzicht
+sudo mkdir -p /var/lib/overzicht/data
+sudo cp /srv/overzicht/data/app.db /var/lib/overzicht/data/app.db
+sudo cp /srv/overzicht/data/dashboard_events.json /var/lib/overzicht/data/dashboard_events.json
+sudo cp /srv/overzicht/data/agenda_trainings.json /var/lib/overzicht/data/agenda_trainings.json
+sudo chown -R www-data:www-data /var/lib/overzicht
+```
+
+Zorg daarna dat `/srv/overzicht/.env` `DATA_DIR=/var/lib/overzicht/data` bevat voordat je Gunicorn opnieuw start.
 
 ### Gunicorn handmatig testen
 
