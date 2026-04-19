@@ -159,6 +159,7 @@ RATE_LIMIT_RULES = (
     (re.compile(r"^/content(?:/\d+)?$"), 20, 300, "content"),
     (re.compile(r"^/trainers$"), 20, 300, "trainers"),
 )
+PROPOSAL_MIN_SEASON_START_YEAR = 2026
 
 
 def get_asset_version() -> str:
@@ -1979,7 +1980,7 @@ def validate_proposal_input(
 
     available_seasons = {
         int(option["value"])
-        for option in build_football_season_options(start_year=2022)
+        for option in build_football_season_options(start_year=PROPOSAL_MIN_SEASON_START_YEAR)
         if str(option.get("value", "")).isdigit()
     }
     if parsed_season_start_year not in available_seasons:
@@ -6123,7 +6124,9 @@ def voorstellen_maker_page() -> str:
                     proposal_form=form_state,
                     proposal_type_options=PROPOSAL_TYPE_OPTIONS,
                     proposal_weekday_options=PROPOSAL_WEEKDAY_OPTIONS,
-                    proposal_season_options=build_football_season_options(start_year=2022),
+                    proposal_season_options=build_football_season_options(
+                        start_year=PROPOSAL_MIN_SEASON_START_YEAR
+                    ),
                     proposals=load_proposals(),
                     error=error_message,
                     success="",
@@ -6150,7 +6153,7 @@ def voorstellen_maker_page() -> str:
         proposal_form=form_state,
         proposal_type_options=PROPOSAL_TYPE_OPTIONS,
         proposal_weekday_options=PROPOSAL_WEEKDAY_OPTIONS,
-        proposal_season_options=build_football_season_options(start_year=2022),
+        proposal_season_options=build_football_season_options(start_year=PROPOSAL_MIN_SEASON_START_YEAR),
         proposals=load_proposals(),
         success=request.args.get("success", "").strip(),
         error=request.args.get("error", "").strip(),
