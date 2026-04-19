@@ -81,9 +81,22 @@
                       {% endfor %}
                     </select>
                   </label>
-                  <label class="field proposal-line-activity-field">
-                    <span>Wat doe je?</span>
-                    <input type="text" name="line_activity" value="{{ line.activity }}" placeholder="Bijvoorbeeld: Techniektraining onderbouw" required>
+                  <label class="field">
+                    <span>Tijd</span>
+                    <input type="time" name="line_time" value="{{ line.time }}" required>
+                  </label>
+                  <label class="field">
+                    <span>Soort</span>
+                    <select name="line_training_kind" required>
+                      <option value="">Kies soort</option>
+                      {% for option in proposal_training_kind_options %}
+                        <option value="{{ option.value }}"{% if line.trainingKind == option.value %} selected{% endif %}>{{ option.label }}</option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                  <label class="field proposal-line-team-field">
+                    <span>Team</span>
+                    <input type="text" name="line_team" value="{{ line.team }}" placeholder="Bijvoorbeeld: JO15-1" required>
                   </label>
                   <div class="proposal-line-count" data-proposal-line-count>
                     <span class="proposal-line-count-label">Trainingen</span>
@@ -167,9 +180,22 @@
             {% endfor %}
           </select>
         </label>
-        <label class="field proposal-line-activity-field">
-          <span>Wat doe je?</span>
-          <input type="text" name="line_activity" placeholder="Bijvoorbeeld: Techniektraining bovenbouw" required>
+        <label class="field">
+          <span>Tijd</span>
+          <input type="time" name="line_time" required>
+        </label>
+        <label class="field">
+          <span>Soort</span>
+          <select name="line_training_kind" required>
+            <option value="">Kies soort</option>
+            {% for option in proposal_training_kind_options %}
+              <option value="{{ option.value }}">{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field proposal-line-team-field">
+          <span>Team</span>
+          <input type="text" name="line_team" placeholder="Bijvoorbeeld: JO15-1" required>
         </label>
         <div class="proposal-line-count" data-proposal-line-count>
           <span class="proposal-line-count-label">Trainingen</span>

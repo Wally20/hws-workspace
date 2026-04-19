@@ -1061,12 +1061,18 @@ textarea:focus {
 
 .proposal-line-grid {
   display: grid;
-  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr) minmax(110px, 130px) auto;
+  grid-template-columns:
+    minmax(140px, 170px)
+    minmax(140px, 160px)
+    minmax(180px, 210px)
+    minmax(200px, 1fr)
+    minmax(110px, 130px)
+    auto;
   gap: 10px;
   align-items: end;
 }
 
-.proposal-line-activity-field {
+.proposal-line-team-field {
   min-width: 0;
 }
 

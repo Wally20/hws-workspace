@@ -246,15 +246,61 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                     "proposal_type": legacy.PROPOSAL_TYPE_OPTIONS[0]["value"],
                     "season_start_year": str(legacy.PROPOSAL_MIN_SEASON_START_YEAR),
                     "price_per_training": "85,00",
-                    "line_weekday": [legacy.PROPOSAL_WEEKDAY_OPTIONS[0]["value"]],
-                    "line_activity": ["Techniektraining onderbouw"],
+                    "line_weekday": [
+                        legacy.PROPOSAL_WEEKDAY_OPTIONS[0]["value"],
+                        legacy.PROPOSAL_WEEKDAY_OPTIONS[2]["value"],
+                    ],
+                    "line_time": ["18:00", "19:30"],
+                    "line_training_kind": [
+                        legacy.PROPOSAL_TRAINING_KIND_OPTIONS[0]["value"],
+                        legacy.PROPOSAL_TRAINING_KIND_OPTIONS[1]["value"],
+                    ],
+                    "line_team": ["JO15-1", "JO17-1"],
                 },
                 secure=True,
             )
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response["Location"], "/voorstellen-maker/42?success=Voorstel+opgeslagen.")
-        mocked_create.assert_called_once()
+        mocked_create.assert_called_once_with(
+            "SV Voorbeeld",
+            legacy.PROPOSAL_TYPE_OPTIONS[0]["value"],
+            legacy.PROPOSAL_MIN_SEASON_START_YEAR,
+            "85.00",
+            [
+                {
+                    "weekday": legacy.PROPOSAL_WEEKDAY_OPTIONS[0]["value"],
+                    "time": "18:00",
+                    "trainingKind": legacy.PROPOSAL_TRAINING_KIND_OPTIONS[0]["value"],
+                    "team": "JO15-1",
+                },
+                {
+                    "weekday": legacy.PROPOSAL_WEEKDAY_OPTIONS[2]["value"],
+                    "time": "19:30",
+                    "trainingKind": legacy.PROPOSAL_TRAINING_KIND_OPTIONS[1]["value"],
+                    "team": "JO17-1",
+                },
+            ],
+        )
+
+    def test_validate_proposal_input_requires_complete_line_with_time_kind_and_team(self):
+        payload, error = legacy.validate_proposal_input(
+            "SV Voorbeeld",
+            legacy.PROPOSAL_TYPE_OPTIONS[0]["value"],
+            str(legacy.PROPOSAL_MIN_SEASON_START_YEAR),
+            "85,00",
+            [
+                {
+                    "weekday": legacy.PROPOSAL_WEEKDAY_OPTIONS[0]["value"],
+                    "time": "18:00",
+                    "trainingKind": "",
+                    "team": "JO15-1",
+                }
+            ],
+        )
+
+        self.assertIsNone(payload)
+        self.assertEqual(error, "Vul per regel dag, tijd, soort en team in.")
 
     def test_proposal_delete_redirects_to_overview_page(self):
         client = self.build_authenticated_client()

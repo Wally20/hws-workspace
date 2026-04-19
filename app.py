@@ -63,6 +63,10 @@ PROPOSAL_WEEKDAY_OPTIONS = (
     {"value": "saturday", "label": "Zaterdag", "python_weekday": 5},
     {"value": "sunday", "label": "Zondag", "python_weekday": 6},
 )
+PROPOSAL_TRAINING_KIND_OPTIONS = (
+    {"value": "teamtraining", "label": "Teamtraining"},
+    {"value": "circuittraining", "label": "Circuittraining"},
+)
 AGENDA_SUMMARY_FILTER_OPTIONS = (
     {
         "key": "total",
@@ -1400,6 +1404,10 @@ def init_db() -> None:
             row["name"]
             for row in connection.execute("PRAGMA table_info(proposal_lines)").fetchall()
         }
+        if "line_time" not in proposal_line_columns:
+            connection.execute("ALTER TABLE proposal_lines ADD COLUMN line_time TEXT NOT NULL DEFAULT ''")
+        if "training_kind" not in proposal_line_columns:
+            connection.execute("ALTER TABLE proposal_lines ADD COLUMN training_kind TEXT NOT NULL DEFAULT ''")
         if "training_count" not in proposal_line_columns:
             connection.execute("ALTER TABLE proposal_lines ADD COLUMN training_count INTEGER NOT NULL DEFAULT 0")
         if "sort_order" not in proposal_line_columns:
@@ -1922,6 +1930,30 @@ def get_proposal_weekday_option(value: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
+def normalize_proposal_training_kind(value: Any) -> str:
+    normalized_value = str(value or "").strip().lower()
+    valid_values = {str(option["value"]) for option in PROPOSAL_TRAINING_KIND_OPTIONS}
+    return normalized_value if normalized_value in valid_values else ""
+
+
+def get_proposal_training_kind_option(value: Any) -> Optional[Dict[str, Any]]:
+    normalized_value = normalize_proposal_training_kind(value)
+    for option in PROPOSAL_TRAINING_KIND_OPTIONS:
+        if option["value"] == normalized_value:
+            return option
+    return None
+
+
+def normalize_proposal_line_time(value: Any) -> str:
+    normalized_value = str(value or "").strip()
+    if not normalized_value:
+        return ""
+    try:
+        return datetime.strptime(normalized_value, "%H:%M").strftime("%H:%M")
+    except ValueError:
+        return ""
+
+
 def normalize_price_input(value: Any) -> str:
     normalized = str(value or "").strip().replace(" ", "")
     if not normalized:
@@ -1950,12 +1982,14 @@ def build_proposal_form_state(
         cleaned_lines.append(
             {
                 "weekday": normalize_proposal_weekday(line.get("weekday", "")),
-                "activity": str(line.get("activity", "")).strip(),
+                "time": normalize_proposal_line_time(line.get("time", "")),
+                "trainingKind": normalize_proposal_training_kind(line.get("trainingKind", "")),
+                "team": str(line.get("team", "")).strip(),
             }
         )
 
     if not cleaned_lines:
-        cleaned_lines = [{"weekday": "", "activity": ""}]
+        cleaned_lines = [{"weekday": "", "time": "", "trainingKind": "", "team": ""}]
 
     return {
         "clubName": str(club_name or "").strip(),
@@ -1968,17 +2002,23 @@ def build_proposal_form_state(
 
 def parse_proposal_lines_from_form(form: Any) -> List[Dict[str, str]]:
     weekdays = form.getlist("line_weekday")
-    activities = form.getlist("line_activity")
-    line_count = max(len(weekdays), len(activities))
+    times = form.getlist("line_time")
+    training_kinds = form.getlist("line_training_kind")
+    teams = form.getlist("line_team")
+    line_count = max(len(weekdays), len(times), len(training_kinds), len(teams))
     lines: List[Dict[str, str]] = []
 
     for index in range(line_count):
         weekday = weekdays[index] if index < len(weekdays) else ""
-        activity = activities[index] if index < len(activities) else ""
+        time_value = times[index] if index < len(times) else ""
+        training_kind = training_kinds[index] if index < len(training_kinds) else ""
+        team = teams[index] if index < len(teams) else ""
         lines.append(
             {
                 "weekday": normalize_proposal_weekday(weekday),
-                "activity": str(activity or "").strip(),
+                "time": normalize_proposal_line_time(time_value),
+                "trainingKind": normalize_proposal_training_kind(training_kind),
+                "team": str(team or "").strip(),
             }
         )
 
@@ -2025,18 +2065,27 @@ def validate_proposal_input(
     has_partial_line = False
     for line in lines:
         weekday = normalize_proposal_weekday(line.get("weekday", ""))
-        activity = str(line.get("activity", "")).strip()
-        if not weekday and not activity:
+        time_value = normalize_proposal_line_time(line.get("time", ""))
+        training_kind = normalize_proposal_training_kind(line.get("trainingKind", ""))
+        team = str(line.get("team", "")).strip()
+        if not weekday and not time_value and not training_kind and not team:
             continue
-        if not weekday or not activity:
+        if not weekday or not time_value or not training_kind or not team:
             has_partial_line = True
             continue
-        cleaned_lines.append({"weekday": weekday, "activity": activity})
+        cleaned_lines.append(
+            {
+                "weekday": weekday,
+                "time": time_value,
+                "trainingKind": training_kind,
+                "team": team,
+            }
+        )
 
     if has_partial_line:
-        return None, "Vul per regel zowel een dag als een omschrijving van de activiteit in."
+        return None, "Vul per regel dag, tijd, soort en team in."
     if not cleaned_lines:
-        return None, "Voeg minimaal een regel toe met een dag en activiteit."
+        return None, "Voeg minimaal een regel toe met dag, tijd, soort en team."
 
     return {
         "clubName": normalized_club_name,
@@ -2160,18 +2209,22 @@ def create_proposal(
             INSERT INTO proposal_lines (
                 proposal_id,
                 weekday_key,
+                line_time,
+                training_kind,
                 activity_description,
                 training_count,
                 sort_order,
                 created_at
             )
-            VALUES (?, ?, ?, 0, ?, ?)
+            VALUES (?, ?, ?, ?, ?, 0, ?, ?)
             """,
             [
                 (
                     proposal_id,
                     normalize_proposal_weekday(line.get("weekday", "")),
-                    str(line.get("activity", "")).strip(),
+                    normalize_proposal_line_time(line.get("time", "")),
+                    normalize_proposal_training_kind(line.get("trainingKind", "")),
+                    str(line.get("team", "")).strip(),
                     index,
                     timestamp,
                 )
@@ -2259,6 +2312,7 @@ def build_proposal_payload(proposal_row: sqlite3.Row, line_rows: List[sqlite3.Ro
     lines = []
     for row in line_rows:
         weekday_option = get_proposal_weekday_option(row["weekday_key"])
+        training_kind_option = get_proposal_training_kind_option(row["training_kind"])
         training_count = int(row["training_count"] or 0)
         line_total = round(float(price_decimal * Decimal(training_count)), 2)
         lines.append(
@@ -2266,7 +2320,10 @@ def build_proposal_payload(proposal_row: sqlite3.Row, line_rows: List[sqlite3.Ro
                 "id": int(row["id"]),
                 "weekdayKey": str(row["weekday_key"] or "").strip(),
                 "weekdayLabel": weekday_option["label"] if weekday_option else str(row["weekday_key"] or "").strip(),
-                "activityDescription": str(row["activity_description"] or "").strip(),
+                "time": str(row["line_time"] or "").strip(),
+                "trainingKind": str(row["training_kind"] or "").strip(),
+                "trainingKindLabel": training_kind_option["label"] if training_kind_option else str(row["training_kind"] or "").strip(),
+                "teamName": str(row["activity_description"] or "").strip(),
                 "trainingCount": training_count,
                 "lineTotalAmount": line_total,
                 "lineTotalAmountLabel": format_currency(line_total),
@@ -2322,7 +2379,7 @@ def load_proposal_by_id(proposal_id: int, refresh_metrics: bool = True) -> Optio
 
         line_rows = connection.execute(
             """
-            SELECT id, weekday_key, activity_description, training_count, sort_order, created_at
+            SELECT id, weekday_key, line_time, training_kind, activity_description, training_count, sort_order, created_at
             FROM proposal_lines
             WHERE proposal_id = ?
             ORDER BY sort_order ASC, id ASC
@@ -6185,6 +6242,7 @@ def voorstellen_maker_page() -> str:
                     proposal_form=form_state,
                     proposal_type_options=PROPOSAL_TYPE_OPTIONS,
                     proposal_weekday_options=PROPOSAL_WEEKDAY_OPTIONS,
+                    proposal_training_kind_options=PROPOSAL_TRAINING_KIND_OPTIONS,
                     proposal_season_options=build_football_season_options(
                         start_year=PROPOSAL_MIN_SEASON_START_YEAR
                     ),
@@ -6219,6 +6277,7 @@ def voorstellen_maker_page() -> str:
         proposal_form=form_state,
         proposal_type_options=PROPOSAL_TYPE_OPTIONS,
         proposal_weekday_options=PROPOSAL_WEEKDAY_OPTIONS,
+        proposal_training_kind_options=PROPOSAL_TRAINING_KIND_OPTIONS,
         proposal_season_options=build_football_season_options(start_year=PROPOSAL_MIN_SEASON_START_YEAR),
         proposals=load_proposals(),
         success=request.args.get("success", "").strip(),

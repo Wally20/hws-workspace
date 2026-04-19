@@ -47,12 +47,12 @@
   </section>
 
   <section class="summary-card feature-list-card old-function-tile">
-    <div class="feature-list-head">
-      <div>
-        <p class="panel-title">Voorstelregels</p>
-        <p class="feature-list-subtitle">Per regel zie je welke dag is gekozen, wat er gebeurt en hoeveel trainingen in het geselecteerde seizoen zijn gevonden.</p>
+      <div class="feature-list-head">
+        <div>
+          <p class="panel-title">Voorstelregels</p>
+          <p class="feature-list-subtitle">Per regel zie je welke dag, tijd, soort en team zijn gekozen en hoeveel trainingen in het geselecteerde seizoen zijn gevonden.</p>
+        </div>
       </div>
-    </div>
 
     <div class="feature-record-list">
       {% for line in proposal.lines %}
@@ -60,7 +60,7 @@
           <div class="feature-record-head">
             <div>
               <h2>{{ line.weekdayLabel }}</h2>
-              <p class="feature-record-meta">{{ line.activityDescription }}</p>
+              <p class="feature-record-meta">{{ line.time }} · {{ line.trainingKindLabel }} · {{ line.teamName }}</p>
             </div>
             <span class="pill">{{ line.trainingCount }} trainingen</span>
           </div>
