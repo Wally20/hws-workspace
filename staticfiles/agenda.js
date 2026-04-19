@@ -395,6 +395,50 @@ function renderCalendarDay(dayKey, labels) {
   container.hidden = false;
 }
 
+function getRenderedCalendarDayLabels(dayKeys) {
+  return Object.fromEntries(
+    dayKeys.map((dayKey) => {
+      const container = document.querySelector(`[data-agenda-day-labels="${dayKey}"]`);
+      if (!container) {
+        return [dayKey, []];
+      }
+
+      const labels = Array.from(container.querySelectorAll(".agenda-day-external-label"))
+        .map((node) => normalizeText(node.textContent))
+        .filter(Boolean);
+      return [dayKey, labels];
+    }),
+  );
+}
+
+function mergeCalendarLabels(primaryLabelsByDay, fallbackLabelsByDay) {
+  const mergedLabelsByDay = {};
+  const dayKeys = new Set([
+    ...Object.keys(primaryLabelsByDay || {}),
+    ...Object.keys(fallbackLabelsByDay || {}),
+  ]);
+
+  dayKeys.forEach((dayKey) => {
+    const mergedLabels = [];
+    const seenLabels = new Set();
+
+    [fallbackLabelsByDay?.[dayKey] || [], primaryLabelsByDay?.[dayKey] || []].forEach((labels) => {
+      labels.forEach((label) => {
+        const normalizedLabel = normalizeText(label);
+        if (!normalizedLabel || seenLabels.has(normalizedLabel)) {
+          return;
+        }
+        seenLabels.add(normalizedLabel);
+        mergedLabels.push(normalizedLabel);
+      });
+    });
+
+    mergedLabelsByDay[dayKey] = mergedLabels;
+  });
+
+  return mergedLabelsByDay;
+}
+
 async function loadAgendaExternalLabels() {
   if (!agendaGrid) {
     return;
@@ -407,7 +451,8 @@ async function loadAgendaExternalLabels() {
 
   const years = getCalendarYears(dayKeys);
   const schoolYears = getRequiredSchoolYears(years);
-  const schoolRegion = "all";
+  const schoolRegion = normalizeRegion(agendaGrid.dataset.schoolRegion) || "all";
+  const renderedLabelsByDay = getRenderedCalendarDayLabels(dayKeys);
 
   const [schoolHolidayResult, publicHolidayResult] = await Promise.allSettled([
     fetchSchoolHolidays(schoolYears, schoolRegion),
@@ -427,7 +472,10 @@ async function loadAgendaExternalLabels() {
     return;
   }
 
-  const labelsByDay = mapToCalendarDays(dayKeys, schoolHolidays, publicHolidays);
+  const labelsByDay = mergeCalendarLabels(
+    mapToCalendarDays(dayKeys, schoolHolidays, publicHolidays),
+    renderedLabelsByDay,
+  );
   dayKeys.forEach((dayKey) => {
     renderCalendarDay(dayKey, labelsByDay[dayKey] || []);
   });
