@@ -1,5 +1,6 @@
 import os
 import json
+import calendar
 import re
 import sqlite3
 import shutil
@@ -41,6 +42,7 @@ AGENDA_DAY_PLAN_OPTIONS = (
     "Samenwerkende amateurclubs",
     "Techniektrainingen",
 )
+DUTCH_MONTH_NAMES = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
 ECWID_RESPONSE_FIELDS = (
     "total,count,offset,limit,"
     "items(id,orderNumber,createDate,status,paymentStatus,fulfillmentStatus,total,email,"
@@ -3299,13 +3301,44 @@ def build_agenda_day_plan_summary(week_days: List[Dict[str, Any]]) -> List[Dict[
 
 def build_week_label(week_start: date) -> str:
     week_end = week_start + timedelta(days=6)
-    months = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
     if week_start.month == week_end.month:
-        return f"{week_start.day}-{week_end.day} {months[week_start.month - 1]} {week_start.year}"
+        return f"{week_start.day}-{week_end.day} {DUTCH_MONTH_NAMES[week_start.month - 1]} {week_start.year}"
     return (
-        f"{week_start.day} {months[week_start.month - 1]} - "
-        f"{week_end.day} {months[week_end.month - 1]} {week_start.year}"
+        f"{week_start.day} {DUTCH_MONTH_NAMES[week_start.month - 1]} - "
+        f"{week_end.day} {DUTCH_MONTH_NAMES[week_end.month - 1]} {week_start.year}"
     )
+
+
+def add_months(base_date: date, month_offset: int) -> date:
+    month_index = (base_date.month - 1) + month_offset
+    year = base_date.year + (month_index // 12)
+    month = (month_index % 12) + 1
+    return date(year, month, 1)
+
+
+def build_month_label(month_start: date) -> str:
+    return f"{DUTCH_MONTH_NAMES[month_start.month - 1]} {month_start.year}"
+
+
+def build_agenda_month_days(month_start: date) -> List[List[Dict[str, Any]]]:
+    sunday_first_calendar = calendar.Calendar(firstweekday=6)
+    month_weeks: List[List[Dict[str, Any]]] = []
+
+    for week in sunday_first_calendar.monthdatescalendar(month_start.year, month_start.month):
+        week_days: List[Dict[str, Any]] = []
+        for current_date in week:
+            week_days.append(
+                {
+                    "date": current_date,
+                    "key": current_date.isoformat(),
+                    "dayNumber": current_date.day,
+                    "isCurrentMonth": current_date.month == month_start.month,
+                    "isToday": current_date == date.today(),
+                }
+            )
+        month_weeks.append(week_days)
+
+    return month_weeks
 
 
 def normalize_agenda_label(value: Any) -> str:
@@ -3610,6 +3643,31 @@ def build_agenda_week_events(trainings: List[Dict[str, Any]], week_start: date) 
         )
 
     return events
+
+
+def build_agenda_month_events(trainings: List[Dict[str, Any]], visible_day_keys: Set[str]) -> Dict[str, List[Dict[str, Any]]]:
+    events_by_day: Dict[str, List[Dict[str, Any]]] = {day_key: [] for day_key in visible_day_keys}
+
+    for training in trainings:
+        training_date = normalize_agenda_label(training.get("date"))[:10]
+        start_time = normalize_agenda_label(training.get("time"))
+        if training_date not in visible_day_keys or not start_time:
+            continue
+
+        events_by_day.setdefault(training_date, []).append(
+            {
+                "id": training.get("id"),
+                "title": normalize_agenda_label(training.get("title")),
+                "time": start_time,
+                "endTime": normalize_agenda_label(training.get("endTime")) or compute_default_end_time(start_time),
+                "location": normalize_agenda_label(training.get("location")),
+            }
+        )
+
+    for day_events in events_by_day.values():
+        day_events.sort(key=lambda item: (item.get("time", ""), item.get("title", "")))
+
+    return events_by_day
 
 
 def build_product_summary(orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -5244,21 +5302,34 @@ def agenda_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
+    view_mode = normalize_agenda_label(request.args.get("view", "week")).lower() or "week"
+    if view_mode not in {"week", "month"}:
+        view_mode = "week"
     week_offset = request.args.get("week", default=0, type=int)
+    month_offset = request.args.get("month", default=0, type=int)
     redirect_week = request.form.get("week", "").strip()
+    redirect_month = request.form.get("month", "").strip()
+    redirect_view = normalize_agenda_label(request.form.get("view", "")).lower()
+    if redirect_view in {"week", "month"}:
+        view_mode = redirect_view
     if redirect_week:
         try:
             week_offset = int(redirect_week)
         except ValueError:
             week_offset = week_offset
+    if redirect_month:
+        try:
+            month_offset = int(redirect_month)
+        except ValueError:
+            month_offset = month_offset
 
     if request.method == "POST":
         action = request.form.get("action", "").strip()
         if action == "save_day_plans":
             raw_day_plans = request.form.get("day_plans", "").strip()
-            raw_week_dates = request.form.get("week_dates", "").strip()
+            raw_visible_dates = request.form.get("visible_dates", "").strip() or request.form.get("week_dates", "").strip()
             day_plans_payload = {}
-            week_dates: List[str] = []
+            visible_dates: List[str] = []
             if raw_day_plans:
                 try:
                     parsed_payload = json.loads(raw_day_plans)
@@ -5269,19 +5340,35 @@ def agenda_page() -> str:
                         str(key or "").strip(): str(value or "").strip()
                         for key, value in parsed_payload.items()
                     }
-            if raw_week_dates:
+            if raw_visible_dates:
                 try:
-                    parsed_week_dates = json.loads(raw_week_dates)
+                    parsed_visible_dates = json.loads(raw_visible_dates)
                 except json.JSONDecodeError:
-                    parsed_week_dates = []
-                if isinstance(parsed_week_dates, list):
-                    week_dates = [str(value or "").strip() for value in parsed_week_dates if str(value or "").strip()]
+                    parsed_visible_dates = []
+                if isinstance(parsed_visible_dates, list):
+                    visible_dates = [str(value or "").strip() for value in parsed_visible_dates if str(value or "").strip()]
 
             try:
-                save_agenda_day_plans(day_plans_payload, replace_dates=week_dates)
-                return redirect(url_for("agenda_page", week=week_offset, success="Dagplanning opgeslagen."))
+                save_agenda_day_plans(day_plans_payload, replace_dates=visible_dates)
+                return redirect(
+                    url_for(
+                        "agenda_page",
+                        view=view_mode,
+                        week=week_offset,
+                        month=month_offset,
+                        success="Dagplanning opgeslagen.",
+                    )
+                )
             except ValueError as exc:
-                return redirect(url_for("agenda_page", week=week_offset, error=str(exc)))
+                return redirect(
+                    url_for(
+                        "agenda_page",
+                        view=view_mode,
+                        week=week_offset,
+                        month=month_offset,
+                        error=str(exc),
+                    )
+                )
 
         title = request.form.get("title", "").strip()
         date_value = request.form.get("date", "").strip()
@@ -5299,39 +5386,67 @@ def agenda_page() -> str:
                 location,
                 notes,
             )
-            return redirect(url_for("agenda_page", week=week_offset, success="Training toegevoegd."))
+            return redirect(
+                url_for(
+                    "agenda_page",
+                    view=view_mode,
+                    week=week_offset,
+                    month=month_offset,
+                    success="Training toegevoegd.",
+                )
+            )
 
-        return redirect(url_for("agenda_page", week=week_offset))
+        return redirect(url_for("agenda_page", view=view_mode, week=week_offset, month=month_offset))
 
     today = date.today()
     week_start = today - timedelta(days=today.weekday()) + timedelta(days=week_offset * 7)
+    month_start = add_months(today.replace(day=1), month_offset)
     week_days = get_week_days(week_start)
-    day_plans = load_agenda_day_plans([day["key"] for day in week_days])
-    for day in week_days:
+    month_weeks = build_agenda_month_days(month_start)
+    month_days = [day for week in month_weeks for day in week]
+    visible_days = week_days if view_mode == "week" else month_days
+    visible_day_keys = [day["key"] for day in visible_days]
+    current_month_days = [day for day in month_days if day.get("isCurrentMonth")]
+    day_plans = load_agenda_day_plans(visible_day_keys)
+    for day in visible_days:
         day["planType"] = day_plans.get(day["key"], "")
-    agenda_day_plan_summary = build_agenda_day_plan_summary(week_days)
+    agenda_day_plan_summary = build_agenda_day_plan_summary(
+        week_days if view_mode == "week" else current_month_days
+    )
     week_end = week_start + timedelta(days=6)
-    agenda_external_labels: Dict[str, List[str]] = {day["key"]: [] for day in week_days}
+    month_visible_start = month_days[0]["date"] if month_days else month_start
+    month_visible_end = month_days[-1]["date"] if month_days else month_start
+    agenda_external_labels: Dict[str, List[str]] = {day["key"]: [] for day in visible_days}
     try:
         agenda_external_labels = build_agenda_external_labels(
-            [day["key"] for day in week_days],
+            visible_day_keys,
             AGENDA_SCHOOL_REGION,
         )
     except requests.RequestException:
-        agenda_external_labels = {day["key"]: [] for day in week_days}
+        agenda_external_labels = {day["key"]: [] for day in visible_days}
     trainings = load_agenda_trainings(week_start.isoformat(), week_end.isoformat())
+    month_trainings = load_agenda_trainings(month_visible_start.isoformat(), month_visible_end.isoformat())
     calendar_events = build_agenda_week_events(trainings, week_start)
+    month_events = build_agenda_month_events(month_trainings, set(visible_day_keys))
     time_slots = [f"{hour:02d}" for hour in range(24)]
+    month_day_names = ["Zo", "Ma", "Di", "Wo", "Do", "Vr", "Za"]
 
     return render_template(
         "agenda.html",
         active_page="agenda",
         trainings=trainings,
+        agenda_view=view_mode,
         week_days=week_days,
         week_offset=week_offset,
         week_label=build_week_label(week_start),
+        month_offset=month_offset,
+        month_label=build_month_label(month_start),
+        month_weeks=month_weeks,
+        month_day_names=month_day_names,
+        month_events=month_events,
         calendar_events=calendar_events,
         time_slots=time_slots,
+        agenda_visible_dates=visible_day_keys,
         today_week_offset=0,
         agenda_day_plan_options=AGENDA_DAY_PLAN_OPTIONS,
         agenda_day_plan_summary=agenda_day_plan_summary,

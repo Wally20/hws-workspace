@@ -50,9 +50,11 @@
     <form method="post" action="/agenda" id="agendaPlannerForm" class="agenda-planner-form">
       <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
       <input type="hidden" name="action" value="save_day_plans">
+      <input type="hidden" name="view" value="{{ agenda_view }}">
       <input type="hidden" name="week" value="{{ week_offset }}">
+      <input type="hidden" name="month" value="{{ month_offset }}">
       <input type="hidden" name="day_plans" id="agendaDayPlansInput">
-      <input type="hidden" name="week_dates" value='[{% for day in week_days %}"{{ day.key }}"{% if not loop.last %},{% endif %}{% endfor %}]'>
+      <input type="hidden" name="visible_dates" value='[{% for day in agenda_visible_dates %}"{{ day }}"{% if not loop.last %},{% endif %}{% endfor %}]'>
       <div class="agenda-form-actions">
         <button type="submit" class="subtle-button subtle-button-strong">Dagplanning opslaan</button>
       </div>
@@ -62,70 +64,129 @@
   <section class="agenda-calendar-card">
     <div class="agenda-toolbar">
       <div class="agenda-toolbar-left">
-        <a href="/agenda?week={{ week_offset - 1 }}" class="subtle-button agenda-nav-button">&#8249;</a>
-        <a href="/agenda?week={{ week_offset + 1 }}" class="subtle-button agenda-nav-button">&#8250;</a>
-        <a href="/agenda?week=0" class="subtle-button agenda-today-button">Vandaag</a>
+        {% if agenda_view == "month" %}
+          <a href="/agenda?view=month&month={{ month_offset - 1 }}&week={{ week_offset }}" class="subtle-button agenda-nav-button">&#8249;</a>
+          <a href="/agenda?view=month&month={{ month_offset + 1 }}&week={{ week_offset }}" class="subtle-button agenda-nav-button">&#8250;</a>
+          <a href="/agenda?view=month&month=0&week={{ week_offset }}" class="subtle-button agenda-today-button">Vandaag</a>
+        {% else %}
+          <a href="/agenda?view=week&week={{ week_offset - 1 }}&month={{ month_offset }}" class="subtle-button agenda-nav-button">&#8249;</a>
+          <a href="/agenda?view=week&week={{ week_offset + 1 }}&month={{ month_offset }}" class="subtle-button agenda-nav-button">&#8250;</a>
+          <a href="/agenda?view=week&week=0&month={{ month_offset }}" class="subtle-button agenda-today-button">Vandaag</a>
+        {% endif %}
       </div>
-      <h2 class="agenda-week-label">{{ week_label }}</h2>
+      <h2 class="agenda-week-label">{{ month_label if agenda_view == "month" else week_label }}</h2>
       <div class="agenda-toolbar-right">
         <button type="button" id="toggleAgendaPlannerEdit" class="subtle-button action-small agenda-planner-toggle" aria-controls="agendaPlannerEditor" aria-expanded="false">Dagplanning</button>
-        <span class="agenda-view-pill agenda-view-pill-active">Week</span>
-        <span class="agenda-view-pill">Maand</span>
+        <a href="/agenda?view=week&week={{ week_offset }}&month={{ month_offset }}" class="agenda-view-pill{% if agenda_view == "week" %} agenda-view-pill-active{% endif %}">Week</a>
+        <a href="/agenda?view=month&month={{ month_offset }}&week={{ week_offset }}" class="agenda-view-pill{% if agenda_view == "month" %} agenda-view-pill-active{% endif %}">Maand</a>
       </div>
     </div>
 
-    <div class="agenda-board">
-      <div class="agenda-grid" id="agendaGrid" data-school-region="{{ agenda_school_region }}">
-        <div class="agenda-grid-corner"></div>
-        {% for day in week_days %}
-          <div
-            class="agenda-day-header {% if day.isToday %}agenda-day-header-today{% endif %}"
-            data-agenda-day="{{ day.key }}"
-          >
-            <span class="agenda-day-label">{{ day.shortLabel }}</span>
-            <div
-              class="agenda-day-plan-dropzone{% if day.planType %} agenda-day-plan-dropzone-filled{% endif %}"
-              data-day-plan-dropzone="{{ day.key }}"
-              data-day-plan-value="{{ day.planType }}"
-            >
-              <span class="agenda-day-plan-value"{% if not day.planType %} aria-hidden="true"{% endif %}>{{ day.planType }}</span>
-              <button type="button" class="agenda-day-plan-clear" data-clear-day-plan="{{ day.key }}" {% if not day.planType %}hidden{% endif %}>
-                Wis
-              </button>
-            </div>
-            <div
-              class="agenda-day-external-labels"
-              data-agenda-day-labels="{{ day.key }}"
-              {% if not agenda_external_labels.get(day.key) %}hidden{% endif %}
-            >
-              {% for label in agenda_external_labels.get(day.key, []) %}
-                <p class="agenda-day-external-label">{{ label }}</p>
-              {% endfor %}
-            </div>
+    {% if agenda_view == "month" %}
+      <div class="agenda-board" data-agenda-school-region="{{ agenda_school_region }}">
+        <div class="agenda-month-board" data-agenda-plan-surface>
+          <div class="agenda-month-head">
+            {% for day_name in month_day_names %}
+              <div class="agenda-month-day-name">{{ day_name }}</div>
+            {% endfor %}
           </div>
-        {% endfor %}
-
-        {% for slot in time_slots %}
-          <div class="agenda-time-label">{{ slot }}</div>
-          {% for day in week_days %}
-            <div class="agenda-cell {% if day.isToday %}agenda-cell-today{% endif %}"></div>
-          {% endfor %}
-        {% endfor %}
-
-        {% for event in calendar_events %}
-          <article
-            class="agenda-event"
-            style="--day-index: {{ event.dayIndex }}; --event-top: {{ event.top }}px; --event-height: {{ event.height }}px;"
-          >
-            <p class="agenda-event-time">{{ event.time }} - {{ event.endTime }}</p>
-            <p class="agenda-event-title">{{ event.title }}</p>
-            {% if event.location %}
-              <p class="agenda-event-location">{{ event.location }}</p>
-            {% endif %}
-          </article>
-        {% endfor %}
+          <div class="agenda-month-grid">
+            {% for week in month_weeks %}
+              {% for day in week %}
+                <article
+                  class="agenda-month-cell{% if not day.isCurrentMonth %} agenda-month-cell-outside{% endif %}{% if day.isToday %} agenda-month-cell-today{% endif %}"
+                  data-agenda-day="{{ day.key }}"
+                >
+                  <div class="agenda-month-cell-top">
+                    <span class="agenda-month-day-number">{{ day.dayNumber }}</span>
+                  </div>
+                  <div
+                    class="agenda-day-plan-dropzone agenda-day-plan-dropzone-compact{% if day.planType %} agenda-day-plan-dropzone-filled{% endif %}"
+                    data-day-plan-dropzone="{{ day.key }}"
+                    data-day-plan-value="{{ day.planType }}"
+                  >
+                    <span class="agenda-day-plan-value"{% if not day.planType %} aria-hidden="true"{% endif %}>{{ day.planType }}</span>
+                    <button type="button" class="agenda-day-plan-clear" data-clear-day-plan="{{ day.key }}" {% if not day.planType %}hidden{% endif %}>
+                      Wis
+                    </button>
+                  </div>
+                  <div
+                    class="agenda-day-external-labels agenda-day-external-labels-compact"
+                    data-agenda-day-labels="{{ day.key }}"
+                    {% if not agenda_external_labels.get(day.key) %}hidden{% endif %}
+                  >
+                    {% for label in agenda_external_labels.get(day.key, []) %}
+                      <p class="agenda-day-external-label agenda-day-external-label-compact">{{ label }}</p>
+                    {% endfor %}
+                  </div>
+                  <div class="agenda-month-events">
+                    {% for event in month_events.get(day.key, []) %}
+                      <article class="agenda-month-event">
+                        <span class="agenda-month-event-dot"></span>
+                        <span class="agenda-month-event-text">{{ event.time }} {{ event.title }}</span>
+                      </article>
+                    {% endfor %}
+                  </div>
+                </article>
+              {% endfor %}
+            {% endfor %}
+          </div>
+        </div>
       </div>
-    </div>
+    {% else %}
+      <div class="agenda-board" data-agenda-school-region="{{ agenda_school_region }}">
+        <div class="agenda-grid" id="agendaGrid" data-agenda-plan-surface>
+          <div class="agenda-grid-corner"></div>
+          {% for day in week_days %}
+            <div
+              class="agenda-day-header {% if day.isToday %}agenda-day-header-today{% endif %}"
+              data-agenda-day="{{ day.key }}"
+            >
+              <span class="agenda-day-label">{{ day.shortLabel }}</span>
+              <div
+                class="agenda-day-plan-dropzone{% if day.planType %} agenda-day-plan-dropzone-filled{% endif %}"
+                data-day-plan-dropzone="{{ day.key }}"
+                data-day-plan-value="{{ day.planType }}"
+              >
+                <span class="agenda-day-plan-value"{% if not day.planType %} aria-hidden="true"{% endif %}>{{ day.planType }}</span>
+                <button type="button" class="agenda-day-plan-clear" data-clear-day-plan="{{ day.key }}" {% if not day.planType %}hidden{% endif %}>
+                  Wis
+                </button>
+              </div>
+              <div
+                class="agenda-day-external-labels"
+                data-agenda-day-labels="{{ day.key }}"
+                {% if not agenda_external_labels.get(day.key) %}hidden{% endif %}
+              >
+                {% for label in agenda_external_labels.get(day.key, []) %}
+                  <p class="agenda-day-external-label">{{ label }}</p>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+
+          {% for slot in time_slots %}
+            <div class="agenda-time-label">{{ slot }}</div>
+            {% for day in week_days %}
+              <div class="agenda-cell {% if day.isToday %}agenda-cell-today{% endif %}"></div>
+            {% endfor %}
+          {% endfor %}
+
+          {% for event in calendar_events %}
+            <article
+              class="agenda-event"
+              style="--day-index: {{ event.dayIndex }}; --event-top: {{ event.top }}px; --event-height: {{ event.height }}px;"
+            >
+              <p class="agenda-event-time">{{ event.time }} - {{ event.endTime }}</p>
+              <p class="agenda-event-title">{{ event.title }}</p>
+              {% if event.location %}
+                <p class="agenda-event-location">{{ event.location }}</p>
+              {% endif %}
+            </article>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
   </section>
 
   <section class="agenda-plan-summary-grid" aria-label="Weekoverzicht dagplanning">
@@ -158,7 +219,9 @@
 
       <form class="agenda-form" method="post" action="/agenda">
         <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <input type="hidden" name="view" value="{{ agenda_view }}">
         <input type="hidden" name="week" value="{{ week_offset }}">
+        <input type="hidden" name="month" value="{{ month_offset }}">
         <label class="field">
           <span>Titel</span>
           <input type="text" name="title" placeholder="Bijvoorbeeld: Techniektraining O15" required>

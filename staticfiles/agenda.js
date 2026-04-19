@@ -10,6 +10,8 @@ const dayPlanDropzones = document.querySelectorAll("[data-day-plan-dropzone]");
 const dayPlanChips = document.querySelectorAll("[data-plan-option]");
 const clearDayPlanButtons = document.querySelectorAll("[data-clear-day-plan]");
 const agendaGrid = document.querySelector("#agendaGrid");
+const agendaPlanSurfaces = document.querySelectorAll("[data-agenda-plan-surface]");
+const agendaLabelsRoot = document.querySelector("[data-agenda-school-region]");
 
 const agendaDayPlans = {};
 let activeDraggedPlan = "";
@@ -34,6 +36,9 @@ function setPlannerEditOpen(isOpen) {
 
   agendaPlannerEditor.hidden = !isOpen;
   agendaGrid?.classList.toggle("agenda-grid-edit-mode", isOpen);
+  agendaPlanSurfaces.forEach((surface) => {
+    surface.classList.toggle("agenda-plan-surface-edit-mode", isOpen);
+  });
   if (toggleAgendaPlannerEdit) {
     toggleAgendaPlannerEdit.textContent = isOpen ? "Sluit dagplanning" : "Dagplanning";
     toggleAgendaPlannerEdit.classList.toggle("subtle-button-strong", isOpen);
@@ -77,10 +82,9 @@ function setDayPlan(dateKey, planValue) {
     delete agendaDayPlans[normalizedDate];
   }
 
-  const dropzone = document.querySelector(`[data-day-plan-dropzone="${normalizedDate}"]`);
-  if (dropzone) {
+  document.querySelectorAll(`[data-day-plan-dropzone="${normalizedDate}"]`).forEach((dropzone) => {
     renderDayPlan(dropzone, normalizedPlan);
-  }
+  });
   syncDayPlansInput();
 }
 
@@ -440,7 +444,7 @@ function mergeCalendarLabels(primaryLabelsByDay, fallbackLabelsByDay) {
 }
 
 async function loadAgendaExternalLabels() {
-  if (!agendaGrid) {
+  if (!agendaLabelsRoot) {
     return;
   }
 
@@ -451,7 +455,7 @@ async function loadAgendaExternalLabels() {
 
   const years = getCalendarYears(dayKeys);
   const schoolYears = getRequiredSchoolYears(years);
-  const schoolRegion = normalizeRegion(agendaGrid.dataset.schoolRegion) || "all";
+  const schoolRegion = normalizeRegion(agendaLabelsRoot.dataset.agendaSchoolRegion) || "all";
   const renderedLabelsByDay = getRenderedCalendarDayLabels(dayKeys);
 
   const [schoolHolidayResult, publicHolidayResult] = await Promise.allSettled([

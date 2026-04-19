@@ -647,3 +647,59 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Meivakantie (heel Nederland)", content)
         self.assertIn("Koningsdag", content)
         self.assertIn("agenda-day-external-label", content)
+
+    def test_agenda_month_view_renders_day_plan_and_external_labels(self):
+        today = legacy.date.today()
+        month_start = today.replace(day=1)
+        visible_date = month_start.isoformat()
+        school_year = f"{month_start.year}-{month_start.year + 1}"
+
+        with legacy.get_db_connection() as connection:
+            connection.execute("DELETE FROM agenda_day_plans WHERE date = ?", (visible_date,))
+            connection.execute(
+                """
+                INSERT INTO agenda_day_plans (date, plan_type, updated_at)
+                VALUES (?, ?, ?)
+                """,
+                (visible_date, "Voetbaldag", "2026-04-19T12:00:00"),
+            )
+
+        with patch.object(
+            legacy,
+            "fetch_school_holidays_for_schoolyear",
+            return_value={
+                "items": [
+                    {
+                        "date": visible_date,
+                        "label": "Meivakantie",
+                        "schoolyear": school_year,
+                        "region": "heel nederland",
+                    }
+                ]
+            },
+        ), patch.object(
+            legacy,
+            "fetch_public_holidays_for_year",
+            return_value={
+                "items": [
+                    {
+                        "date": visible_date,
+                        "label": "Dag van de Arbeid",
+                        "localName": "Dag van de Arbeid",
+                        "name": "Labour Day",
+                    }
+                ]
+            },
+        ):
+            response = self.build_authenticated_client().get("/agenda?view=month&month=0", secure=True)
+
+        try:
+            self.assertEqual(response.status_code, 200)
+            content = response.content.decode("utf-8")
+            self.assertIn("agenda-month-grid", content)
+            self.assertIn("Voetbaldag", content)
+            self.assertIn("Meivakantie (heel Nederland)", content)
+            self.assertIn("Dag van de Arbeid", content)
+        finally:
+            with legacy.get_db_connection() as connection:
+                connection.execute("DELETE FROM agenda_day_plans WHERE date = ?", (visible_date,))
