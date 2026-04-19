@@ -52,6 +52,18 @@
             <span>Taken</span>
           </a>
           {% endif %}
+          {% if 'voorstellen-maker' in visible_pages %}
+          <a class="nav-item {% if active_page == 'voorstellen-maker' %}nav-item-active{% endif %}" href="/voorstellen-maker">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M7 4.5h7l5 5V19a1 1 0 0 1-1 1H7a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path>
+                <path d="M14 4.5V10h5"></path>
+                <path d="M9 13h6M9 16h6"></path>
+              </svg>
+            </span>
+            <span>Voorstellen Maker</span>
+          </a>
+          {% endif %}
           {% if 'orders' in visible_pages %}
           <a class="nav-item {% if active_page == 'orders' %}nav-item-active{% endif %}" href="/bestellingen">
             <span class="nav-icon" aria-hidden="true">

@@ -2719,13 +2719,14 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "orders",
             "revenue",
             "trainer-fees",
+            "voorstellen-maker",
             "social-media",
             "content",
             "trainers",
             "profile",
         }
     if is_social_media_manager(user):
-        return {"dashboard", "social-media", "content", "profile"}
+        return {"dashboard", "voorstellen-maker", "social-media", "content", "profile"}
     return {"profile"}
 
 
@@ -5579,6 +5580,18 @@ def tasks_page() -> str:
         tasks=tasks,
         current_filter=active_filter,
         success=request.args.get("success", "").strip(),
+    )
+
+
+@app.get("/voorstellen-maker")
+def voorstellen_maker_page() -> str:
+    access_redirect = require_page_access("voorstellen-maker")
+    if access_redirect is not None:
+        return access_redirect
+
+    return render_template(
+        "voorstellen_maker.html",
+        active_page="voorstellen-maker",
     )
 
 

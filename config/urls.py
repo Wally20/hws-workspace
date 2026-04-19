@@ -24,6 +24,7 @@ urlpatterns = [
     path("trainers", views.trainers_page, name="trainers_page"),
     path("agenda", views.agenda_page, name="agenda_page"),
     path("taken", views.tasks_page, name="tasks_page"),
+    path("voorstellen-maker", views.voorstellen_maker_page, name="voorstellen_maker_page"),
     path("social-media", views.social_media_page, name="social_media_page"),
     path("content", views.content_page, name="content_page"),
     path("content/<int:album_id>", views.content_album_page, name="content_album_page"),
