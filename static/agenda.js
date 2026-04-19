@@ -423,6 +423,10 @@ async function loadAgendaExternalLabels() {
     console.error("Feestdagen konden niet worden geladen.", publicHolidayResult.reason);
   }
 
+  if (schoolHolidayResult.status !== "fulfilled" && publicHolidayResult.status !== "fulfilled") {
+    return;
+  }
+
   const labelsByDay = mapToCalendarDays(dayKeys, schoolHolidays, publicHolidays);
   dayKeys.forEach((dayKey) => {
     renderCalendarDay(dayKey, labelsByDay[dayKey] || []);
