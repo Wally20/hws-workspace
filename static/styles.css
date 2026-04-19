@@ -1132,13 +1132,18 @@ textarea:focus {
 
 .proposal-tile {
   display: grid;
+  gap: 14px;
+}
+
+.proposal-tile-main {
+  display: grid;
   gap: 18px;
   color: inherit;
   text-decoration: none;
   transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
 }
 
-.proposal-tile:hover {
+.proposal-tile-main:hover {
   transform: translateY(-2px);
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
   border-color: rgba(17, 17, 17, 0.14);
@@ -1146,6 +1151,24 @@ textarea:focus {
 
 .proposal-tile .feature-record-head {
   align-items: flex-start;
+}
+
+.proposal-tile-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.proposal-delete-button,
+.action-danger {
+  border-color: rgba(185, 28, 28, 0.18);
+  color: #b91c1c;
+  background: rgba(254, 242, 242, 0.9);
+}
+
+.proposal-delete-button:hover,
+.action-danger:hover {
+  border-color: rgba(185, 28, 28, 0.28);
+  background: #fee2e2;
 }
 
 .agenda-plan-summary-value {

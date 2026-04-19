@@ -11,6 +11,11 @@
       </div>
       <div class="agenda-header-actions">
         <a href="/voorstellen-maker" class="subtle-button">Terug naar Voorstellen Maker</a>
+        <form method="post" action="/voorstellen-maker/{{ proposal.id }}" onsubmit="return confirm('Weet je zeker dat je dit voorstel wilt verwijderen?');">
+          <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+          <input type="hidden" name="action" value="delete_proposal">
+          <button type="submit" class="subtle-button action-danger">Verwijder voorstel</button>
+        </form>
       </div>
     </div>
   </header>

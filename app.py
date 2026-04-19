@@ -2060,21 +2060,47 @@ def calculate_training_counts_for_proposal(
             "totalTrainings": 0,
         }
 
+    counts_by_weekday = build_proposal_weekday_counts(
+        season_start_year,
+        proposal_type_option["agenda_plan_type"],
+    )
+    line_counts: Dict[int, int] = {}
+    total_trainings = 0
+    for line in lines:
+        weekday_key = normalize_proposal_weekday(line.get("weekdayKey", line.get("weekday", "")))
+        line_id = int(line.get("id") or 0)
+        count = counts_by_weekday.get(weekday_key, 0)
+        if line_id:
+            line_counts[line_id] = count
+        total_trainings += count
+
+    return {
+        "countsByWeekday": counts_by_weekday,
+        "lineCounts": line_counts,
+        "totalTrainings": total_trainings,
+    }
+
+
+def build_proposal_weekday_counts(
+    season_start_year: int,
+    agenda_plan_type: Optional[str] = None,
+) -> Dict[str, int]:
     season_range = get_football_season_range(season_start_year)
     with get_db_connection() as connection:
-        rows = connection.execute(
-            """
+        query = """
             SELECT date
             FROM agenda_day_plans
-            WHERE date >= ? AND date <= ? AND plan_type = ?
-            ORDER BY date ASC
-            """,
-            (
-                season_range["start"].isoformat(),
-                season_range["end"].isoformat(),
-                proposal_type_option["agenda_plan_type"],
-            ),
-        ).fetchall()
+            WHERE date >= ? AND date <= ?
+        """
+        params: List[str] = [
+            season_range["start"].isoformat(),
+            season_range["end"].isoformat(),
+        ]
+        if agenda_plan_type:
+            query += " AND plan_type = ?"
+            params.append(str(agenda_plan_type))
+        query += " ORDER BY date ASC"
+        rows = connection.execute(query, params).fetchall()
         training_rows = []
         if not rows:
             training_rows = connection.execute(
@@ -2116,21 +2142,7 @@ def calculate_training_counts_for_proposal(
             if weekday_key:
                 counts_by_weekday[weekday_key] = counts_by_weekday.get(weekday_key, 0) + 1
 
-    line_counts: Dict[int, int] = {}
-    total_trainings = 0
-    for line in lines:
-        weekday_key = normalize_proposal_weekday(line.get("weekdayKey", line.get("weekday", "")))
-        line_id = int(line.get("id") or 0)
-        count = counts_by_weekday.get(weekday_key, 0)
-        if line_id:
-            line_counts[line_id] = count
-        total_trainings += count
-
-    return {
-        "countsByWeekday": counts_by_weekday,
-        "lineCounts": line_counts,
-        "totalTrainings": total_trainings,
-    }
+    return counts_by_weekday
 
 
 def create_proposal(
@@ -2363,6 +2375,24 @@ def load_proposals(refresh_metrics: bool = True) -> List[Dict[str, Any]]:
         if proposal is not None:
             proposals.append(proposal)
     return proposals
+
+
+def delete_proposal(proposal_id: int) -> None:
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            DELETE FROM proposal_lines
+            WHERE proposal_id = ?
+            """,
+            (proposal_id,),
+        )
+        connection.execute(
+            """
+            DELETE FROM proposals
+            WHERE id = ?
+            """,
+            (proposal_id,),
+        )
 
 
 def load_social_media_ideas() -> List[Dict[str, Any]]:
@@ -6200,6 +6230,11 @@ def voorstellen_maker_page() -> str:
                     success="Voorstel opgeslagen.",
                 )
             )
+        elif action == "delete_proposal":
+            proposal_id = request.form.get("proposal_id", type=int)
+            if proposal_id:
+                delete_proposal(proposal_id)
+                return redirect(url_for("voorstellen_maker_page", success="Voorstel verwijderd."))
 
     return render_template(
         "voorstellen_maker.html",
@@ -6214,11 +6249,17 @@ def voorstellen_maker_page() -> str:
     )
 
 
-@app.get("/voorstellen-maker/<int:proposal_id>")
+@app.route("/voorstellen-maker/<int:proposal_id>", methods=["GET", "POST"])
 def voorstellen_maker_detail_page(proposal_id: int) -> str:
     access_redirect = require_page_access("voorstellen-maker")
     if access_redirect is not None:
         return access_redirect
+
+    if request.method == "POST":
+        action = request.form.get("action", "").strip()
+        if action == "delete_proposal":
+            delete_proposal(proposal_id)
+            return redirect(url_for("voorstellen_maker_page", success="Voorstel verwijderd."))
 
     proposal = load_proposal_by_id(proposal_id)
     if proposal is None:
@@ -6239,10 +6280,6 @@ def voorstellen_maker_training_counts_api():
     if access_redirect is not None:
         return jsonify({"error": "Je hebt geen toegang tot deze pagina."}), 403
 
-    proposal_type = normalize_proposal_type(request.args.get("proposal_type", ""))
-    if not proposal_type:
-        return jsonify({"weekdayCounts": {}, "totalTrainings": 0})
-
     season_start_year_raw = str(request.args.get("season_start_year", "") or "").strip()
     try:
         season_start_year = int(season_start_year_raw)
@@ -6257,15 +6294,16 @@ def voorstellen_maker_training_counts_api():
     if season_start_year not in available_seasons:
         return jsonify({"error": "Kies een seizoen uit de lijst."}), 400
 
-    counts_payload = calculate_training_counts_for_proposal(
+    proposal_type = normalize_proposal_type(request.args.get("proposal_type", ""))
+    proposal_type_option = get_proposal_type_option(proposal_type) if proposal_type else None
+    weekday_counts = build_proposal_weekday_counts(
         season_start_year,
-        proposal_type,
-        [{"weekdayKey": str(option["value"])} for option in PROPOSAL_WEEKDAY_OPTIONS],
+        proposal_type_option["agenda_plan_type"] if proposal_type_option else None,
     )
     return jsonify(
         {
-            "weekdayCounts": counts_payload.get("countsByWeekday", {}),
-            "totalTrainings": int(counts_payload.get("totalTrainings", 0) or 0),
+            "weekdayCounts": weekday_counts,
+            "totalTrainings": sum(int(value or 0) for value in weekday_counts.values()),
         }
     )
 

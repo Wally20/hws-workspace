@@ -115,29 +115,37 @@
         {% if proposals %}
           <div class="proposal-card-grid">
             {% for proposal in proposals %}
-              <a class="feature-record-card old-function-card proposal-tile" href="/voorstellen-maker/{{ proposal.id }}">
-                <div class="feature-record-head">
-                  <div>
-                    <h2>{{ proposal.clubName }}</h2>
-                    <p class="feature-record-meta">{{ proposal.proposalTypeLabel }} · Seizoen {{ proposal.seasonLabel }}</p>
+              <article class="feature-record-card old-function-card proposal-tile">
+                <a class="proposal-tile-main" href="/voorstellen-maker/{{ proposal.id }}">
+                  <div class="feature-record-head">
+                    <div>
+                      <h2>{{ proposal.clubName }}</h2>
+                      <p class="feature-record-meta">{{ proposal.proposalTypeLabel }} · Seizoen {{ proposal.seasonLabel }}</p>
+                    </div>
+                    <span class="pill">{{ proposal.totalTrainings }} trainingen</span>
                   </div>
-                  <span class="pill">{{ proposal.totalTrainings }} trainingen</span>
-                </div>
-                <div class="compact-stat-list">
-                  <div class="compact-stat-row">
-                    <span>Bedrag per training</span>
-                    <span class="compact-stat-value">{{ proposal.pricePerTrainingLabel }}</span>
+                  <div class="compact-stat-list">
+                    <div class="compact-stat-row">
+                      <span>Bedrag per training</span>
+                      <span class="compact-stat-value">{{ proposal.pricePerTrainingLabel }}</span>
+                    </div>
+                    <div class="compact-stat-row">
+                      <span>Totaalbedrag</span>
+                      <span class="compact-stat-value">{{ proposal.totalAmountLabel }}</span>
+                    </div>
+                    <div class="compact-stat-row">
+                      <span>Regels</span>
+                      <span class="compact-stat-value">{{ proposal.lines|length }}</span>
+                    </div>
                   </div>
-                  <div class="compact-stat-row">
-                    <span>Totaalbedrag</span>
-                    <span class="compact-stat-value">{{ proposal.totalAmountLabel }}</span>
-                  </div>
-                  <div class="compact-stat-row">
-                    <span>Regels</span>
-                    <span class="compact-stat-value">{{ proposal.lines|length }}</span>
-                  </div>
-                </div>
-              </a>
+                </a>
+                <form method="post" action="/voorstellen-maker" class="proposal-tile-actions" onsubmit="return confirm('Weet je zeker dat je dit voorstel wilt verwijderen?');">
+                  <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+                  <input type="hidden" name="action" value="delete_proposal">
+                  <input type="hidden" name="proposal_id" value="{{ proposal.id }}">
+                  <button type="submit" class="subtle-button action-small proposal-delete-button">Verwijder</button>
+                </form>
+              </article>
             {% endfor %}
           </div>
         {% else %}
@@ -212,8 +220,8 @@
         }
 
         const weekday = weekdayField.value;
-        const hasFilters = Boolean(proposalTypeField.value && seasonField.value);
-        if (!hasFilters || !weekday) {
+        const hasSeason = Boolean(seasonField.value);
+        if (!hasSeason || !weekday) {
           countValue.textContent = "-";
           countBox.dataset.state = "idle";
           return;
@@ -233,9 +241,9 @@
       const loadWeekdayCounts = async () => {
         const proposalType = proposalTypeField.value;
         const seasonStartYear = seasonField.value;
-        const requestKey = `${proposalType}:${seasonStartYear}`;
+        const requestKey = `${proposalType || "all"}:${seasonStartYear}`;
 
-        if (!proposalType || !seasonStartYear) {
+        if (!seasonStartYear) {
           cachedRequestKey = "";
           cachedWeekdayCounts = {};
           updateAllLineCounts();
@@ -297,6 +305,10 @@
         }
         if (target.matches('select[name="line_weekday"]')) {
           const line = target.closest("[data-proposal-line]");
+          if (proposalTypeField.value || seasonField.value) {
+            loadWeekdayCounts();
+            return;
+          }
           updateLineCount(line);
         }
       });
