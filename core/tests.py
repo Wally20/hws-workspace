@@ -145,6 +145,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("default-src 'self'", response["Content-Security-Policy"])
         self.assertIn("script-src 'self' 'nonce-", response["Content-Security-Policy"])
+        self.assertIn("connect-src 'self' https://opendata.rijksoverheid.nl https://date.nager.at", response["Content-Security-Policy"])
         self.assertEqual(response["X-Content-Type-Options"], "nosniff")
         self.assertEqual(response["X-Frame-Options"], "DENY")
 

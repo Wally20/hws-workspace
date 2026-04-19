@@ -56,7 +56,9 @@ class LegacyResponseHeadersMiddleware:
             "img-src 'self' data: https:; "
             f"script-src 'self' 'nonce-{request.csp_nonce}'; "
             "style-src 'self' 'unsafe-inline'; "
-            "font-src 'self' data:; connect-src 'self'; upgrade-insecure-requests",
+            "font-src 'self' data:; "
+            "connect-src 'self' https://opendata.rijksoverheid.nl https://date.nager.at; "
+            "upgrade-insecure-requests",
         )
         response.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.setdefault("X-Content-Type-Options", "nosniff")
