@@ -3224,6 +3224,42 @@ def get_week_days(week_start: date) -> List[Dict[str, Any]]:
     return days
 
 
+def build_agenda_day_plan_summary(week_days: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    summary: List[Dict[str, Any]] = []
+    plan_counts = {option: 0 for option in AGENDA_DAY_PLAN_OPTIONS}
+    amateurclubs_monday_count = 0
+    amateurclubs_wednesday_count = 0
+
+    for day in week_days:
+        plan_type = str(day.get("planType") or "").strip()
+        if not plan_type:
+            continue
+        if plan_type in plan_counts:
+            plan_counts[plan_type] += 1
+
+        current_date = day.get("date")
+        if plan_type == "Samenwerkende amateurclubs" and isinstance(current_date, date):
+            if current_date.weekday() == 0:
+                amateurclubs_monday_count += 1
+            elif current_date.weekday() == 2:
+                amateurclubs_wednesday_count += 1
+
+    for option in AGENDA_DAY_PLAN_OPTIONS:
+        item = {
+            "label": option,
+            "count": plan_counts.get(option, 0),
+            "details": [],
+        }
+        if option == "Samenwerkende amateurclubs":
+            item["details"] = [
+                {"label": "Maandag", "count": amateurclubs_monday_count},
+                {"label": "Woensdag", "count": amateurclubs_wednesday_count},
+            ]
+        summary.append(item)
+
+    return summary
+
+
 def build_week_label(week_start: date) -> str:
     week_end = week_start + timedelta(days=6)
     months = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
@@ -4977,6 +5013,7 @@ def agenda_page() -> str:
     day_plans = load_agenda_day_plans([day["key"] for day in week_days])
     for day in week_days:
         day["planType"] = day_plans.get(day["key"], "")
+    agenda_day_plan_summary = build_agenda_day_plan_summary(week_days)
     week_end = week_start + timedelta(days=6)
     trainings = load_agenda_trainings(week_start.isoformat(), week_end.isoformat())
     calendar_events = build_agenda_week_events(trainings, week_start)
@@ -4993,6 +5030,7 @@ def agenda_page() -> str:
         time_slots=time_slots,
         today_week_offset=0,
         agenda_day_plan_options=AGENDA_DAY_PLAN_OPTIONS,
+        agenda_day_plan_summary=agenda_day_plan_summary,
         success=request.args.get("success", "").strip(),
         error=request.args.get("error", "").strip(),
     )

@@ -119,6 +119,26 @@
     </div>
   </section>
 
+  <section class="agenda-plan-summary-grid" aria-label="Weekoverzicht dagplanning">
+    {% for item in agenda_day_plan_summary %}
+      <article class="summary-card compact-summary-card agenda-plan-summary-card">
+        <p class="panel-title">{{ item.label }}</p>
+        <p class="agenda-plan-summary-value">{{ item.count }}</p>
+        <p class="agenda-plan-summary-caption">{{ "dag" if item.count == 1 else "dagen" }}</p>
+        {% if item.details %}
+          <div class="compact-stat-list agenda-plan-summary-details">
+            {% for detail in item.details %}
+              <div class="compact-stat-row">
+                <span>{{ detail.label }}</span>
+                <span class="compact-stat-value">{{ detail.count }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </article>
+    {% endfor %}
+  </section>
+
   <div id="agendaModal" class="agenda-modal" hidden>
     <div class="agenda-modal-backdrop" data-close-modal="1"></div>
     <div class="agenda-modal-dialog">
