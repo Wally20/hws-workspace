@@ -23,6 +23,7 @@ ENDPOINTS = {
     "logout_page": "logout_page",
     "index": "index",
     "orders_page": "orders_page",
+    "export_orders_team_assignment": "export_orders_team_assignment",
     "revenue_home_page": "revenue_home_page",
     "revenue_total_page": "revenue_total_page",
     "revenue_monthly_page": "revenue_monthly_page",
@@ -35,6 +36,8 @@ ENDPOINTS = {
     "trainers_page": "trainers_page",
     "agenda_page": "agenda_page",
     "tasks_page": "tasks_page",
+    "voorstellen_maker_page": "voorstellen_maker_page",
+    "voorstellen_maker_detail_page": "voorstellen_maker_detail_page",
     "social_media_page": "social_media_page",
     "content_page": "content_page",
     "content_album_page": "content_album_page",
@@ -48,6 +51,7 @@ ENDPOINTS = {
 
 PATH_KWARGS = {
     "invite_accept_page": {"invite_token"},
+    "voorstellen_maker_detail_page": {"proposal_id"},
     "content_album_page": {"album_id"},
 }
 

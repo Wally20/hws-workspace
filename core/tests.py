@@ -233,6 +233,47 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(worksheet["H4"].value, "Team")
         self.assertEqual(worksheet["C5"].value, "Anne de Vries")
 
+    def test_proposal_create_redirects_to_detail_page(self):
+        client = self.build_authenticated_client()
+
+        with patch.object(legacy, "create_proposal", return_value=42) as mocked_create:
+            response = client.post(
+                "/voorstellen-maker",
+                {
+                    "csrf_token": self.TEST_CSRF_TOKEN,
+                    "action": "create_proposal",
+                    "club_name": "SV Voorbeeld",
+                    "proposal_type": legacy.PROPOSAL_TYPE_OPTIONS[0]["value"],
+                    "season_start_year": str(legacy.PROPOSAL_MIN_SEASON_START_YEAR),
+                    "price_per_training": "85,00",
+                    "line_weekday": [legacy.PROPOSAL_WEEKDAY_OPTIONS[0]["value"]],
+                    "line_activity": ["Techniektraining onderbouw"],
+                },
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/voorstellen-maker/42?success=Voorstel+opgeslagen.")
+        mocked_create.assert_called_once()
+
+    def test_proposal_delete_redirects_to_overview_page(self):
+        client = self.build_authenticated_client()
+
+        with patch.object(legacy, "delete_proposal") as mocked_delete:
+            response = client.post(
+                "/voorstellen-maker",
+                {
+                    "csrf_token": self.TEST_CSRF_TOKEN,
+                    "action": "delete_proposal",
+                    "proposal_id": "42",
+                },
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/voorstellen-maker?success=Voorstel+verwijderd.")
+        mocked_delete.assert_called_once_with(42)
+
     def test_admin_sees_all_accounts_on_team_page(self):
         extra_profiles = [
             (
