@@ -1384,6 +1384,34 @@ def init_db() -> None:
         if "storage_backend" not in content_photo_columns:
             connection.execute("ALTER TABLE content_photos ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'local'")
 
+        proposal_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(proposals)").fetchall()
+        }
+        if "total_trainings" not in proposal_columns:
+            connection.execute("ALTER TABLE proposals ADD COLUMN total_trainings INTEGER NOT NULL DEFAULT 0")
+        if "total_amount" not in proposal_columns:
+            connection.execute("ALTER TABLE proposals ADD COLUMN total_amount REAL NOT NULL DEFAULT 0")
+        if "updated_at" not in proposal_columns:
+            connection.execute("ALTER TABLE proposals ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
+            connection.execute("UPDATE proposals SET updated_at = created_at WHERE updated_at = ''")
+
+        proposal_line_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(proposal_lines)").fetchall()
+        }
+        if "training_count" not in proposal_line_columns:
+            connection.execute("ALTER TABLE proposal_lines ADD COLUMN training_count INTEGER NOT NULL DEFAULT 0")
+        if "sort_order" not in proposal_line_columns:
+            connection.execute("ALTER TABLE proposal_lines ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+            connection.execute(
+                """
+                UPDATE proposal_lines
+                SET sort_order = id
+                WHERE sort_order = 0
+                """
+            )
+
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_content_photos_album_uploaded
@@ -2047,6 +2075,20 @@ def calculate_training_counts_for_proposal(
                 proposal_type_option["agenda_plan_type"],
             ),
         ).fetchall()
+        training_rows = []
+        if not rows:
+            training_rows = connection.execute(
+                """
+                SELECT date
+                FROM agenda_trainings
+                WHERE date >= ? AND date <= ?
+                ORDER BY date ASC, time ASC
+                """,
+                (
+                    season_range["start"].isoformat(),
+                    season_range["end"].isoformat(),
+                ),
+            ).fetchall()
 
     counts_by_weekday = {
         str(option["value"]): 0
@@ -2064,6 +2106,15 @@ def calculate_training_counts_for_proposal(
         weekday_key = weekday_lookup.get(current_date.weekday())
         if weekday_key:
             counts_by_weekday[weekday_key] = counts_by_weekday.get(weekday_key, 0) + 1
+
+    if not rows:
+        for row in training_rows:
+            current_date = parse_iso_date(str(row["date"] or "").strip())
+            if current_date is None:
+                continue
+            weekday_key = weekday_lookup.get(current_date.weekday())
+            if weekday_key:
+                counts_by_weekday[weekday_key] = counts_by_weekday.get(weekday_key, 0) + 1
 
     line_counts: Dict[int, int] = {}
     total_trainings = 0
