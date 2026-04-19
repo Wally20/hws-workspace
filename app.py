@@ -4931,13 +4931,14 @@ def get_football_season_label(start_year: int) -> str:
 def build_football_season_options(start_year: int = 2022, reference_date: Optional[date] = None) -> List[Dict[str, str]]:
     current_date = reference_date or date.today()
     current_season_start_year = current_date.year if current_date.month >= 7 else current_date.year - 1
+    latest_season_start_year = max(current_season_start_year, start_year)
 
     return [
         {
             "value": str(season_start_year),
             "label": get_football_season_label(season_start_year),
         }
-        for season_start_year in range(current_season_start_year, start_year - 1, -1)
+        for season_start_year in range(latest_season_start_year, start_year - 1, -1)
     ]
 
 
