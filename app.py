@@ -3313,7 +3313,7 @@ def expand_agenda_date_range(start_date: str, end_date: str) -> List[str]:
 
 def fetch_school_holidays_for_schoolyear(school_year: str, region: str) -> Dict[str, Any]:
     normalized_school_year = normalize_agenda_label(school_year)
-    normalized_region = normalize_agenda_region(region) or "midden"
+    normalized_region = normalize_agenda_region(region) or "all"
     cache_key = f"{normalized_school_year}:{normalized_region}"
     now = time.time()
 
@@ -3348,7 +3348,7 @@ def fetch_school_holidays_for_schoolyear(school_year: str, region: str) -> Dict[
                     if not isinstance(region_item, dict):
                         continue
                     region_name = normalize_agenda_region(region_item.get("region"))
-                    if region_name not in {normalized_region, "heel nederland"}:
+                    if normalized_region != "all" and region_name not in {normalized_region, "heel nederland"}:
                         continue
                     start_date = normalize_agenda_label(region_item.get("startdate"))[:10]
                     end_date = normalize_agenda_label(region_item.get("enddate"))[:10]
@@ -3362,7 +3362,7 @@ def fetch_school_holidays_for_schoolyear(school_year: str, region: str) -> Dict[
                                 "date": date_key,
                                 "label": vacation_type,
                                 "schoolyear": parsed_school_year,
-                                "region": region_name or normalized_region,
+                                "region": region_name,
                             }
                         )
 
@@ -5601,7 +5601,7 @@ def api_agenda_school_holidays():
         current_year = date.today().year
         school_years = [f"{current_year}-{current_year + 1}"]
 
-    region = normalize_agenda_region(request.args.get("region", "")) or AGENDA_SCHOOL_REGION
+    region = normalize_agenda_region(request.args.get("region", "")) or "all"
     items: List[Dict[str, Any]] = []
     latest_cached_at = 0.0
 

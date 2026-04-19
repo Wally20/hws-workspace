@@ -14,7 +14,7 @@ const agendaGrid = document.querySelector("#agendaGrid");
 const agendaDayPlans = {};
 let activeDraggedPlan = "";
 
-const SCHOOL_HOLIDAY_CACHE_PREFIX = "agenda-school-holidays-v2";
+const SCHOOL_HOLIDAY_CACHE_PREFIX = "agenda-school-holidays-v3";
 const PUBLIC_HOLIDAY_CACHE_PREFIX = "agenda-public-holidays-v2";
 const HOLIDAY_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
@@ -173,6 +173,62 @@ function formatSchoolHolidayLabel(label, region) {
   return `${normalizedLabel} (${normalizedRegion})`;
 }
 
+function getSchoolHolidayRegionOrder(region) {
+  const normalizedRegion = normalizeRegion(region);
+  if (normalizedRegion === "noord") {
+    return 1;
+  }
+  if (normalizedRegion === "midden") {
+    return 2;
+  }
+  if (normalizedRegion === "zuid") {
+    return 3;
+  }
+  return 99;
+}
+
+function buildSchoolHolidayLabels(items) {
+  const groupedItems = new Map();
+
+  items.forEach((item) => {
+    const dateKey = extractIsoDate(item?.date);
+    const baseLabel = normalizeText(item?.label);
+    const regionName = normalizeRegion(item?.region);
+    if (!dateKey || !baseLabel || !regionName) {
+      return;
+    }
+
+    const groupKey = `${dateKey}|${baseLabel}`;
+    if (!groupedItems.has(groupKey)) {
+      groupedItems.set(groupKey, {
+        date: dateKey,
+        baseLabel,
+        regions: new Set(),
+        schoolyear: normalizeText(item?.schoolyear),
+      });
+    }
+
+    groupedItems.get(groupKey).regions.add(regionName);
+  });
+
+  return Array.from(groupedItems.values()).map((group) => {
+    const regionNames = Array.from(group.regions);
+    const hasNationwide =
+      regionNames.includes("heel nederland") ||
+      ["noord", "midden", "zuid"].every((regionName) => group.regions.has(regionName));
+    const formattedLabel = hasNationwide
+      ? formatSchoolHolidayLabel(group.baseLabel, "heel nederland")
+      : `${group.baseLabel} (${regionNames.sort((left, right) => getSchoolHolidayRegionOrder(left) - getSchoolHolidayRegionOrder(right)).join(", ")})`;
+
+    return {
+      date: group.date,
+      label: formattedLabel,
+      schoolyear: group.schoolyear,
+      region: hasNationwide ? "heel nederland" : regionNames.join(","),
+    };
+  });
+}
+
 function extractIsoDate(value) {
   const normalizedValue = normalizeText(value);
   return normalizedValue ? normalizedValue.slice(0, 10) : "";
@@ -241,8 +297,8 @@ function getRequiredSchoolYears(years) {
   return Array.from(schoolYears).sort();
 }
 
-async function fetchSchoolHolidays(schoolYears, region = "midden") {
-  const normalizedRegion = normalizeRegion(region) || "midden";
+async function fetchSchoolHolidays(schoolYears, region = "all") {
+  const normalizedRegion = normalizeRegion(region) || "all";
   const cacheKey = `${SCHOOL_HOLIDAY_CACHE_PREFIX}:${schoolYears.join(",")}:${normalizedRegion}`;
   const schoolYearsParam = encodeURIComponent(schoolYears.join(","));
   const regionParam = encodeURIComponent(normalizedRegion);
@@ -253,27 +309,8 @@ async function fetchSchoolHolidays(schoolYears, region = "midden") {
   if (payload?.error) {
     throw new Error(payload.error);
   }
-  const holidays = [];
-  const seenItems = new Set();
   const items = Array.isArray(payload?.items) ? payload.items : [];
-  items.forEach((item) => {
-    const dateKey = extractIsoDate(item?.date);
-    const regionName = normalizeRegion(item?.region);
-    const label = formatSchoolHolidayLabel(item?.label, regionName);
-    const dedupeKey = `${dateKey}|${label}|${regionName}`;
-    if (!dateKey || !label || seenItems.has(dedupeKey)) {
-      return;
-    }
-    seenItems.add(dedupeKey);
-    holidays.push({
-      date: dateKey,
-      label,
-      schoolyear: normalizeText(item?.schoolyear),
-      region: regionName || normalizedRegion,
-    });
-  });
-
-  return holidays;
+  return buildSchoolHolidayLabels(items);
 }
 
 async function fetchPublicHolidays(years) {
@@ -379,7 +416,7 @@ async function loadAgendaExternalLabels() {
 
   const years = getCalendarYears(dayKeys);
   const schoolYears = getRequiredSchoolYears(years);
-  const schoolRegion = normalizeRegion(agendaGrid.dataset.schoolRegion) || "midden";
+  const schoolRegion = "all";
 
   const [schoolHolidayResult, publicHolidayResult] = await Promise.allSettled([
     fetchSchoolHolidays(schoolYears, schoolRegion),
