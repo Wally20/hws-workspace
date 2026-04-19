@@ -607,3 +607,43 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         finally:
             with legacy.get_db_connection() as connection:
                 connection.execute("DELETE FROM agenda_day_plans WHERE date = ?", (monday,))
+
+    def test_agenda_page_renders_external_labels_server_side(self):
+        monday_date = legacy.date.today() - legacy.timedelta(days=legacy.date.today().weekday())
+        monday = monday_date.isoformat()
+        school_year = f"{monday_date.year}-{monday_date.year + 1}"
+
+        with patch.object(
+            legacy,
+            "fetch_school_holidays_for_schoolyear",
+            return_value={
+                "items": [
+                    {
+                        "date": monday,
+                        "label": "Meivakantie",
+                        "schoolyear": school_year,
+                        "region": "heel nederland",
+                    }
+                ]
+            },
+        ), patch.object(
+            legacy,
+            "fetch_public_holidays_for_year",
+            return_value={
+                "items": [
+                    {
+                        "date": monday,
+                        "label": "Koningsdag",
+                        "localName": "Koningsdag",
+                        "name": "King's Day",
+                    }
+                ]
+            },
+        ):
+            response = self.build_authenticated_client().get("/agenda?week=0", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Meivakantie (heel Nederland)", content)
+        self.assertIn("Koningsdag", content)
+        self.assertIn("agenda-day-external-label", content)

@@ -93,7 +93,15 @@
                 Wis
               </button>
             </div>
-            <div class="agenda-day-external-labels" data-agenda-day-labels="{{ day.key }}" hidden></div>
+            <div
+              class="agenda-day-external-labels"
+              data-agenda-day-labels="{{ day.key }}"
+              {% if not agenda_external_labels.get(day.key) %}hidden{% endif %}
+            >
+              {% for label in agenda_external_labels.get(day.key, []) %}
+                <p class="agenda-day-external-label">{{ label }}</p>
+              {% endfor %}
+            </div>
           </div>
         {% endfor %}
 

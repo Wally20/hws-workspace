@@ -3433,6 +3433,123 @@ def fetch_public_holidays_for_year(year: int) -> Dict[str, Any]:
     return dict(result)
 
 
+def format_agenda_school_holiday_label(label: Any, region: Any) -> str:
+    normalized_label = normalize_agenda_label(label)
+    normalized_region = normalize_agenda_region(region)
+    if not normalized_label:
+        return ""
+    if not normalized_region:
+        return normalized_label
+    if normalized_region == "heel nederland":
+        return f"{normalized_label} (heel Nederland)"
+    return f"{normalized_label} ({normalized_region})"
+
+
+def get_agenda_school_holiday_region_order(region: Any) -> int:
+    normalized_region = normalize_agenda_region(region)
+    if normalized_region == "noord":
+        return 1
+    if normalized_region == "midden":
+        return 2
+    if normalized_region == "zuid":
+        return 3
+    return 99
+
+
+def build_agenda_school_holiday_labels(items: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    grouped_items: Dict[Tuple[str, str], Dict[str, Any]] = {}
+
+    for item in items:
+        date_key = normalize_agenda_label(item.get("date"))[:10]
+        base_label = normalize_agenda_label(item.get("label"))
+        region_name = normalize_agenda_region(item.get("region"))
+        if not date_key or not base_label or not region_name:
+            continue
+
+        group_key = (date_key, base_label)
+        group = grouped_items.setdefault(
+            group_key,
+            {
+                "date": date_key,
+                "base_label": base_label,
+                "regions": set(),
+            },
+        )
+        group["regions"].add(region_name)
+
+    labels: List[Dict[str, str]] = []
+    for group in grouped_items.values():
+        region_names = list(group["regions"])
+        has_nationwide = "heel nederland" in region_names or all(
+            region_name in group["regions"] for region_name in ("noord", "midden", "zuid")
+        )
+        if has_nationwide:
+            formatted_label = format_agenda_school_holiday_label(group["base_label"], "heel nederland")
+        else:
+            sorted_regions = ", ".join(
+                sorted(region_names, key=get_agenda_school_holiday_region_order)
+            )
+            formatted_label = f"{group['base_label']} ({sorted_regions})"
+
+        labels.append(
+            {
+                "date": group["date"],
+                "label": formatted_label,
+            }
+        )
+
+    labels.sort(key=lambda item: (item["date"], item["label"]))
+    return labels
+
+
+def build_agenda_external_labels(day_keys: List[str], school_region: str = "all") -> Dict[str, List[str]]:
+    labels_by_day: Dict[str, List[str]] = {day_key: [] for day_key in day_keys}
+    seen_labels: Dict[str, Set[str]] = {day_key: set() for day_key in day_keys}
+    valid_day_keys = set(day_keys)
+    years = sorted(
+        {
+            int(day_key[:4])
+            for day_key in day_keys
+            if len(day_key) >= 4 and day_key[:4].isdigit()
+        }
+    )
+    school_years = sorted(
+        {
+            f"{year - 1}-{year}"
+            for year in years
+        }
+        | {
+            f"{year}-{year + 1}"
+            for year in years
+        }
+    )
+
+    school_holiday_items: List[Dict[str, Any]] = []
+    for school_year in school_years:
+        payload = fetch_school_holidays_for_schoolyear(school_year, school_region)
+        school_holiday_items.extend(payload.get("items", []))
+
+    for holiday in build_agenda_school_holiday_labels(school_holiday_items):
+        date_key = normalize_agenda_label(holiday.get("date"))[:10]
+        label = normalize_agenda_label(holiday.get("label"))
+        if date_key not in valid_day_keys or not label or label in seen_labels[date_key]:
+            continue
+        seen_labels[date_key].add(label)
+        labels_by_day[date_key].append(label)
+
+    for year in years:
+        payload = fetch_public_holidays_for_year(year)
+        for holiday in payload.get("items", []):
+            date_key = normalize_agenda_label(holiday.get("date"))[:10]
+            label = normalize_agenda_label(holiday.get("label"))
+            if date_key not in valid_day_keys or not label or label in seen_labels[date_key]:
+                continue
+            seen_labels[date_key].add(label)
+            labels_by_day[date_key].append(label)
+
+    return labels_by_day
+
+
 def build_agenda_week_events(trainings: List[Dict[str, Any]], week_start: date) -> List[Dict[str, Any]]:
     calendar_start_minutes = 0
     pixels_per_hour = 56
@@ -5177,6 +5294,14 @@ def agenda_page() -> str:
         day["planType"] = day_plans.get(day["key"], "")
     agenda_day_plan_summary = build_agenda_day_plan_summary(week_days)
     week_end = week_start + timedelta(days=6)
+    agenda_external_labels: Dict[str, List[str]] = {day["key"]: [] for day in week_days}
+    try:
+        agenda_external_labels = build_agenda_external_labels(
+            [day["key"] for day in week_days],
+            AGENDA_SCHOOL_REGION,
+        )
+    except requests.RequestException:
+        agenda_external_labels = {day["key"]: [] for day in week_days}
     trainings = load_agenda_trainings(week_start.isoformat(), week_end.isoformat())
     calendar_events = build_agenda_week_events(trainings, week_start)
     time_slots = [f"{hour:02d}" for hour in range(24)]
@@ -5193,6 +5318,7 @@ def agenda_page() -> str:
         today_week_offset=0,
         agenda_day_plan_options=AGENDA_DAY_PLAN_OPTIONS,
         agenda_day_plan_summary=agenda_day_plan_summary,
+        agenda_external_labels=agenda_external_labels,
         agenda_school_region=AGENDA_SCHOOL_REGION,
         success=request.args.get("success", "").strip(),
         error=request.args.get("error", "").strip(),
