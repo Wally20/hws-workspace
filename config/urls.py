@@ -32,6 +32,7 @@ urlpatterns = [
     path("api/products/search", views.api_product_search, name="api_product_search"),
     path("api/dashboard-events", views.api_dashboard_events, name="api_dashboard_events"),
     path("api/dashboard-weather", views.api_dashboard_weather, name="api_dashboard_weather"),
+    path("api/agenda-school-holidays", views.api_agenda_school_holidays, name="api_agenda_school_holidays"),
 ]
 
 if settings.DEBUG:

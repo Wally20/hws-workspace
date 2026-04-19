@@ -228,56 +228,30 @@ function getRequiredSchoolYears(years) {
 
 async function fetchSchoolHolidays(schoolYears, region = "midden") {
   const normalizedRegion = normalizeRegion(region) || "midden";
-  const requests = schoolYears.map(async (schoolYear) => {
-    const cacheKey = `${SCHOOL_HOLIDAY_CACHE_PREFIX}:${schoolYear}`;
-    const url = `https://opendata.rijksoverheid.nl/v1/infotypes/schoolholidays/schoolyear/${schoolYear}?output=json`;
-    return fetchWithCache(url, cacheKey);
-  });
-
-  const results = await Promise.allSettled(requests);
+  const cacheKey = `${SCHOOL_HOLIDAY_CACHE_PREFIX}:${schoolYears.join(",")}:${normalizedRegion}`;
+  const schoolYearsParam = encodeURIComponent(schoolYears.join(","));
+  const regionParam = encodeURIComponent(normalizedRegion);
+  const payload = await fetchWithCache(
+    `/api/agenda-school-holidays?schoolYears=${schoolYearsParam}&region=${regionParam}`,
+    cacheKey,
+  );
   const holidays = [];
   const seenItems = new Set();
-
-  results.forEach((result) => {
-    if (result.status !== "fulfilled") {
-      console.error("Schoolvakanties konden niet worden geladen.", result.reason);
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  items.forEach((item) => {
+    const dateKey = extractIsoDate(item?.date);
+    const label = normalizeText(item?.label);
+    const regionName = normalizeRegion(item?.region);
+    const dedupeKey = `${dateKey}|${label}|${regionName}`;
+    if (!dateKey || !label || seenItems.has(dedupeKey)) {
       return;
     }
-
-    // The schoolyear endpoint returns a single object, while the overview endpoint returns an array.
-    const records = Array.isArray(result.value) ? result.value : result.value ? [result.value] : [];
-    records.forEach((record) => {
-      const contentItems = Array.isArray(record?.content) ? record.content : [];
-      contentItems.forEach((contentItem) => {
-        const schoolYear = normalizeText(contentItem?.schoolyear);
-        const vacations = Array.isArray(contentItem?.vacations) ? contentItem.vacations : [];
-        vacations.forEach((vacation) => {
-          const vacationType = normalizeText(vacation?.type);
-          const regions = Array.isArray(vacation?.regions) ? vacation.regions : [];
-          regions.forEach((regionItem) => {
-            const regionName = normalizeRegion(regionItem?.region);
-            if (regionName !== normalizedRegion && regionName !== "heel nederland") {
-              return;
-            }
-
-            const startDate = extractIsoDate(regionItem?.startdate);
-            const endDate = extractIsoDate(regionItem?.enddate);
-            expandDateRange(startDate, endDate).forEach((dateKey) => {
-              const dedupeKey = `${dateKey}|${vacationType}|${regionName}`;
-              if (!dateKey || !vacationType || seenItems.has(dedupeKey)) {
-                return;
-              }
-              seenItems.add(dedupeKey);
-              holidays.push({
-                date: dateKey,
-                label: vacationType,
-                schoolyear: schoolYear,
-                region: regionName || normalizedRegion,
-              });
-            });
-          });
-        });
-      });
+    seenItems.add(dedupeKey);
+    holidays.push({
+      date: dateKey,
+      label,
+      schoolyear: normalizeText(item?.schoolyear),
+      region: regionName || normalizedRegion,
     });
   });
 

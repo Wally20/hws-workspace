@@ -45,6 +45,7 @@ api_orders = legacy_view("api_orders")
 api_dashboard_summary = legacy_view("api_dashboard_summary")
 api_product_search = legacy_view("api_product_search")
 api_dashboard_weather = legacy_view("api_dashboard_weather")
+api_agenda_school_holidays = legacy_view("api_agenda_school_holidays")
 
 
 @csrf_exempt

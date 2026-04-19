@@ -28,6 +28,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 ECWID_API_BASE = "https://app.ecwid.com/api/v3"
 MONEYBIRD_API_BASE = "https://moneybird.com/api/v2"
+RIJKSOVERHEID_SCHOOL_HOLIDAYS_API_BASE = "https://opendata.rijksoverheid.nl/v1/infotypes/schoolholidays"
 BUNDLED_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 DATA_DIR = os.getenv("DATA_DIR", BUNDLED_DATA_DIR)
 DATABASE_PATH = os.path.join(DATA_DIR, "app.db")
@@ -51,6 +52,7 @@ app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 31536000
 ASSET_VERSION = str(int(time.time()))
 
 CACHE_TTL_SECONDS = 300
+AGENDA_EXTERNAL_CACHE_TTL_SECONDS = 43200
 orders_cache: Dict[str, Any] = {
     "payload": None,
     "cached_at": 0.0,
@@ -63,6 +65,8 @@ ecwid_orders_cache: Dict[str, Any] = {
 }
 ecwid_orders_cache_lock = threading.Lock()
 ecwid_refresh_in_progress = False
+agenda_school_holidays_cache: Dict[str, Any] = {}
+agenda_school_holidays_cache_lock = threading.Lock()
 content_album_lock = threading.Lock()
 
 PASSWORD_HASH_METHOD = os.getenv("PASSWORD_HASH_METHOD", "").strip() or "scrypt"
@@ -3284,6 +3288,98 @@ def build_week_label(week_start: date) -> str:
     )
 
 
+def normalize_agenda_label(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def normalize_agenda_region(value: Any) -> str:
+    return normalize_agenda_label(value).lower()
+
+
+def expand_agenda_date_range(start_date: str, end_date: str) -> List[str]:
+    if not start_date or not end_date:
+        return []
+
+    current_date = date.fromisoformat(start_date)
+    final_date = date.fromisoformat(end_date)
+    expanded_dates: List[str] = []
+
+    while current_date <= final_date:
+        expanded_dates.append(current_date.isoformat())
+        current_date += timedelta(days=1)
+
+    return expanded_dates
+
+
+def fetch_school_holidays_for_schoolyear(school_year: str, region: str) -> Dict[str, Any]:
+    normalized_school_year = normalize_agenda_label(school_year)
+    normalized_region = normalize_agenda_region(region) or "midden"
+    cache_key = f"{normalized_school_year}:{normalized_region}"
+    now = time.time()
+
+    with agenda_school_holidays_cache_lock:
+        cached_payload = agenda_school_holidays_cache.get(cache_key)
+        if cached_payload and now - float(cached_payload.get("cached_at") or 0.0) < AGENDA_EXTERNAL_CACHE_TTL_SECONDS:
+            return dict(cached_payload["payload"])
+
+    response = requests.get(
+        f"{RIJKSOVERHEID_SCHOOL_HOLIDAYS_API_BASE}/schoolyear/{normalized_school_year}",
+        params={"output": "json"},
+        timeout=12,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    records = payload if isinstance(payload, list) else [payload]
+    items: List[Dict[str, Any]] = []
+    seen_items: Set[Tuple[str, str, str]] = set()
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        for content_item in record.get("content", []):
+            if not isinstance(content_item, dict):
+                continue
+            parsed_school_year = normalize_agenda_label(content_item.get("schoolyear"))
+            for vacation in content_item.get("vacations", []):
+                if not isinstance(vacation, dict):
+                    continue
+                vacation_type = normalize_agenda_label(vacation.get("type"))
+                for region_item in vacation.get("regions", []):
+                    if not isinstance(region_item, dict):
+                        continue
+                    region_name = normalize_agenda_region(region_item.get("region"))
+                    if region_name not in {normalized_region, "heel nederland"}:
+                        continue
+                    start_date = normalize_agenda_label(region_item.get("startdate"))[:10]
+                    end_date = normalize_agenda_label(region_item.get("enddate"))[:10]
+                    for date_key in expand_agenda_date_range(start_date, end_date):
+                        dedupe_key = (date_key, vacation_type, region_name)
+                        if not date_key or not vacation_type or dedupe_key in seen_items:
+                            continue
+                        seen_items.add(dedupe_key)
+                        items.append(
+                            {
+                                "date": date_key,
+                                "label": vacation_type,
+                                "schoolyear": parsed_school_year,
+                                "region": region_name or normalized_region,
+                            }
+                        )
+
+    result = {
+        "items": items,
+        "schoolYear": normalized_school_year,
+        "region": normalized_region,
+        "cachedAt": now,
+    }
+    with agenda_school_holidays_cache_lock:
+        agenda_school_holidays_cache[cache_key] = {
+            "payload": result,
+            "cached_at": now,
+        }
+    return dict(result)
+
+
 def build_agenda_week_events(trainings: List[Dict[str, Any]], week_start: date) -> List[Dict[str, Any]]:
     calendar_start_minutes = 0
     pixels_per_hour = 56
@@ -5489,6 +5585,43 @@ def api_dashboard_weather():
         )
     except (requests.RequestException, TypeError, ValueError):
         return jsonify({"error": "Weergegevens ophalen mislukt"}), 502
+
+
+@app.get("/api/agenda-school-holidays")
+def api_agenda_school_holidays():
+    access_redirect = require_page_access("agenda")
+    if access_redirect is not None:
+        return access_redirect
+
+    raw_school_years = request.args.get("schoolYears", "").strip()
+    school_years = []
+    if raw_school_years:
+        school_years = [normalize_agenda_label(value) for value in raw_school_years.split(",") if normalize_agenda_label(value)]
+    if not school_years:
+        current_year = date.today().year
+        school_years = [f"{current_year}-{current_year + 1}"]
+
+    region = normalize_agenda_region(request.args.get("region", "")) or AGENDA_SCHOOL_REGION
+    items: List[Dict[str, Any]] = []
+    latest_cached_at = 0.0
+
+    try:
+        for school_year in school_years:
+            payload = fetch_school_holidays_for_schoolyear(school_year, region)
+            items.extend(payload.get("items", []))
+            latest_cached_at = max(latest_cached_at, float(payload.get("cachedAt") or 0.0))
+        return jsonify(
+            {
+                "items": items,
+                "region": region,
+                "cachedAt": latest_cached_at,
+            }
+        )
+    except requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else 502
+        return jsonify({"error": "Schoolvakanties ophalen mislukt"}), status_code
+    except requests.RequestException:
+        return jsonify({"error": "Netwerkfout bij schoolvakanties"}), 502
 
 
 @app.after_request
