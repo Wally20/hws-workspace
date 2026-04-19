@@ -15,7 +15,7 @@ const agendaDayPlans = {};
 let activeDraggedPlan = "";
 
 const SCHOOL_HOLIDAY_CACHE_PREFIX = "agenda-school-holidays-v3";
-const PUBLIC_HOLIDAY_CACHE_PREFIX = "agenda-public-holidays-v2";
+const PUBLIC_HOLIDAY_CACHE_PREFIX = "agenda-public-holidays-v3";
 const HOLIDAY_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 function setModalOpen(isOpen) {
@@ -314,38 +314,29 @@ async function fetchSchoolHolidays(schoolYears, region = "all") {
 }
 
 async function fetchPublicHolidays(years) {
-  const requests = years.map(async (year) => {
-    const cacheKey = `${PUBLIC_HOLIDAY_CACHE_PREFIX}:${year}:NL`;
-    const url = `https://date.nager.at/api/v3/PublicHolidays/${year}/NL`;
-    return fetchWithCache(url, cacheKey);
-  });
-
-  const results = await Promise.allSettled(requests);
+  const cacheKey = `${PUBLIC_HOLIDAY_CACHE_PREFIX}:${years.join(",")}:NL`;
+  const yearsParam = encodeURIComponent(years.join(","));
+  const payload = await fetchWithCache(`/api/agenda-public-holidays?years=${yearsParam}`, cacheKey);
+  if (payload?.error) {
+    throw new Error(payload.error);
+  }
   const holidays = [];
   const seenItems = new Set();
-
-  results.forEach((result) => {
-    if (result.status !== "fulfilled") {
-      console.error("Feestdagen konden niet worden geladen.", result.reason);
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  items.forEach((item) => {
+    const dateKey = extractIsoDate(item?.date);
+    const label = normalizeText(item?.localName) || normalizeText(item?.name) || normalizeText(item?.label);
+    const dedupeKey = `${dateKey}|${label}`;
+    if (!dateKey || !label || seenItems.has(dedupeKey)) {
       return;
     }
 
-    const items = Array.isArray(result.value) ? result.value : [];
-    items.forEach((item) => {
-      const dateKey = extractIsoDate(item?.date);
-      const label = normalizeText(item?.localName) || normalizeText(item?.name);
-      const dedupeKey = `${dateKey}|${label}`;
-      if (!dateKey || !label || seenItems.has(dedupeKey)) {
-        return;
-      }
-
-      seenItems.add(dedupeKey);
-      holidays.push({
-        date: dateKey,
-        localName: normalizeText(item?.localName),
-        name: normalizeText(item?.name),
-        label,
-      });
+    seenItems.add(dedupeKey);
+    holidays.push({
+      date: dateKey,
+      localName: normalizeText(item?.localName),
+      name: normalizeText(item?.name),
+      label,
     });
   });
 

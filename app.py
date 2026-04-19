@@ -29,6 +29,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 ECWID_API_BASE = "https://app.ecwid.com/api/v3"
 MONEYBIRD_API_BASE = "https://moneybird.com/api/v2"
 RIJKSOVERHEID_SCHOOL_HOLIDAYS_API_BASE = "https://opendata.rijksoverheid.nl/v1/infotypes/schoolholidays"
+NAGER_PUBLIC_HOLIDAYS_API_BASE = "https://date.nager.at/api/v3/PublicHolidays"
 BUNDLED_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 DATA_DIR = os.getenv("DATA_DIR", BUNDLED_DATA_DIR)
 DATABASE_PATH = os.path.join(DATA_DIR, "app.db")
@@ -67,6 +68,8 @@ ecwid_orders_cache_lock = threading.Lock()
 ecwid_refresh_in_progress = False
 agenda_school_holidays_cache: Dict[str, Any] = {}
 agenda_school_holidays_cache_lock = threading.Lock()
+agenda_public_holidays_cache: Dict[str, Any] = {}
+agenda_public_holidays_cache_lock = threading.Lock()
 content_album_lock = threading.Lock()
 
 PASSWORD_HASH_METHOD = os.getenv("PASSWORD_HASH_METHOD", "").strip() or "scrypt"
@@ -3380,6 +3383,56 @@ def fetch_school_holidays_for_schoolyear(school_year: str, region: str) -> Dict[
     return dict(result)
 
 
+def fetch_public_holidays_for_year(year: int) -> Dict[str, Any]:
+    normalized_year = int(year)
+    cache_key = str(normalized_year)
+    now = time.time()
+
+    with agenda_public_holidays_cache_lock:
+        cached_payload = agenda_public_holidays_cache.get(cache_key)
+        if cached_payload and now - float(cached_payload.get("cached_at") or 0.0) < AGENDA_EXTERNAL_CACHE_TTL_SECONDS:
+            return dict(cached_payload["payload"])
+
+    response = requests.get(
+        f"{NAGER_PUBLIC_HOLIDAYS_API_BASE}/{normalized_year}/NL",
+        timeout=12,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    items: List[Dict[str, Any]] = []
+    seen_items: Set[Tuple[str, str]] = set()
+
+    for item in payload if isinstance(payload, list) else []:
+        if not isinstance(item, dict):
+            continue
+        date_key = normalize_agenda_label(item.get("date"))
+        label = normalize_agenda_label(item.get("localName")) or normalize_agenda_label(item.get("name"))
+        dedupe_key = (date_key, label)
+        if not date_key or not label or dedupe_key in seen_items:
+            continue
+        seen_items.add(dedupe_key)
+        items.append(
+            {
+                "date": date_key,
+                "label": label,
+                "localName": normalize_agenda_label(item.get("localName")),
+                "name": normalize_agenda_label(item.get("name")),
+            }
+        )
+
+    result = {
+        "items": items,
+        "year": normalized_year,
+        "cachedAt": now,
+    }
+    with agenda_public_holidays_cache_lock:
+        agenda_public_holidays_cache[cache_key] = {
+            "payload": result,
+            "cached_at": now,
+        }
+    return dict(result)
+
+
 def build_agenda_week_events(trainings: List[Dict[str, Any]], week_start: date) -> List[Dict[str, Any]]:
     calendar_start_minutes = 0
     pixels_per_hour = 56
@@ -5622,6 +5675,48 @@ def api_agenda_school_holidays():
         return jsonify({"error": "Schoolvakanties ophalen mislukt"}), status_code
     except requests.RequestException:
         return jsonify({"error": "Netwerkfout bij schoolvakanties"}), 502
+
+
+@app.get("/api/agenda-public-holidays")
+def api_agenda_public_holidays():
+    access_redirect = require_page_access("agenda")
+    if access_redirect is not None:
+        return access_redirect
+
+    raw_years = request.args.get("years", "").strip()
+    years: List[int] = []
+    if raw_years:
+        for value in raw_years.split(","):
+            normalized_value = normalize_agenda_label(value)
+            if not normalized_value:
+                continue
+            try:
+                years.append(int(normalized_value))
+            except ValueError:
+                continue
+    if not years:
+        current_year = date.today().year
+        years = [current_year, current_year + 1]
+
+    items: List[Dict[str, Any]] = []
+    latest_cached_at = 0.0
+
+    try:
+        for year in years:
+            payload = fetch_public_holidays_for_year(year)
+            items.extend(payload.get("items", []))
+            latest_cached_at = max(latest_cached_at, float(payload.get("cachedAt") or 0.0))
+        return jsonify(
+            {
+                "items": items,
+                "cachedAt": latest_cached_at,
+            }
+        )
+    except requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else 502
+        return jsonify({"error": "Feestdagen ophalen mislukt"}), status_code
+    except requests.RequestException:
+        return jsonify({"error": "Netwerkfout bij feestdagen"}), 502
 
 
 @app.after_request
