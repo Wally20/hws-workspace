@@ -51,6 +51,7 @@
       <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
       <input type="hidden" name="action" value="save_day_plans">
       <input type="hidden" name="view" value="{{ agenda_view }}">
+      <input type="hidden" name="summary_filter" value="{{ agenda_summary_filter }}">
       <input type="hidden" name="week" value="{{ week_offset }}">
       <input type="hidden" name="month" value="{{ month_offset }}">
       <input type="hidden" name="day_plans" id="agendaDayPlansInput">
@@ -65,20 +66,20 @@
     <div class="agenda-toolbar">
       <div class="agenda-toolbar-left">
         {% if agenda_view == "month" %}
-          <a href="/agenda?view=month&month={{ month_offset - 1 }}&week={{ week_offset }}" class="subtle-button agenda-nav-button">&#8249;</a>
-          <a href="/agenda?view=month&month={{ month_offset + 1 }}&week={{ week_offset }}" class="subtle-button agenda-nav-button">&#8250;</a>
-          <a href="/agenda?view=month&month=0&week={{ week_offset }}" class="subtle-button agenda-today-button">Vandaag</a>
+          <a href="/agenda?view=month&month={{ month_offset - 1 }}&week={{ week_offset }}&summary_filter={{ agenda_summary_filter }}" class="subtle-button agenda-nav-button">&#8249;</a>
+          <a href="/agenda?view=month&month={{ month_offset + 1 }}&week={{ week_offset }}&summary_filter={{ agenda_summary_filter }}" class="subtle-button agenda-nav-button">&#8250;</a>
+          <a href="/agenda?view=month&month=0&week={{ week_offset }}&summary_filter={{ agenda_summary_filter }}" class="subtle-button agenda-today-button">Vandaag</a>
         {% else %}
-          <a href="/agenda?view=week&week={{ week_offset - 1 }}&month={{ month_offset }}" class="subtle-button agenda-nav-button">&#8249;</a>
-          <a href="/agenda?view=week&week={{ week_offset + 1 }}&month={{ month_offset }}" class="subtle-button agenda-nav-button">&#8250;</a>
-          <a href="/agenda?view=week&week=0&month={{ month_offset }}" class="subtle-button agenda-today-button">Vandaag</a>
+          <a href="/agenda?view=week&week={{ week_offset - 1 }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}" class="subtle-button agenda-nav-button">&#8249;</a>
+          <a href="/agenda?view=week&week={{ week_offset + 1 }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}" class="subtle-button agenda-nav-button">&#8250;</a>
+          <a href="/agenda?view=week&week=0&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}" class="subtle-button agenda-today-button">Vandaag</a>
         {% endif %}
       </div>
       <h2 class="agenda-week-label">{{ month_label if agenda_view == "month" else week_label }}</h2>
       <div class="agenda-toolbar-right">
         <button type="button" id="toggleAgendaPlannerEdit" class="subtle-button action-small agenda-planner-toggle" aria-controls="agendaPlannerEditor" aria-expanded="false">Dagplanning</button>
-        <a href="/agenda?view=week&week={{ week_offset }}&month={{ month_offset }}" class="agenda-view-pill{% if agenda_view == "week" %} agenda-view-pill-active{% endif %}">Week</a>
-        <a href="/agenda?view=month&month={{ month_offset }}&week={{ week_offset }}" class="agenda-view-pill{% if agenda_view == "month" %} agenda-view-pill-active{% endif %}">Maand</a>
+        <a href="/agenda?view=week&week={{ week_offset }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}" class="agenda-view-pill{% if agenda_view == "week" %} agenda-view-pill-active{% endif %}">Week</a>
+        <a href="/agenda?view=month&month={{ month_offset }}&week={{ week_offset }}&summary_filter={{ agenda_summary_filter }}" class="agenda-view-pill{% if agenda_view == "month" %} agenda-view-pill-active{% endif %}">Maand</a>
       </div>
     </div>
 
@@ -189,24 +190,43 @@
     {% endif %}
   </section>
 
-  <section class="agenda-plan-summary-grid" aria-label="Weekoverzicht dagplanning">
-    {% for item in agenda_day_plan_summary %}
-      <article class="summary-card compact-summary-card agenda-plan-summary-card">
-        <p class="panel-title">{{ item.label }}</p>
-        <p class="agenda-plan-summary-value">{{ item.count }}</p>
-        <p class="agenda-plan-summary-caption">{{ "dag" if item.count == 1 else "dagen" }}</p>
-        {% if item.details %}
-          <div class="compact-stat-list agenda-plan-summary-details">
-            {% for detail in item.details %}
-              <div class="compact-stat-row">
-                <span>{{ detail.label }}</span>
-                <span class="compact-stat-value">{{ detail.count }}</span>
-              </div>
-            {% endfor %}
-          </div>
-        {% endif %}
-      </article>
-    {% endfor %}
+  <section class="agenda-plan-summary-section" aria-label="Overzicht dagplanning">
+    <div class="agenda-plan-summary-header">
+      <div>
+        <p class="panel-title">Overzicht dagplanning</p>
+        <p class="feature-list-subtitle">{{ agenda_summary_filter_description }}</p>
+      </div>
+      <div class="feature-filter-group agenda-plan-summary-filters" aria-label="Filter tegels dagplanning">
+        {% for option in agenda_summary_filter_options %}
+          <a
+            href="/agenda?view={{ agenda_view }}&week={{ week_offset }}&month={{ month_offset }}&summary_filter={{ option.key }}"
+            class="subtle-button{% if agenda_summary_filter == option.key %} subtle-button-strong{% endif %}"
+          >
+            {{ option.label }}
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="agenda-plan-summary-grid">
+      {% for item in agenda_day_plan_summary %}
+        <article class="summary-card compact-summary-card agenda-plan-summary-card">
+          <p class="panel-title">{{ item.label }}</p>
+          <p class="agenda-plan-summary-value">{{ item.count }}</p>
+          <p class="agenda-plan-summary-caption">{{ "dag" if item.count == 1 else "dagen" }}</p>
+          {% if item.details %}
+            <div class="compact-stat-list agenda-plan-summary-details">
+              {% for detail in item.details %}
+                <div class="compact-stat-row">
+                  <span>{{ detail.label }}</span>
+                  <span class="compact-stat-value">{{ detail.count }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
   </section>
 
   <div id="agendaModal" class="agenda-modal" hidden>
@@ -220,6 +240,7 @@
       <form class="agenda-form" method="post" action="/agenda">
         <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="view" value="{{ agenda_view }}">
+        <input type="hidden" name="summary_filter" value="{{ agenda_summary_filter }}">
         <input type="hidden" name="week" value="{{ week_offset }}">
         <input type="hidden" name="month" value="{{ month_offset }}">
         <label class="field">

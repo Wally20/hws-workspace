@@ -704,8 +704,38 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             with legacy.get_db_connection() as connection:
                 connection.execute("DELETE FROM agenda_day_plans WHERE date = ?", (visible_date,))
 
+    def test_agenda_page_renders_summary_filter_controls(self):
+        response = self.build_authenticated_client().get("/agenda?summary_filter=season_2026_2027", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Overzicht dagplanning", content)
+        self.assertIn("Totaal", content)
+        self.assertIn("Seizoen 2026/2027", content)
+        self.assertIn("Maandag 24 augustus 2026 t/m zondag 13 juni 2027", content)
+        self.assertIn("summary_filter=season_2026_2027", content)
+
 
 class AgendaDayPlanSummaryTests(SimpleTestCase):
+    def test_filter_agenda_day_plans_for_summary_keeps_only_days_inside_season(self):
+        filtered_day_plans = legacy.filter_agenda_day_plans_for_summary(
+            [
+                {"date": "2026-08-23", "planType": "Geen activiteit"},
+                {"date": "2026-08-24", "planType": "Geen activiteit"},
+                {"date": "2027-06-13", "planType": "Voetbaldag"},
+                {"date": "2027-06-14", "planType": "Techniektrainingen"},
+            ],
+            "season_2026_2027",
+        )
+
+        self.assertEqual(
+            filtered_day_plans,
+            [
+                {"date": "2026-08-24", "planType": "Geen activiteit"},
+                {"date": "2027-06-13", "planType": "Voetbaldag"},
+            ],
+        )
+
     def test_build_agenda_day_plan_summary_counts_all_saved_days_per_weekday(self):
         summary = legacy.build_agenda_day_plan_summary(
             [

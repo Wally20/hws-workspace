@@ -1011,6 +1011,22 @@ textarea:focus {
   gap: 18px;
 }
 
+.agenda-plan-summary-section {
+  display: grid;
+  gap: 18px;
+}
+
+.agenda-plan-summary-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.agenda-plan-summary-filters {
+  justify-content: flex-end;
+}
+
 .agenda-plan-summary-card {
   min-height: 180px;
   background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
@@ -2550,5 +2566,13 @@ textarea:focus {
     width: 100%;
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .agenda-plan-summary-header {
+    flex-direction: column;
+  }
+
+  .agenda-plan-summary-filters {
+    justify-content: flex-start;
   }
 }

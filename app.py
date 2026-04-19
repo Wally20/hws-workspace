@@ -42,6 +42,20 @@ AGENDA_DAY_PLAN_OPTIONS = (
     "Samenwerkende amateurclubs",
     "Techniektrainingen",
 )
+AGENDA_SUMMARY_FILTER_OPTIONS = (
+    {
+        "key": "total",
+        "label": "Totaal",
+        "description": "Alle ingevoerde dagen",
+    },
+    {
+        "key": "season_2026_2027",
+        "label": "Seizoen 2026/2027",
+        "description": "Maandag 24 augustus 2026 t/m zondag 13 juni 2027",
+        "start": date(2026, 8, 24),
+        "end": date(2027, 6, 13),
+    },
+)
 DUTCH_MONTH_NAMES = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
 DUTCH_WEEKDAY_NAMES = [
     "Maandag",
@@ -1639,6 +1653,40 @@ def load_all_agenda_day_plans() -> List[Dict[str, str]]:
         for row in rows
         if str(row["date"] or "").strip() and str(row["plan_type"] or "").strip()
     ]
+
+
+def normalize_agenda_summary_filter(value: Any) -> str:
+    normalized_value = str(value or "").strip().lower()
+    valid_keys = {str(option.get("key") or "").strip() for option in AGENDA_SUMMARY_FILTER_OPTIONS}
+    return normalized_value if normalized_value in valid_keys else "total"
+
+
+def get_agenda_summary_filter_option(filter_key: str) -> Dict[str, Any]:
+    normalized_key = normalize_agenda_summary_filter(filter_key)
+    for option in AGENDA_SUMMARY_FILTER_OPTIONS:
+        if option.get("key") == normalized_key:
+            return option
+    return AGENDA_SUMMARY_FILTER_OPTIONS[0]
+
+
+def filter_agenda_day_plans_for_summary(day_plans: List[Dict[str, Any]], filter_key: str) -> List[Dict[str, Any]]:
+    selected_filter = get_agenda_summary_filter_option(filter_key)
+    start_date = selected_filter.get("start")
+    end_date = selected_filter.get("end")
+    if not isinstance(start_date, date) or not isinstance(end_date, date):
+        return list(day_plans)
+
+    filtered_day_plans: List[Dict[str, Any]] = []
+    for day_plan in day_plans:
+        current_date = day_plan.get("date")
+        if isinstance(current_date, str):
+            current_date = parse_iso_date(current_date.strip())
+        if not isinstance(current_date, date):
+            continue
+        if start_date <= current_date <= end_date:
+            filtered_day_plans.append(day_plan)
+
+    return filtered_day_plans
 
 
 def save_agenda_day_plans(day_plans: Dict[str, str], replace_dates: Optional[List[str]] = None) -> None:
@@ -5322,13 +5370,17 @@ def agenda_page() -> str:
     view_mode = normalize_agenda_label(request.args.get("view", "week")).lower() or "week"
     if view_mode not in {"week", "month"}:
         view_mode = "week"
+    summary_filter = normalize_agenda_summary_filter(request.args.get("summary_filter", "total"))
     week_offset = request.args.get("week", default=0, type=int)
     month_offset = request.args.get("month", default=0, type=int)
     redirect_week = request.form.get("week", "").strip()
     redirect_month = request.form.get("month", "").strip()
     redirect_view = normalize_agenda_label(request.form.get("view", "")).lower()
+    redirect_summary_filter = request.form.get("summary_filter", "").strip()
     if redirect_view in {"week", "month"}:
         view_mode = redirect_view
+    if redirect_summary_filter:
+        summary_filter = normalize_agenda_summary_filter(redirect_summary_filter)
     if redirect_week:
         try:
             week_offset = int(redirect_week)
@@ -5371,6 +5423,7 @@ def agenda_page() -> str:
                     url_for(
                         "agenda_page",
                         view=view_mode,
+                        summary_filter=summary_filter,
                         week=week_offset,
                         month=month_offset,
                         success="Dagplanning opgeslagen.",
@@ -5381,6 +5434,7 @@ def agenda_page() -> str:
                     url_for(
                         "agenda_page",
                         view=view_mode,
+                        summary_filter=summary_filter,
                         week=week_offset,
                         month=month_offset,
                         error=str(exc),
@@ -5407,13 +5461,22 @@ def agenda_page() -> str:
                 url_for(
                     "agenda_page",
                     view=view_mode,
+                    summary_filter=summary_filter,
                     week=week_offset,
                     month=month_offset,
                     success="Training toegevoegd.",
                 )
             )
 
-        return redirect(url_for("agenda_page", view=view_mode, week=week_offset, month=month_offset))
+        return redirect(
+            url_for(
+                "agenda_page",
+                view=view_mode,
+                summary_filter=summary_filter,
+                week=week_offset,
+                month=month_offset,
+            )
+        )
 
     today = date.today()
     week_start = today - timedelta(days=today.weekday()) + timedelta(days=week_offset * 7)
@@ -5425,9 +5488,11 @@ def agenda_page() -> str:
     visible_day_keys = [day["key"] for day in visible_days]
     day_plans = load_agenda_day_plans(visible_day_keys)
     all_day_plans = load_all_agenda_day_plans()
+    filtered_summary_day_plans = filter_agenda_day_plans_for_summary(all_day_plans, summary_filter)
+    selected_summary_filter = get_agenda_summary_filter_option(summary_filter)
     for day in visible_days:
         day["planType"] = day_plans.get(day["key"], "")
-    agenda_day_plan_summary = build_agenda_day_plan_summary(all_day_plans)
+    agenda_day_plan_summary = build_agenda_day_plan_summary(filtered_summary_day_plans)
     week_end = week_start + timedelta(days=6)
     month_visible_start = month_days[0]["date"] if month_days else month_start
     month_visible_end = month_days[-1]["date"] if month_days else month_start
@@ -5451,6 +5516,10 @@ def agenda_page() -> str:
         active_page="agenda",
         trainings=trainings,
         agenda_view=view_mode,
+        agenda_summary_filter=summary_filter,
+        agenda_summary_filter_options=AGENDA_SUMMARY_FILTER_OPTIONS,
+        agenda_summary_filter_label=selected_summary_filter.get("label", "Totaal"),
+        agenda_summary_filter_description=selected_summary_filter.get("description", ""),
         week_days=week_days,
         week_offset=week_offset,
         week_label=build_week_label(week_start),
