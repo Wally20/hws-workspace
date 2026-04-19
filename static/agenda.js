@@ -14,8 +14,8 @@ const agendaGrid = document.querySelector("#agendaGrid");
 const agendaDayPlans = {};
 let activeDraggedPlan = "";
 
-const SCHOOL_HOLIDAY_CACHE_PREFIX = "agenda-school-holidays";
-const PUBLIC_HOLIDAY_CACHE_PREFIX = "agenda-public-holidays";
+const SCHOOL_HOLIDAY_CACHE_PREFIX = "agenda-school-holidays-v2";
+const PUBLIC_HOLIDAY_CACHE_PREFIX = "agenda-public-holidays-v2";
 const HOLIDAY_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 function setModalOpen(isOpen) {
@@ -250,6 +250,9 @@ async function fetchSchoolHolidays(schoolYears, region = "midden") {
     `/api/agenda-school-holidays?schoolYears=${schoolYearsParam}&region=${regionParam}`,
     cacheKey,
   );
+  if (payload?.error) {
+    throw new Error(payload.error);
+  }
   const holidays = [];
   const seenItems = new Set();
   const items = Array.isArray(payload?.items) ? payload.items : [];
@@ -378,10 +381,19 @@ async function loadAgendaExternalLabels() {
   const schoolYears = getRequiredSchoolYears(years);
   const schoolRegion = normalizeRegion(agendaGrid.dataset.schoolRegion) || "midden";
 
-  const [schoolHolidays, publicHolidays] = await Promise.all([
+  const [schoolHolidayResult, publicHolidayResult] = await Promise.allSettled([
     fetchSchoolHolidays(schoolYears, schoolRegion),
     fetchPublicHolidays(years),
   ]);
+  const schoolHolidays = schoolHolidayResult.status === "fulfilled" ? schoolHolidayResult.value : [];
+  const publicHolidays = publicHolidayResult.status === "fulfilled" ? publicHolidayResult.value : [];
+
+  if (schoolHolidayResult.status !== "fulfilled") {
+    console.error("Schoolvakanties konden niet worden geladen.", schoolHolidayResult.reason);
+  }
+  if (publicHolidayResult.status !== "fulfilled") {
+    console.error("Feestdagen konden niet worden geladen.", publicHolidayResult.reason);
+  }
 
   const labelsByDay = mapToCalendarDays(dayKeys, schoolHolidays, publicHolidays);
   dayKeys.forEach((dayKey) => {
