@@ -1035,10 +1035,11 @@ textarea:focus {
 }
 
 .agenda-grid {
+  --agenda-header-height: 164px;
   position: relative;
   display: grid;
   grid-template-columns: 56px repeat(7, minmax(0, 1fr));
-  grid-template-rows: 118px repeat(24, 56px);
+  grid-template-rows: var(--agenda-header-height) repeat(24, 56px);
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -1058,8 +1059,8 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  justify-content: center;
-  gap: 10px;
+  justify-content: flex-start;
+  gap: 8px;
   padding: 12px 10px;
   background: #fafafa;
   font-size: 0.95rem;
@@ -1071,6 +1072,25 @@ textarea:focus {
 .agenda-day-label {
   display: block;
   text-align: center;
+}
+
+.agenda-day-external-labels[hidden] {
+  display: none;
+}
+
+.agenda-day-external-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agenda-day-external-label {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #172033;
+  text-transform: none;
 }
 
 .agenda-day-plan-dropzone {
@@ -1153,7 +1173,7 @@ textarea:focus {
 
 .agenda-event {
   position: absolute;
-  top: calc(118px + var(--event-top));
+  top: calc(var(--agenda-header-height) + var(--event-top));
   left: calc(56px + (var(--day-index) * ((100% - 56px) / 7)) + 6px);
   width: calc(((100% - 56px) / 7) - 12px);
   height: var(--event-height);
@@ -2294,8 +2314,9 @@ textarea:focus {
   }
 
   .agenda-grid {
+    --agenda-header-height: 148px;
     grid-template-columns: 40px repeat(7, minmax(0, 1fr));
-    grid-template-rows: 116px repeat(24, 50px);
+    grid-template-rows: var(--agenda-header-height) repeat(24, 50px);
   }
 
   .agenda-plan-summary-grid {
@@ -2305,6 +2326,10 @@ textarea:focus {
   .agenda-day-header {
     font-size: 0.78rem;
     padding: 8px 6px;
+  }
+
+  .agenda-day-external-label {
+    font-size: 0.68rem;
   }
 
   .agenda-day-plan-dropzone {
@@ -2322,7 +2347,7 @@ textarea:focus {
   }
 
   .agenda-event {
-    top: calc(116px + var(--event-top));
+    top: calc(var(--agenda-header-height) + var(--event-top));
     left: calc(40px + (var(--day-index) * ((100% - 40px) / 7)) + 3px);
     width: calc(((100% - 40px) / 7) - 6px);
     padding: 6px 5px;

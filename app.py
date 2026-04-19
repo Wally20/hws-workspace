@@ -90,7 +90,7 @@ SECURITY_HEADERS = {
         "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
         "font-src 'self' data:; "
-        "connect-src 'self'; "
+        "connect-src 'self' https://opendata.rijksoverheid.nl https://date.nager.at; "
         "upgrade-insecure-requests"
     ),
     "Referrer-Policy": "strict-origin-when-cross-origin",
@@ -157,6 +157,7 @@ SESSION_ABSOLUTE_TIMEOUT_SECONDS = max(
     SESSION_IDLE_TIMEOUT_SECONDS,
     get_env_int("SESSION_ABSOLUTE_TIMEOUT_SECONDS", SESSION_ABSOLUTE_TIMEOUT_SECONDS),
 )
+AGENDA_SCHOOL_REGION = (get_env("AGENDA_SCHOOL_REGION") or "midden").strip().lower() or "midden"
 
 
 def is_placeholder_value(value: str) -> bool:
@@ -3227,6 +3228,8 @@ def get_week_days(week_start: date) -> List[Dict[str, Any]]:
 def build_agenda_day_plan_summary(week_days: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     summary: List[Dict[str, Any]] = []
     plan_counts = {option: 0 for option in AGENDA_DAY_PLAN_OPTIONS}
+    no_activity_monday_count = 0
+    no_activity_wednesday_count = 0
     amateurclubs_monday_count = 0
     amateurclubs_wednesday_count = 0
 
@@ -3238,10 +3241,15 @@ def build_agenda_day_plan_summary(week_days: List[Dict[str, Any]]) -> List[Dict[
             plan_counts[plan_type] += 1
 
         current_date = day.get("date")
-        if plan_type == "Samenwerkende amateurclubs" and isinstance(current_date, date):
-            if current_date.weekday() == 0:
+        if isinstance(current_date, date):
+            weekday = current_date.weekday()
+            if plan_type == "Geen activiteit" and weekday == 0:
+                no_activity_monday_count += 1
+            elif plan_type == "Geen activiteit" and weekday == 2:
+                no_activity_wednesday_count += 1
+            elif plan_type == "Samenwerkende amateurclubs" and weekday == 0:
                 amateurclubs_monday_count += 1
-            elif current_date.weekday() == 2:
+            elif plan_type == "Samenwerkende amateurclubs" and weekday == 2:
                 amateurclubs_wednesday_count += 1
 
     for option in AGENDA_DAY_PLAN_OPTIONS:
@@ -3250,7 +3258,12 @@ def build_agenda_day_plan_summary(week_days: List[Dict[str, Any]]) -> List[Dict[
             "count": plan_counts.get(option, 0),
             "details": [],
         }
-        if option == "Samenwerkende amateurclubs":
+        if option == "Geen activiteit":
+            item["details"] = [
+                {"label": "Maandag", "count": no_activity_monday_count},
+                {"label": "Woensdag", "count": no_activity_wednesday_count},
+            ]
+        elif option == "Samenwerkende amateurclubs":
             item["details"] = [
                 {"label": "Maandag", "count": amateurclubs_monday_count},
                 {"label": "Woensdag", "count": amateurclubs_wednesday_count},
@@ -5031,6 +5044,7 @@ def agenda_page() -> str:
         today_week_offset=0,
         agenda_day_plan_options=AGENDA_DAY_PLAN_OPTIONS,
         agenda_day_plan_summary=agenda_day_plan_summary,
+        agenda_school_region=AGENDA_SCHOOL_REGION,
         success=request.args.get("success", "").strip(),
         error=request.args.get("error", "").strip(),
     )

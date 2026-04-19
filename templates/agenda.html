@@ -75,7 +75,7 @@
     </div>
 
     <div class="agenda-board">
-      <div class="agenda-grid" id="agendaGrid">
+      <div class="agenda-grid" id="agendaGrid" data-school-region="{{ agenda_school_region }}">
         <div class="agenda-grid-corner"></div>
         {% for day in week_days %}
           <div
@@ -83,6 +83,7 @@
             data-agenda-day="{{ day.key }}"
           >
             <span class="agenda-day-label">{{ day.shortLabel }}</span>
+            <div class="agenda-day-external-labels" data-agenda-day-labels="{{ day.key }}" hidden></div>
             <div
               class="agenda-day-plan-dropzone{% if day.planType %} agenda-day-plan-dropzone-filled{% endif %}"
               data-day-plan-dropzone="{{ day.key }}"
