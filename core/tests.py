@@ -228,3 +228,201 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(worksheet["A4"].value, "Datum")
         self.assertEqual(worksheet["H4"].value, "Team")
         self.assertEqual(worksheet["C5"].value, "Anne de Vries")
+
+    def test_admin_sees_all_accounts_on_team_page(self):
+        extra_profiles = [
+            (
+                "trainer-extra-admin-test-1",
+                "Anne de Vries",
+                "anne@example.com",
+                "anne.de.vries",
+                None,
+                None,
+                None,
+                None,
+                "Social media beheerder",
+                "Medewerker",
+                "Social media beheerder",
+                "",
+                "",
+                "",
+                "",
+                "",
+                0,
+                "Uitgenodigd",
+                "2026-04-19T10:00:00",
+            ),
+            (
+                "trainer-extra-admin-test-2",
+                "Milan Jansen",
+                "milan@example.com",
+                "milan.jansen",
+                None,
+                None,
+                None,
+                None,
+                "Admin",
+                "Medewerker",
+                "Admin",
+                "",
+                "",
+                "",
+                "",
+                "",
+                1,
+                "Actief",
+                "2026-04-19T11:00:00",
+            ),
+        ]
+        with legacy.get_db_connection() as connection:
+            connection.executemany(
+                """
+                INSERT INTO trainer_profiles (
+                    id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at,
+                    role, member_type, system_role, knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                extra_profiles,
+            )
+
+        try:
+            response = self.build_authenticated_client().get("/trainers", secure=True)
+
+            self.assertEqual(response.status_code, 200)
+            content = response.content.decode("utf-8")
+            self.assertIn("Anne de Vries", content)
+            self.assertIn("Milan Jansen", content)
+            self.assertIn("3 totaal", content)
+            self.assertIn("1 uitgenodigd", content)
+        finally:
+            with legacy.get_db_connection() as connection:
+                connection.execute(
+                    "DELETE FROM trainer_profiles WHERE id IN (?, ?)",
+                    ("trainer-extra-admin-test-1", "trainer-extra-admin-test-2"),
+                )
+
+    def test_content_page_repairs_orphan_albums_for_admin_visibility(self):
+        album_id = 99999
+        with legacy.get_db_connection() as connection:
+            connection.execute("DELETE FROM content_photos WHERE album_id = ?", (album_id,))
+            connection.execute("DELETE FROM content_albums WHERE id = ?", (album_id,))
+            connection.execute(
+                """
+                INSERT INTO content_photos (
+                    album_id,
+                    image_url,
+                    remote_path,
+                    file_name,
+                    original_name,
+                    content_type,
+                    file_size,
+                    storage_backend,
+                    uploaded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    album_id,
+                    "/static/uploads/content/2026-04-19/99999-admin-debug-check/test.jpg",
+                    "content/2026-04-19/99999-admin-debug-check/test.jpg",
+                    "test.jpg",
+                    "test.jpg",
+                    "image/jpeg",
+                    1234,
+                    "local",
+                    "2026-04-19T12:00:00",
+                ),
+            )
+
+        try:
+            response = self.build_authenticated_client().get("/content", secure=True)
+
+            self.assertEqual(response.status_code, 200)
+            content = response.content.decode("utf-8")
+            self.assertIn("Admin Debug Check", content)
+            self.assertIn("automatisch hersteld", content)
+
+            repaired_album = legacy.load_content_album(album_id)
+            self.assertIsNotNone(repaired_album)
+            self.assertEqual(repaired_album["title"], "Admin Debug Check")
+        finally:
+            with legacy.get_db_connection() as connection:
+                connection.execute("DELETE FROM content_photos WHERE album_id = ?", (album_id,))
+                connection.execute("DELETE FROM content_albums WHERE id = ?", (album_id,))
+
+    def test_save_agenda_day_plans_persists_to_database(self):
+        target_dates = ["2026-04-20", "2026-04-21"]
+        with legacy.get_db_connection() as connection:
+            connection.execute("DELETE FROM agenda_day_plans WHERE date IN (?, ?)", target_dates)
+
+        try:
+            legacy.save_agenda_day_plans(
+                {
+                    "2026-04-20": "Voetbaldag",
+                    "2026-04-21": "Techniektrainingen",
+                }
+            )
+
+            self.assertEqual(
+                legacy.load_agenda_day_plans(target_dates),
+                {
+                    "2026-04-20": "Voetbaldag",
+                    "2026-04-21": "Techniektrainingen",
+                },
+            )
+        finally:
+            with legacy.get_db_connection() as connection:
+                connection.execute("DELETE FROM agenda_day_plans WHERE date IN (?, ?)", target_dates)
+
+    def test_save_agenda_day_plans_clears_removed_values_with_replace_dates(self):
+        target_dates = ["2026-04-22", "2026-04-23"]
+        with legacy.get_db_connection() as connection:
+            connection.execute("DELETE FROM agenda_day_plans WHERE date IN (?, ?)", target_dates)
+            connection.executemany(
+                """
+                INSERT INTO agenda_day_plans (date, plan_type, updated_at)
+                VALUES (?, ?, ?)
+                """,
+                [
+                    ("2026-04-22", "Voetbaldag", "2026-04-19T12:00:00"),
+                    ("2026-04-23", "Techniektrainingen", "2026-04-19T12:00:00"),
+                ],
+            )
+
+        try:
+            legacy.save_agenda_day_plans(
+                {"2026-04-22": "Geen activiteit"},
+                replace_dates=target_dates,
+            )
+
+            self.assertEqual(
+                legacy.load_agenda_day_plans(target_dates),
+                {"2026-04-22": "Geen activiteit"},
+            )
+        finally:
+            with legacy.get_db_connection() as connection:
+                connection.execute("DELETE FROM agenda_day_plans WHERE date IN (?, ?)", target_dates)
+
+    def test_agenda_page_renders_saved_day_plan(self):
+        monday_date = legacy.date.today() - legacy.timedelta(days=legacy.date.today().weekday())
+        monday = monday_date.isoformat()
+        with legacy.get_db_connection() as connection:
+            connection.execute("DELETE FROM agenda_day_plans WHERE date = ?", (monday,))
+            connection.execute(
+                """
+                INSERT INTO agenda_day_plans (date, plan_type, updated_at)
+                VALUES (?, ?, ?)
+                """,
+                (monday, "Samenwerkende amateurclubs", "2026-04-19T12:00:00"),
+            )
+
+        try:
+            response = self.build_authenticated_client().get("/agenda?week=0", secure=True)
+
+            self.assertEqual(response.status_code, 200)
+            content = response.content.decode("utf-8")
+            self.assertIn("Samenwerkende amateurclubs", content)
+            self.assertIn("Dagplanning bewerken", content)
+            self.assertIn("data-day-plan-dropzone=", content)
+        finally:
+            with legacy.get_db_connection() as connection:
+                connection.execute("DELETE FROM agenda_day_plans WHERE date = ?", (monday,))

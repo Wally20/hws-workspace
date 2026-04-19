@@ -9,9 +9,56 @@
         <h1>Agenda</h1>
         <p class="welcome-line">Voeg trainingen toe en houd je planning overzichtelijk bij.</p>
       </div>
-      <button type="button" id="openAgendaModal" class="refresh-button">+ Nieuwe Training</button>
+      <div class="agenda-header-actions">
+        <button type="button" id="toggleAgendaPlannerEdit" class="subtle-button subtle-button-strong">Bewerk dagplanning</button>
+        <button type="button" id="openAgendaModal" class="refresh-button">+ Nieuwe Training</button>
+      </div>
     </div>
   </header>
+
+  {% if success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+  {% endif %}
+
+  {% if error %}
+    <section class="notice trainers-notice trainers-notice-error">{{ error }}</section>
+  {% endif %}
+
+  <section class="summary-card feature-list-card old-function-tile agenda-planner-card" id="agendaPlannerEditor" hidden>
+    <div class="feature-list-head">
+      <div>
+        <p class="panel-title">Dagplanning bewerken</p>
+        <p class="feature-list-subtitle">Sleep een type naar een dagkop. Dit staat los van de tijdsblokken in de agenda.</p>
+      </div>
+      <div class="feature-inline-actions">
+        <button type="button" id="cancelAgendaPlannerEdit" class="subtle-button action-small">Sluiten</button>
+      </div>
+    </div>
+
+    <div class="agenda-planner-palette" id="agendaPlannerPalette">
+      {% for option in agenda_day_plan_options %}
+        <button
+          type="button"
+          class="agenda-plan-chip"
+          data-plan-option="{{ option }}"
+          draggable="true"
+        >
+          {{ option }}
+        </button>
+      {% endfor %}
+    </div>
+
+    <form method="post" action="/agenda" id="agendaPlannerForm" class="agenda-planner-form">
+      <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+      <input type="hidden" name="action" value="save_day_plans">
+      <input type="hidden" name="week" value="{{ week_offset }}">
+      <input type="hidden" name="day_plans" id="agendaDayPlansInput">
+      <input type="hidden" name="week_dates" value='[{% for day in week_days %}"{{ day.key }}"{% if not loop.last %},{% endif %}{% endfor %}]'>
+      <div class="agenda-form-actions">
+        <button type="submit" class="subtle-button subtle-button-strong">Dagplanning opslaan</button>
+      </div>
+    </form>
+  </section>
 
   <section class="agenda-calendar-card">
     <div class="agenda-toolbar">
@@ -28,11 +75,24 @@
     </div>
 
     <div class="agenda-board">
-      <div class="agenda-grid">
+      <div class="agenda-grid" id="agendaGrid">
         <div class="agenda-grid-corner"></div>
         {% for day in week_days %}
-          <div class="agenda-day-header {% if day.isToday %}agenda-day-header-today{% endif %}">
-            {{ day.shortLabel }}
+          <div
+            class="agenda-day-header {% if day.isToday %}agenda-day-header-today{% endif %}"
+            data-agenda-day="{{ day.key }}"
+          >
+            <span class="agenda-day-label">{{ day.shortLabel }}</span>
+            <div
+              class="agenda-day-plan-dropzone{% if day.planType %} agenda-day-plan-dropzone-filled{% endif %}"
+              data-day-plan-dropzone="{{ day.key }}"
+              data-day-plan-value="{{ day.planType }}"
+            >
+              <span class="agenda-day-plan-value">{{ day.planType or "Nog niets gekozen" }}</span>
+              <button type="button" class="agenda-day-plan-clear" data-clear-day-plan="{{ day.key }}" {% if not day.planType %}hidden{% endif %}>
+                Wis
+              </button>
+            </div>
           </div>
         {% endfor %}
 
@@ -69,6 +129,7 @@
 
       <form class="agenda-form" method="post" action="/agenda">
         <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <input type="hidden" name="week" value="{{ week_offset }}">
         <label class="field">
           <span>Titel</span>
           <input type="text" name="title" placeholder="Bijvoorbeeld: Techniektraining O15" required>

@@ -32,6 +32,12 @@ DATA_DIR = os.getenv("DATA_DIR", DATA_DIR)
 DATABASE_PATH = os.path.join(DATA_DIR, "app.db")
 DASHBOARD_EVENTS_PATH = os.path.join(DATA_DIR, "dashboard_events.json")
 AGENDA_TRAININGS_PATH = os.path.join(DATA_DIR, "agenda_trainings.json")
+AGENDA_DAY_PLAN_OPTIONS = (
+    "Geen activiteit",
+    "Voetbaldag",
+    "Samenwerkende amateurclubs",
+    "Techniektrainingen",
+)
 ECWID_RESPONSE_FIELDS = (
     "total,count,offset,limit,"
     "items(id,orderNumber,createDate,status,paymentStatus,fulfillmentStatus,total,email,"
@@ -997,6 +1003,12 @@ def init_db() -> None:
                 notes TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS agenda_day_plans (
+                date TEXT PRIMARY KEY,
+                plan_type TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS trainer_profiles (
                 id TEXT PRIMARY KEY,
                 full_name TEXT NOT NULL,
@@ -1166,6 +1178,12 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_rate_limit_attempts_lookup
             ON rate_limit_attempts (request_key, created_at)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_agenda_day_plans_date
+            ON agenda_day_plans (date)
             """
         )
 
@@ -1378,6 +1396,73 @@ def add_agenda_training(
         }
     )
     save_agenda_trainings(trainings)
+
+
+def is_allowed_agenda_day_plan(plan_type: str) -> bool:
+    return str(plan_type or "").strip() in AGENDA_DAY_PLAN_OPTIONS
+
+
+def load_agenda_day_plans(date_values: List[str]) -> Dict[str, str]:
+    normalized_dates = [str(value or "").strip() for value in date_values if str(value or "").strip()]
+    if not normalized_dates:
+        return {}
+
+    placeholders = ",".join("?" for _ in normalized_dates)
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT date, plan_type
+            FROM agenda_day_plans
+            WHERE date IN ({placeholders})
+            """,
+            normalized_dates,
+        ).fetchall()
+
+    return {
+        str(row["date"] or "").strip(): str(row["plan_type"] or "").strip()
+        for row in rows
+        if str(row["date"] or "").strip() and str(row["plan_type"] or "").strip()
+    }
+
+
+def save_agenda_day_plans(day_plans: Dict[str, str], replace_dates: Optional[List[str]] = None) -> None:
+    cleaned_rows: List[Tuple[str, str, str]] = []
+    for raw_date, raw_plan_type in day_plans.items():
+        date_value = str(raw_date or "").strip()
+        plan_type = str(raw_plan_type or "").strip()
+        if not date_value:
+            continue
+        if parse_iso_date(date_value) is None:
+            raise ValueError("Ongeldige datum voor dagplanning.")
+        if not plan_type:
+            continue
+        if not is_allowed_agenda_day_plan(plan_type):
+            raise ValueError("Ongeldig agendatype gekozen.")
+        cleaned_rows.append((date_value, plan_type, utcnow_iso()))
+
+    target_dates = [
+        str(value or "").strip()
+        for value in (replace_dates or [row[0] for row in cleaned_rows])
+        if str(value or "").strip()
+    ]
+    for date_value in target_dates:
+        if parse_iso_date(date_value) is None:
+            raise ValueError("Ongeldige datum voor dagplanning.")
+
+    with get_db_connection() as connection:
+        if target_dates:
+            placeholders = ",".join("?" for _ in target_dates)
+            connection.execute(
+                f"DELETE FROM agenda_day_plans WHERE date IN ({placeholders})",
+                target_dates,
+            )
+        connection.executemany(
+            """
+            INSERT INTO agenda_day_plans (date, plan_type, updated_at)
+            VALUES (?, ?, ?)
+            """,
+            cleaned_rows,
+        )
 
 
 def utcnow_iso() -> str:
@@ -1718,6 +1803,59 @@ def can_manage_content(user: Optional[Dict[str, Any]]) -> bool:
     return bool(user.get("isAdmin")) or is_social_media_manager(user)
 
 
+def derive_recovered_album_title(album_id: int, remote_path: str) -> str:
+    normalized_path = str(remote_path or "").strip().strip("/")
+    path_parts = [part for part in normalized_path.split("/") if part]
+    if len(path_parts) >= 3:
+        candidate = path_parts[2]
+        if "-" in candidate:
+            candidate = candidate.split("-", 1)[1]
+        candidate = candidate.replace("-", " ").strip()
+        if candidate:
+            return candidate.title()
+    return f"Hersteld album {album_id}"
+
+
+def ensure_content_album_records_exist() -> int:
+    with get_db_connection() as connection:
+        orphan_rows = connection.execute(
+            """
+            SELECT
+                cp.album_id,
+                MIN(cp.uploaded_at) AS first_uploaded_at,
+                MIN(cp.remote_path) AS sample_remote_path
+            FROM content_photos cp
+            LEFT JOIN content_albums ca ON ca.id = cp.album_id
+            WHERE ca.id IS NULL
+            GROUP BY cp.album_id
+            ORDER BY cp.album_id ASC
+            """
+        ).fetchall()
+
+        if not orphan_rows:
+            return 0
+
+        repaired_total = 0
+        for row in orphan_rows:
+            album_id = int(row["album_id"])
+            title = derive_recovered_album_title(album_id, str(row["sample_remote_path"] or "").strip())
+            connection.execute(
+                """
+                INSERT INTO content_albums (id, title, slug, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    album_id,
+                    title,
+                    slugify_value(title),
+                    str(row["first_uploaded_at"] or "").strip() or datetime.utcnow().isoformat(),
+                ),
+            )
+            repaired_total += 1
+
+    return repaired_total
+
+
 def build_content_storage_status() -> Dict[str, Any]:
     config = get_content_storage_config()
     return {
@@ -1869,6 +2007,7 @@ def find_content_album_by_title(title: str) -> Optional[Dict[str, Any]]:
 
 
 def load_content_album(album_id: int) -> Optional[Dict[str, Any]]:
+    ensure_content_album_records_exist()
     with get_db_connection() as connection:
         album_row = connection.execute(
             """
@@ -1922,6 +2061,7 @@ def load_content_album(album_id: int) -> Optional[Dict[str, Any]]:
 
 
 def load_content_album_summaries() -> List[Dict[str, Any]]:
+    ensure_content_album_records_exist()
     with get_db_connection() as connection:
         rows = connection.execute(
             """
@@ -1975,6 +2115,7 @@ def load_content_album_summaries() -> List[Dict[str, Any]]:
 
 
 def load_content_album_photos(album_id: int) -> List[Dict[str, Any]]:
+    ensure_content_album_records_exist()
     with get_db_connection() as connection:
         rows = connection.execute(
             """
@@ -2530,6 +2671,50 @@ def load_trainer_profiles() -> List[Dict[str, Any]]:
         profiles.append(profile)
 
     return profiles
+
+
+def build_admin_account_debug_summary() -> Dict[str, Any]:
+    profiles = load_trainer_profiles()
+    return {
+        "total": len(profiles),
+        "admins": sum(1 for item in profiles if item.get("isAdmin")),
+        "invited": sum(1 for item in profiles if item.get("status") == "Uitgenodigd"),
+        "active": sum(1 for item in profiles if item.get("status") == "Actief"),
+    }
+
+
+def build_admin_content_debug_summary(repaired_albums: Optional[int] = None) -> Dict[str, Any]:
+    if repaired_albums is None:
+        repaired_albums = ensure_content_album_records_exist()
+    with get_db_connection() as connection:
+        counts_row = connection.execute(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM content_albums) AS album_count,
+                (SELECT COUNT(*) FROM content_photos) AS photo_count,
+                (
+                    SELECT COUNT(*)
+                    FROM content_photos cp
+                    LEFT JOIN content_albums ca ON ca.id = cp.album_id
+                    WHERE ca.id IS NULL
+                ) AS orphan_photo_count,
+                (SELECT COUNT(*) FROM exercises) AS exercise_count,
+                (SELECT COUNT(*) FROM faq_items) AS faq_count,
+                (SELECT COUNT(*) FROM training_plans) AS training_plan_count,
+                (SELECT COUNT(*) FROM workflow_documents) AS workflow_document_count
+            """
+        ).fetchone()
+
+    return {
+        "albums": int(counts_row["album_count"] or 0) if counts_row is not None else 0,
+        "photos": int(counts_row["photo_count"] or 0) if counts_row is not None else 0,
+        "orphanPhotos": int(counts_row["orphan_photo_count"] or 0) if counts_row is not None else 0,
+        "repairedAlbums": repaired_albums,
+        "exercises": int(counts_row["exercise_count"] or 0) if counts_row is not None else 0,
+        "faqItems": int(counts_row["faq_count"] or 0) if counts_row is not None else 0,
+        "trainingPlans": int(counts_row["training_plan_count"] or 0) if counts_row is not None else 0,
+        "workflowDocuments": int(counts_row["workflow_document_count"] or 0) if counts_row is not None else 0,
+    }
 
 
 def trainer_username_exists(username: str, exclude_profile_id: str = "") -> bool:
@@ -4554,6 +4739,7 @@ def trainers_page() -> str:
         "trainers.html",
         active_page="trainers",
         trainer_profiles=profiles,
+        account_debug=build_admin_account_debug_summary(),
         form_error=form_error,
         form_success=form_success,
         invite_link=invite_link,
@@ -4566,7 +4752,45 @@ def agenda_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
+    week_offset = request.args.get("week", default=0, type=int)
+    redirect_week = request.form.get("week", "").strip()
+    if redirect_week:
+        try:
+            week_offset = int(redirect_week)
+        except ValueError:
+            week_offset = week_offset
+
     if request.method == "POST":
+        action = request.form.get("action", "").strip()
+        if action == "save_day_plans":
+            raw_day_plans = request.form.get("day_plans", "").strip()
+            raw_week_dates = request.form.get("week_dates", "").strip()
+            day_plans_payload = {}
+            week_dates: List[str] = []
+            if raw_day_plans:
+                try:
+                    parsed_payload = json.loads(raw_day_plans)
+                except json.JSONDecodeError:
+                    parsed_payload = {}
+                if isinstance(parsed_payload, dict):
+                    day_plans_payload = {
+                        str(key or "").strip(): str(value or "").strip()
+                        for key, value in parsed_payload.items()
+                    }
+            if raw_week_dates:
+                try:
+                    parsed_week_dates = json.loads(raw_week_dates)
+                except json.JSONDecodeError:
+                    parsed_week_dates = []
+                if isinstance(parsed_week_dates, list):
+                    week_dates = [str(value or "").strip() for value in parsed_week_dates if str(value or "").strip()]
+
+            try:
+                save_agenda_day_plans(day_plans_payload, replace_dates=week_dates)
+                return redirect(url_for("agenda_page", week=week_offset, success="Dagplanning opgeslagen."))
+            except ValueError as exc:
+                return redirect(url_for("agenda_page", week=week_offset, error=str(exc)))
+
         title = request.form.get("title", "").strip()
         date_value = request.form.get("date", "").strip()
         time_value = request.form.get("time", "").strip()
@@ -4583,13 +4807,16 @@ def agenda_page() -> str:
                 location,
                 notes,
             )
+            return redirect(url_for("agenda_page", week=week_offset, success="Training toegevoegd."))
 
-        return redirect(url_for("agenda_page"))
+        return redirect(url_for("agenda_page", week=week_offset))
 
-    week_offset = request.args.get("week", default=0, type=int)
     today = date.today()
     week_start = today - timedelta(days=today.weekday()) + timedelta(days=week_offset * 7)
     week_days = get_week_days(week_start)
+    day_plans = load_agenda_day_plans([day["key"] for day in week_days])
+    for day in week_days:
+        day["planType"] = day_plans.get(day["key"], "")
     trainings = load_agenda_trainings()
     calendar_events = build_agenda_week_events(trainings, week_start)
     time_slots = [f"{hour:02d}" for hour in range(24)]
@@ -4604,6 +4831,9 @@ def agenda_page() -> str:
         calendar_events=calendar_events,
         time_slots=time_slots,
         today_week_offset=0,
+        agenda_day_plan_options=AGENDA_DAY_PLAN_OPTIONS,
+        success=request.args.get("success", "").strip(),
+        error=request.args.get("error", "").strip(),
     )
 
 
@@ -4810,12 +5040,18 @@ def content_page() -> str:
                 return redirect(url_for("content_page", error="Het gekozen album kon niet worden gevonden."))
             return redirect(url_for("content_page", success="Fotoalbum verwijderd."))
 
+    repaired_albums = ensure_content_album_records_exist()
     albums = load_content_album_summaries()
     return render_template(
         "content.html",
         active_page="content",
         albums=albums,
         content_storage=build_content_storage_status(),
+        content_debug=(
+            build_admin_content_debug_summary(repaired_albums=repaired_albums)
+            if user and user.get("isAdmin")
+            else None
+        ),
         can_manage_content=can_manage_content(user),
         success=request.args.get("success", "").strip(),
         error=request.args.get("error", "").strip(),

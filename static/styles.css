@@ -881,6 +881,55 @@ textarea:focus {
   align-items: flex-start;
 }
 
+.agenda-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.agenda-planner-card {
+  margin-bottom: 22px;
+}
+
+.agenda-planner-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.agenda-plan-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid rgba(16, 24, 40, 0.08);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
+  color: #172033;
+  font-size: 0.92rem;
+  font-weight: 800;
+  cursor: grab;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+
+.agenda-plan-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+  border-color: rgba(29, 78, 216, 0.24);
+}
+
+.agenda-plan-chip-dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
+
+.agenda-planner-form {
+  margin-top: 18px;
+}
+
 .agenda-calendar-card {
   padding: 26px;
   width: 100%;
@@ -946,7 +995,7 @@ textarea:focus {
   position: relative;
   display: grid;
   grid-template-columns: 56px repeat(7, minmax(0, 1fr));
-  grid-template-rows: 70px repeat(24, 56px);
+  grid-template-rows: 118px repeat(24, 56px);
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -963,13 +1012,77 @@ textarea:focus {
 }
 
 .agenda-day-header {
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 10px;
   background: #fafafa;
   font-size: 0.95rem;
   font-weight: 800;
   color: #48505e;
   text-transform: uppercase;
+}
+
+.agenda-day-label {
+  display: block;
+  text-align: center;
+}
+
+.agenda-day-plan-dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px dashed rgba(72, 80, 94, 0.26);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #667085;
+  text-transform: none;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.agenda-day-plan-dropzone-filled {
+  border-style: solid;
+  border-color: rgba(30, 136, 229, 0.32);
+  background: linear-gradient(135deg, #eef6ff 0%, #f6fbff 100%);
+  color: #102a43;
+}
+
+.agenda-day-plan-dropzone-active {
+  border-color: #1d4ed8;
+  background: #dbeafe;
+  box-shadow: inset 0 0 0 1px rgba(29, 78, 216, 0.18);
+}
+
+.agenda-grid-edit-mode .agenda-day-plan-dropzone {
+  border-color: rgba(29, 78, 216, 0.34);
+}
+
+.agenda-day-plan-value {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.agenda-day-plan-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.08);
+  color: #172033;
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .agenda-day-header-today,
@@ -994,7 +1107,7 @@ textarea:focus {
 
 .agenda-event {
   position: absolute;
-  top: calc(70px + var(--event-top));
+  top: calc(118px + var(--event-top));
   left: calc(56px + (var(--day-index) * ((100% - 56px) / 7)) + 6px);
   width: calc(((100% - 56px) / 7) - 12px);
   height: var(--event-height);
@@ -2136,11 +2249,21 @@ textarea:focus {
 
   .agenda-grid {
     grid-template-columns: 40px repeat(7, minmax(0, 1fr));
-    grid-template-rows: 56px repeat(24, 50px);
+    grid-template-rows: 116px repeat(24, 50px);
   }
 
   .agenda-day-header {
     font-size: 0.78rem;
+    padding: 8px 6px;
+  }
+
+  .agenda-day-plan-dropzone {
+    min-height: 48px;
+    padding: 6px 8px;
+  }
+
+  .agenda-day-plan-value {
+    font-size: 0.68rem;
   }
 
   .agenda-time-label {
@@ -2148,6 +2271,7 @@ textarea:focus {
   }
 
   .agenda-event {
+    top: calc(116px + var(--event-top));
     left: calc(40px + (var(--day-index) * ((100% - 40px) / 7)) + 3px);
     width: calc(((100% - 40px) / 7) - 6px);
     padding: 6px 5px;
@@ -2163,5 +2287,9 @@ textarea:focus {
 
   .agenda-event-location {
     display: none;
+  }
+
+  .agenda-header-actions {
+    width: 100%;
   }
 }

@@ -31,6 +31,23 @@
     </section>
   {% endif %}
 
+  {% if account_debug %}
+    <section class="summary-card feature-list-card old-function-tile">
+      <div class="feature-list-head">
+        <div>
+          <p class="panel-title">Accountoverzicht</p>
+          <p class="feature-list-subtitle">Als admin zie je hier alle accounts uit `trainer_profiles`.</p>
+        </div>
+        <div class="feature-record-pills">
+          <span class="pill">{{ account_debug.total }} totaal</span>
+          <span class="pill">{{ account_debug.active }} actief</span>
+          <span class="pill">{{ account_debug.invited }} uitgenodigd</span>
+          <span class="pill">{{ account_debug.admins }} admin</span>
+        </div>
+      </div>
+    </section>
+  {% endif %}
+
   <section class="team-search-card">
     <label class="team-search-field">
       <span class="team-search-icon" aria-hidden="true">⌕</span>

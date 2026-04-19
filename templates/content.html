@@ -130,6 +130,37 @@
     </div>
   </section>
 
+  {% if content_debug %}
+    <section class="summary-card feature-list-card old-function-tile">
+      <div class="feature-list-head">
+        <div>
+          <p class="panel-title">Admin debug</p>
+          <p class="feature-list-subtitle">Controle op alles wat nu in de database staat.</p>
+        </div>
+        <div class="feature-record-pills">
+          <span class="pill">{{ content_debug.albums }} albums</span>
+          <span class="pill">{{ content_debug.photos }} foto's</span>
+          <span class="pill">{{ content_debug.exercises }} oefeningen</span>
+          <span class="pill">{{ content_debug.faqItems }} FAQ</span>
+          <span class="pill">{{ content_debug.trainingPlans }} trainingsplannen</span>
+          <span class="pill">{{ content_debug.workflowDocuments }} documenten</span>
+        </div>
+      </div>
+
+      {% if content_debug.repairedAlbums %}
+        <section class="notice trainers-notice trainers-notice-success">
+          {{ content_debug.repairedAlbums }} verborgen album{{ 's' if content_debug.repairedAlbums != 1 else '' }} automatisch hersteld zodat alle foto's weer zichtbaar zijn.
+        </section>
+      {% endif %}
+
+      {% if content_debug.orphanPhotos %}
+        <section class="notice trainers-notice trainers-notice-error">
+          Er zijn nog {{ content_debug.orphanPhotos }} losse foto{{ 's' if content_debug.orphanPhotos != 1 else '' }} zonder albumkoppeling.
+        </section>
+      {% endif %}
+    </section>
+  {% endif %}
+
   {% if can_manage_content %}
     <script nonce="{{ csp_nonce }}">
       (() => {
