@@ -158,6 +158,21 @@ function normalizeRegion(value) {
   return normalizeText(value).toLowerCase();
 }
 
+function formatSchoolHolidayLabel(label, region) {
+  const normalizedLabel = normalizeText(label);
+  const normalizedRegion = normalizeRegion(region);
+  if (!normalizedLabel) {
+    return "";
+  }
+  if (!normalizedRegion) {
+    return normalizedLabel;
+  }
+  if (normalizedRegion === "heel nederland") {
+    return `${normalizedLabel} (heel Nederland)`;
+  }
+  return `${normalizedLabel} (${normalizedRegion})`;
+}
+
 function extractIsoDate(value) {
   const normalizedValue = normalizeText(value);
   return normalizedValue ? normalizedValue.slice(0, 10) : "";
@@ -240,8 +255,8 @@ async function fetchSchoolHolidays(schoolYears, region = "midden") {
   const items = Array.isArray(payload?.items) ? payload.items : [];
   items.forEach((item) => {
     const dateKey = extractIsoDate(item?.date);
-    const label = normalizeText(item?.label);
     const regionName = normalizeRegion(item?.region);
+    const label = formatSchoolHolidayLabel(item?.label, regionName);
     const dedupeKey = `${dateKey}|${label}|${regionName}`;
     if (!dateKey || !label || seenItems.has(dedupeKey)) {
       return;
