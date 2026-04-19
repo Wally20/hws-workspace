@@ -115,10 +115,27 @@ RATE_LIMIT_RULES = (
 )
 
 
+def get_asset_version() -> str:
+    latest_mtime = 0
+    static_root = os.path.join(os.path.dirname(__file__), "static")
+
+    for root, _, filenames in os.walk(static_root):
+        for filename in filenames:
+            file_path = os.path.join(root, filename)
+            try:
+                latest_mtime = max(latest_mtime, int(os.path.getmtime(file_path)))
+            except OSError:
+                continue
+
+    if latest_mtime:
+        return str(latest_mtime)
+    return ASSET_VERSION
+
+
 @app.context_processor
 def inject_asset_version():
     return {
-        "asset_version": ASSET_VERSION,
+        "asset_version": get_asset_version(),
         "legacy_csrf_token": ensure_csrf_token(),
     }
 
