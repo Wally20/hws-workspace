@@ -43,6 +43,15 @@ AGENDA_DAY_PLAN_OPTIONS = (
     "Techniektrainingen",
 )
 DUTCH_MONTH_NAMES = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
+DUTCH_WEEKDAY_NAMES = [
+    "Maandag",
+    "Dinsdag",
+    "Woensdag",
+    "Donderdag",
+    "Vrijdag",
+    "Zaterdag",
+    "Zondag",
+]
 ECWID_RESPONSE_FIELDS = (
     "total,count,offset,limit,"
     "items(id,orderNumber,createDate,status,paymentStatus,fulfillmentStatus,total,email,"
@@ -1610,6 +1619,26 @@ def load_agenda_day_plans(date_values: List[str]) -> Dict[str, str]:
         for row in rows
         if str(row["date"] or "").strip() and str(row["plan_type"] or "").strip()
     }
+
+
+def load_all_agenda_day_plans() -> List[Dict[str, str]]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT date, plan_type
+            FROM agenda_day_plans
+            ORDER BY date
+            """
+        ).fetchall()
+
+    return [
+        {
+            "date": str(row["date"] or "").strip(),
+            "planType": str(row["plan_type"] or "").strip(),
+        }
+        for row in rows
+        if str(row["date"] or "").strip() and str(row["plan_type"] or "").strip()
+    ]
 
 
 def save_agenda_day_plans(day_plans: Dict[str, str], replace_dates: Optional[List[str]] = None) -> None:
@@ -3251,49 +3280,37 @@ def get_week_days(week_start: date) -> List[Dict[str, Any]]:
     return days
 
 
-def build_agenda_day_plan_summary(week_days: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def build_agenda_day_plan_summary(day_plans: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     summary: List[Dict[str, Any]] = []
     plan_counts = {option: 0 for option in AGENDA_DAY_PLAN_OPTIONS}
-    no_activity_monday_count = 0
-    no_activity_wednesday_count = 0
-    amateurclubs_monday_count = 0
-    amateurclubs_wednesday_count = 0
+    weekday_counts = {
+        option: {weekday: 0 for weekday in range(7)}
+        for option in AGENDA_DAY_PLAN_OPTIONS
+    }
 
-    for day in week_days:
-        plan_type = str(day.get("planType") or "").strip()
-        if not plan_type:
+    for day_plan in day_plans:
+        plan_type = str(day_plan.get("planType") or day_plan.get("plan_type") or "").strip()
+        if plan_type not in plan_counts:
             continue
-        if plan_type in plan_counts:
-            plan_counts[plan_type] += 1
 
-        current_date = day.get("date")
+        plan_counts[plan_type] += 1
+
+        current_date = day_plan.get("date")
+        if isinstance(current_date, str):
+            current_date = parse_iso_date(current_date.strip())
         if isinstance(current_date, date):
-            weekday = current_date.weekday()
-            if plan_type == "Geen activiteit" and weekday == 0:
-                no_activity_monday_count += 1
-            elif plan_type == "Geen activiteit" and weekday == 2:
-                no_activity_wednesday_count += 1
-            elif plan_type == "Samenwerkende amateurclubs" and weekday == 0:
-                amateurclubs_monday_count += 1
-            elif plan_type == "Samenwerkende amateurclubs" and weekday == 2:
-                amateurclubs_wednesday_count += 1
+            weekday_counts[plan_type][current_date.weekday()] += 1
 
     for option in AGENDA_DAY_PLAN_OPTIONS:
         item = {
             "label": option,
             "count": plan_counts.get(option, 0),
-            "details": [],
+            "details": [
+                {"label": DUTCH_WEEKDAY_NAMES[weekday], "count": count}
+                for weekday, count in weekday_counts[option].items()
+                if count > 0
+            ],
         }
-        if option == "Geen activiteit":
-            item["details"] = [
-                {"label": "Maandag", "count": no_activity_monday_count},
-                {"label": "Woensdag", "count": no_activity_wednesday_count},
-            ]
-        elif option == "Samenwerkende amateurclubs":
-            item["details"] = [
-                {"label": "Maandag", "count": amateurclubs_monday_count},
-                {"label": "Woensdag", "count": amateurclubs_wednesday_count},
-            ]
         summary.append(item)
 
     return summary
@@ -5406,13 +5423,11 @@ def agenda_page() -> str:
     month_days = [day for week in month_weeks for day in week]
     visible_days = week_days if view_mode == "week" else month_days
     visible_day_keys = [day["key"] for day in visible_days]
-    current_month_days = [day for day in month_days if day.get("isCurrentMonth")]
     day_plans = load_agenda_day_plans(visible_day_keys)
+    all_day_plans = load_all_agenda_day_plans()
     for day in visible_days:
         day["planType"] = day_plans.get(day["key"], "")
-    agenda_day_plan_summary = build_agenda_day_plan_summary(
-        week_days if view_mode == "week" else current_month_days
-    )
+    agenda_day_plan_summary = build_agenda_day_plan_summary(all_day_plans)
     week_end = week_start + timedelta(days=6)
     month_visible_start = month_days[0]["date"] if month_days else month_start
     month_visible_end = month_days[-1]["date"] if month_days else month_start

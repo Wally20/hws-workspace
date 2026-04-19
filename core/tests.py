@@ -703,3 +703,56 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         finally:
             with legacy.get_db_connection() as connection:
                 connection.execute("DELETE FROM agenda_day_plans WHERE date = ?", (visible_date,))
+
+
+class AgendaDayPlanSummaryTests(SimpleTestCase):
+    def test_build_agenda_day_plan_summary_counts_all_saved_days_per_weekday(self):
+        summary = legacy.build_agenda_day_plan_summary(
+            [
+                {"date": "2026-07-06", "planType": "Geen activiteit"},
+                {"date": "2026-07-08", "planType": "Geen activiteit"},
+                {"date": "2026-07-13", "planType": "Geen activiteit"},
+                {"date": "2026-07-07", "planType": "Voetbaldag"},
+                {"date": "2026-07-14", "planType": "Voetbaldag"},
+                {"date": "2026-07-06", "planType": "Samenwerkende amateurclubs"},
+                {"date": "2026-07-08", "planType": "Samenwerkende amateurclubs"},
+                {"date": "2026-07-10", "planType": "Techniektrainingen"},
+                {"date": "2026-07-17", "planType": "Techniektrainingen"},
+            ]
+        )
+
+        self.assertEqual(
+            summary,
+            [
+                {
+                    "label": "Geen activiteit",
+                    "count": 3,
+                    "details": [
+                        {"label": "Maandag", "count": 2},
+                        {"label": "Woensdag", "count": 1},
+                    ],
+                },
+                {
+                    "label": "Voetbaldag",
+                    "count": 2,
+                    "details": [
+                        {"label": "Dinsdag", "count": 2},
+                    ],
+                },
+                {
+                    "label": "Samenwerkende amateurclubs",
+                    "count": 2,
+                    "details": [
+                        {"label": "Maandag", "count": 1},
+                        {"label": "Woensdag", "count": 1},
+                    ],
+                },
+                {
+                    "label": "Techniektrainingen",
+                    "count": 2,
+                    "details": [
+                        {"label": "Vrijdag", "count": 2},
+                    ],
+                },
+            ],
+        )
