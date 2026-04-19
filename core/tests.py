@@ -1,5 +1,8 @@
 import io
+import os
 import re
+import sqlite3
+import tempfile
 import time
 from importlib import import_module
 from unittest.mock import patch
@@ -348,6 +351,183 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             with legacy.get_db_connection() as connection:
                 connection.execute("DELETE FROM content_photos WHERE album_id = ?", (album_id,))
                 connection.execute("DELETE FROM content_albums WHERE id = ?", (album_id,))
+
+    def test_sync_seed_workspace_data_restores_missing_team_profiles(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            seed_dir = os.path.join(temp_dir, "seed")
+            live_dir = os.path.join(temp_dir, "live")
+            os.makedirs(seed_dir, exist_ok=True)
+            os.makedirs(live_dir, exist_ok=True)
+
+            seed_db_path = os.path.join(seed_dir, "app.db")
+            live_db_path = os.path.join(live_dir, "app.db")
+            trainer_schema = next(
+                row["sql"]
+                for row in legacy.get_db_connection().execute(
+                    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'trainer_profiles'"
+                ).fetchall()
+                if row["sql"]
+            )
+
+            with sqlite3.connect(seed_db_path) as seed_connection:
+                seed_connection.execute(trainer_schema)
+                seed_connection.execute(
+                    """
+                    INSERT INTO trainer_profiles (
+                        id, full_name, email, username, role, phone, notes, status, created_at,
+                        password_hash, is_admin, member_type, system_role, knvb_license,
+                        education, availability_days, invite_token, invite_expires_at, invite_accepted_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "trainer-seed-tijn",
+                        "Tijn ten Bloemendal",
+                        "tijn@example.com",
+                        "tijn.ten.bloemendal",
+                        "Social media beheerder",
+                        "",
+                        "",
+                        "Actief",
+                        "2026-04-19T12:00:00",
+                        "",
+                        0,
+                        "Medewerker",
+                        "Social media beheerder",
+                        "",
+                        "",
+                        "",
+                        None,
+                        None,
+                        None,
+                    ),
+                )
+
+            with sqlite3.connect(live_db_path) as live_connection:
+                live_connection.execute(trainer_schema)
+
+            original_data_dir = legacy.DATA_DIR
+            original_bundled_data_dir = legacy.BUNDLED_DATA_DIR
+            original_database_path = legacy.DATABASE_PATH
+            original_dashboard_events_path = legacy.DASHBOARD_EVENTS_PATH
+            original_agenda_trainings_path = legacy.AGENDA_TRAININGS_PATH
+            try:
+                legacy.BUNDLED_DATA_DIR = seed_dir
+                legacy.DATA_DIR = live_dir
+                legacy.DATABASE_PATH = live_db_path
+                legacy.DASHBOARD_EVENTS_PATH = os.path.join(live_dir, "dashboard_events.json")
+                legacy.AGENDA_TRAININGS_PATH = os.path.join(live_dir, "agenda_trainings.json")
+
+                legacy.sync_seed_workspace_data()
+
+                with sqlite3.connect(live_db_path) as live_connection:
+                    row = live_connection.execute(
+                        "SELECT full_name FROM trainer_profiles WHERE email = ?",
+                        ("tijn@example.com",),
+                    ).fetchone()
+
+                self.assertIsNotNone(row)
+                self.assertEqual(row[0], "Tijn ten Bloemendal")
+            finally:
+                legacy.DATA_DIR = original_data_dir
+                legacy.BUNDLED_DATA_DIR = original_bundled_data_dir
+                legacy.DATABASE_PATH = original_database_path
+                legacy.DASHBOARD_EVENTS_PATH = original_dashboard_events_path
+                legacy.AGENDA_TRAININGS_PATH = original_agenda_trainings_path
+
+    def test_sync_seed_workspace_data_restores_missing_content_albums(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            seed_dir = os.path.join(temp_dir, "seed")
+            live_dir = os.path.join(temp_dir, "live")
+            os.makedirs(seed_dir, exist_ok=True)
+            os.makedirs(live_dir, exist_ok=True)
+
+            seed_db_path = os.path.join(seed_dir, "app.db")
+            live_db_path = os.path.join(live_dir, "app.db")
+            with legacy.get_db_connection() as connection:
+                table_sql = {
+                    str(row["name"]): str(row["sql"])
+                    for row in connection.execute(
+                        """
+                        SELECT name, sql
+                        FROM sqlite_master
+                        WHERE type = 'table' AND name IN ('content_albums', 'content_photos')
+                        """
+                    ).fetchall()
+                    if row["sql"]
+                }
+
+            with sqlite3.connect(seed_db_path) as seed_connection:
+                seed_connection.execute(table_sql["content_albums"])
+                seed_connection.execute(table_sql["content_photos"])
+                seed_connection.execute(
+                    """
+                    INSERT INTO content_albums (id, title, slug, created_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (21, "Tijn Album", "tijn-album", "2026-04-19T12:00:00"),
+                )
+                seed_connection.execute(
+                    """
+                    INSERT INTO content_photos (
+                        album_id, image_url, remote_path, file_name, original_name,
+                        content_type, file_size, storage_backend, uploaded_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        21,
+                        "/static/uploads/content/2026-04-19/tijn-album/cover.jpg",
+                        "content/2026-04-19/tijn-album/cover.jpg",
+                        "cover.jpg",
+                        "cover.jpg",
+                        "image/jpeg",
+                        4096,
+                        "local",
+                        "2026-04-19T12:00:00",
+                    ),
+                )
+
+            with sqlite3.connect(live_db_path) as live_connection:
+                live_connection.execute(table_sql["content_albums"])
+                live_connection.execute(table_sql["content_photos"])
+
+            original_data_dir = legacy.DATA_DIR
+            original_bundled_data_dir = legacy.BUNDLED_DATA_DIR
+            original_database_path = legacy.DATABASE_PATH
+            original_dashboard_events_path = legacy.DASHBOARD_EVENTS_PATH
+            original_agenda_trainings_path = legacy.AGENDA_TRAININGS_PATH
+            try:
+                legacy.BUNDLED_DATA_DIR = seed_dir
+                legacy.DATA_DIR = live_dir
+                legacy.DATABASE_PATH = live_db_path
+                legacy.DASHBOARD_EVENTS_PATH = os.path.join(live_dir, "dashboard_events.json")
+                legacy.AGENDA_TRAININGS_PATH = os.path.join(live_dir, "agenda_trainings.json")
+
+                legacy.sync_seed_workspace_data()
+
+                with sqlite3.connect(live_db_path) as live_connection:
+                    album_row = live_connection.execute(
+                        "SELECT id, title FROM content_albums WHERE slug = ?",
+                        ("tijn-album",),
+                    ).fetchone()
+                    photo_row = live_connection.execute(
+                        """
+                        SELECT remote_path
+                        FROM content_photos
+                        WHERE album_id = ?
+                        """,
+                        (album_row[0],),
+                    ).fetchone()
+
+                self.assertIsNotNone(album_row)
+                self.assertEqual(album_row[1], "Tijn Album")
+                self.assertIsNotNone(photo_row)
+                self.assertEqual(photo_row[0], "content/2026-04-19/tijn-album/cover.jpg")
+            finally:
+                legacy.DATA_DIR = original_data_dir
+                legacy.BUNDLED_DATA_DIR = original_bundled_data_dir
+                legacy.DATABASE_PATH = original_database_path
+                legacy.DASHBOARD_EVENTS_PATH = original_dashboard_events_path
+                legacy.AGENDA_TRAININGS_PATH = original_agenda_trainings_path
 
     def test_save_agenda_day_plans_persists_to_database(self):
         target_dates = ["2026-04-20", "2026-04-21"]

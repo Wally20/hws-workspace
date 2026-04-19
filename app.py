@@ -2,6 +2,7 @@ import os
 import json
 import re
 import sqlite3
+import shutil
 import threading
 import time
 import secrets
@@ -27,8 +28,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 ECWID_API_BASE = "https://app.ecwid.com/api/v3"
 MONEYBIRD_API_BASE = "https://moneybird.com/api/v2"
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
-DATA_DIR = os.getenv("DATA_DIR", DATA_DIR)
+BUNDLED_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+DATA_DIR = os.getenv("DATA_DIR", BUNDLED_DATA_DIR)
 DATABASE_PATH = os.path.join(DATA_DIR, "app.db")
 DASHBOARD_EVENTS_PATH = os.path.join(DATA_DIR, "dashboard_events.json")
 AGENDA_TRAININGS_PATH = os.path.join(DATA_DIR, "agenda_trainings.json")
@@ -982,6 +983,149 @@ def get_db_connection() -> sqlite3.Connection:
     return connection
 
 
+def bootstrap_seed_data_files() -> None:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if os.path.abspath(DATA_DIR) == os.path.abspath(BUNDLED_DATA_DIR):
+        return
+
+    for filename in ("app.db", "dashboard_events.json", "agenda_trainings.json"):
+        source_path = os.path.join(BUNDLED_DATA_DIR, filename)
+        target_path = os.path.join(DATA_DIR, filename)
+        if os.path.exists(target_path) or not os.path.exists(source_path):
+            continue
+        shutil.copy2(source_path, target_path)
+
+
+def sync_seed_workspace_data() -> None:
+    if os.path.abspath(DATA_DIR) == os.path.abspath(BUNDLED_DATA_DIR):
+        return
+
+    source_db_path = os.path.join(BUNDLED_DATA_DIR, "app.db")
+    if not os.path.exists(source_db_path) or not os.path.exists(DATABASE_PATH):
+        return
+
+    with sqlite3.connect(DATABASE_PATH, timeout=30) as connection:
+        connection.execute("ATTACH DATABASE ? AS seed", (source_db_path,))
+        target_tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        seed_tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM seed.sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+
+        if {"trainer_profiles"} <= target_tables and {"trainer_profiles"} <= seed_tables:
+            connection.execute(
+                """
+                INSERT INTO trainer_profiles (
+                    id,
+                    full_name,
+                    email,
+                    username,
+                    role,
+                    phone,
+                    notes,
+                    status,
+                    created_at,
+                    password_hash,
+                    is_admin,
+                    member_type,
+                    system_role,
+                    knvb_license,
+                    education,
+                    availability_days,
+                    invite_token,
+                    invite_expires_at,
+                    invite_accepted_at
+                )
+                SELECT
+                    seed_profile.id,
+                    seed_profile.full_name,
+                    seed_profile.email,
+                    seed_profile.username,
+                    seed_profile.role,
+                    seed_profile.phone,
+                    seed_profile.notes,
+                    seed_profile.status,
+                    seed_profile.created_at,
+                    seed_profile.password_hash,
+                    seed_profile.is_admin,
+                    seed_profile.member_type,
+                    seed_profile.system_role,
+                    seed_profile.knvb_license,
+                    seed_profile.education,
+                    seed_profile.availability_days,
+                    seed_profile.invite_token,
+                    seed_profile.invite_expires_at,
+                    seed_profile.invite_accepted_at
+                FROM seed.trainer_profiles AS seed_profile
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM trainer_profiles AS live_profile
+                    WHERE live_profile.id = seed_profile.id
+                       OR lower(live_profile.email) = lower(seed_profile.email)
+                )
+                """
+            )
+
+        if {"content_albums", "content_photos"} <= target_tables and {"content_albums", "content_photos"} <= seed_tables:
+            connection.execute(
+                """
+                INSERT INTO content_albums (title, slug, created_at)
+                SELECT seed_album.title, seed_album.slug, seed_album.created_at
+                FROM seed.content_albums AS seed_album
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM content_albums AS live_album
+                    WHERE live_album.slug = seed_album.slug
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO content_photos (
+                    album_id,
+                    image_url,
+                    remote_path,
+                    file_name,
+                    original_name,
+                    content_type,
+                    file_size,
+                    storage_backend,
+                    uploaded_at
+                )
+                SELECT
+                    live_album.id,
+                    seed_photo.image_url,
+                    seed_photo.remote_path,
+                    seed_photo.file_name,
+                    seed_photo.original_name,
+                    seed_photo.content_type,
+                    seed_photo.file_size,
+                    seed_photo.storage_backend,
+                    seed_photo.uploaded_at
+                FROM seed.content_photos AS seed_photo
+                JOIN seed.content_albums AS seed_album
+                    ON seed_album.id = seed_photo.album_id
+                JOIN content_albums AS live_album
+                    ON live_album.slug = seed_album.slug
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM content_photos AS live_photo
+                    WHERE live_photo.remote_path = seed_photo.remote_path
+                )
+                """
+            )
+
+        connection.commit()
+        connection.execute("DETACH DATABASE seed")
+
+
 def init_db() -> None:
     with get_db_connection() as connection:
         connection.executescript(
@@ -1245,9 +1389,11 @@ def migrate_agenda_trainings_json_to_db() -> None:
 
 
 def run_storage_migrations() -> None:
+    bootstrap_seed_data_files()
     init_db()
     migrate_dashboard_events_json_to_db()
     migrate_agenda_trainings_json_to_db()
+    sync_seed_workspace_data()
     seed_workspace_tables()
     ensure_admin_account()
 
