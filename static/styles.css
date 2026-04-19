@@ -1061,7 +1061,7 @@ textarea:focus {
 
 .proposal-line-grid {
   display: grid;
-  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr) minmax(110px, 130px) auto;
   gap: 10px;
   align-items: end;
 }
@@ -1082,6 +1082,39 @@ textarea:focus {
 .proposal-line-card select {
   min-height: 48px;
   padding: 12px 16px;
+}
+
+.proposal-line-count {
+  display: grid;
+  gap: 2px;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.9);
+  align-content: center;
+}
+
+.proposal-line-count-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #667085;
+}
+
+.proposal-line-count-value {
+  font-size: 1.15rem;
+  line-height: 1.1;
+  color: #111827;
+}
+
+.proposal-line-count[data-state="idle"] .proposal-line-count-value {
+  color: #98a2b3;
+}
+
+.proposal-line-count[data-state="empty"] .proposal-line-count-value {
+  color: #667085;
 }
 
 .proposal-line-actions {

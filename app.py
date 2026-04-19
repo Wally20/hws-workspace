@@ -2027,6 +2027,7 @@ def calculate_training_counts_for_proposal(
     proposal_type_option = get_proposal_type_option(proposal_type)
     if proposal_type_option is None:
         return {
+            "countsByWeekday": {},
             "lineCounts": {},
             "totalTrainings": 0,
         }
@@ -2075,6 +2076,7 @@ def calculate_training_counts_for_proposal(
         total_trainings += count
 
     return {
+        "countsByWeekday": counts_by_weekday,
         "lineCounts": line_counts,
         "totalTrainings": total_trainings,
     }
@@ -6177,6 +6179,43 @@ def voorstellen_maker_detail_page(proposal_id: int) -> str:
         proposal=proposal,
         success=request.args.get("success", "").strip(),
         error=request.args.get("error", "").strip(),
+    )
+
+
+@app.get("/api/voorstellen-maker/training-counts")
+def voorstellen_maker_training_counts_api():
+    access_redirect = require_page_access("voorstellen-maker")
+    if access_redirect is not None:
+        return jsonify({"error": "Je hebt geen toegang tot deze pagina."}), 403
+
+    proposal_type = normalize_proposal_type(request.args.get("proposal_type", ""))
+    if not proposal_type:
+        return jsonify({"weekdayCounts": {}, "totalTrainings": 0})
+
+    season_start_year_raw = str(request.args.get("season_start_year", "") or "").strip()
+    try:
+        season_start_year = int(season_start_year_raw)
+    except ValueError:
+        return jsonify({"error": "Kies een geldig seizoen."}), 400
+
+    available_seasons = {
+        int(option["value"])
+        for option in build_football_season_options(start_year=PROPOSAL_MIN_SEASON_START_YEAR)
+        if str(option.get("value", "")).isdigit()
+    }
+    if season_start_year not in available_seasons:
+        return jsonify({"error": "Kies een seizoen uit de lijst."}), 400
+
+    counts_payload = calculate_training_counts_for_proposal(
+        season_start_year,
+        proposal_type,
+        [{"weekdayKey": str(option["value"])} for option in PROPOSAL_WEEKDAY_OPTIONS],
+    )
+    return jsonify(
+        {
+            "weekdayCounts": counts_payload.get("countsByWeekday", {}),
+            "totalTrainings": int(counts_payload.get("totalTrainings", 0) or 0),
+        }
     )
 
 

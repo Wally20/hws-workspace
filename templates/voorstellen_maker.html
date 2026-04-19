@@ -22,7 +22,6 @@
     <article class="summary-card feature-form-card old-function-tile">
       <div>
         <p class="panel-title">Nieuw voorstel</p>
-        <p class="feature-list-subtitle">Kies een club, type voorstel, seizoen en voeg daarna meerdere dagen met activiteiten toe.</p>
       </div>
 
       <form class="feature-form" method="post" action="/voorstellen-maker" id="proposalBuilderForm">
@@ -86,6 +85,10 @@
                     <span>Wat doe je?</span>
                     <input type="text" name="line_activity" value="{{ line.activity }}" placeholder="Bijvoorbeeld: Techniektraining onderbouw" required>
                   </label>
+                  <div class="proposal-line-count" data-proposal-line-count>
+                    <span class="proposal-line-count-label">Trainingen</span>
+                    <strong class="proposal-line-count-value">0</strong>
+                  </div>
                   <div class="proposal-line-actions">
                     <button type="button" class="subtle-button action-small" data-remove-proposal-line {% if proposal_form.lines|length == 1 %}hidden{% endif %}>Verwijder</button>
                   </div>
@@ -160,6 +163,10 @@
           <span>Wat doe je?</span>
           <input type="text" name="line_activity" placeholder="Bijvoorbeeld: Techniektraining bovenbouw" required>
         </label>
+        <div class="proposal-line-count" data-proposal-line-count>
+          <span class="proposal-line-count-label">Trainingen</span>
+          <strong class="proposal-line-count-value">0</strong>
+        </div>
         <div class="proposal-line-actions">
           <button type="button" class="subtle-button action-small" data-remove-proposal-line>Verwijder</button>
         </div>
@@ -172,10 +179,15 @@
       const list = document.getElementById("proposalLinesList");
       const addButton = document.getElementById("addProposalLineButton");
       const template = document.getElementById("proposalLineTemplate");
+      const proposalTypeField = document.querySelector('select[name="proposal_type"]');
+      const seasonField = document.querySelector('select[name="season_start_year"]');
 
-      if (!list || !addButton || !template) {
+      if (!list || !addButton || !template || !proposalTypeField || !seasonField) {
         return;
       }
+
+      let cachedRequestKey = "";
+      let cachedWeekdayCounts = {};
 
       const updateRemoveButtons = () => {
         const lines = list.querySelectorAll("[data-proposal-line]");
@@ -188,10 +200,80 @@
         });
       };
 
+      const updateLineCount = (line) => {
+        if (!(line instanceof HTMLElement)) {
+          return;
+        }
+        const countBox = line.querySelector("[data-proposal-line-count]");
+        const countValue = countBox?.querySelector(".proposal-line-count-value");
+        const weekdayField = line.querySelector('select[name="line_weekday"]');
+        if (!(countBox instanceof HTMLElement) || !(countValue instanceof HTMLElement) || !(weekdayField instanceof HTMLSelectElement)) {
+          return;
+        }
+
+        const weekday = weekdayField.value;
+        const hasFilters = Boolean(proposalTypeField.value && seasonField.value);
+        if (!hasFilters || !weekday) {
+          countValue.textContent = "-";
+          countBox.dataset.state = "idle";
+          return;
+        }
+
+        const count = Number(cachedWeekdayCounts[weekday] ?? 0);
+        countValue.textContent = String(count);
+        countBox.dataset.state = count > 0 ? "ready" : "empty";
+      };
+
+      const updateAllLineCounts = () => {
+        list.querySelectorAll("[data-proposal-line]").forEach((line) => {
+          updateLineCount(line);
+        });
+      };
+
+      const loadWeekdayCounts = async () => {
+        const proposalType = proposalTypeField.value;
+        const seasonStartYear = seasonField.value;
+        const requestKey = `${proposalType}:${seasonStartYear}`;
+
+        if (!proposalType || !seasonStartYear) {
+          cachedRequestKey = "";
+          cachedWeekdayCounts = {};
+          updateAllLineCounts();
+          return;
+        }
+
+        if (requestKey === cachedRequestKey) {
+          updateAllLineCounts();
+          return;
+        }
+
+        cachedRequestKey = requestKey;
+        const url = new URL("/api/voorstellen-maker/training-counts", window.location.origin);
+        url.searchParams.set("proposal_type", proposalType);
+        url.searchParams.set("season_start_year", seasonStartYear);
+
+        try {
+          const response = await fetch(url.toString(), {
+            headers: { Accept: "application/json" },
+            credentials: "same-origin",
+          });
+          if (!response.ok) {
+            throw new Error("Kon trainingstellingen niet ophalen.");
+          }
+          const payload = await response.json();
+          cachedWeekdayCounts = payload && typeof payload === "object" ? payload.weekdayCounts || {} : {};
+        } catch (error) {
+          cachedWeekdayCounts = {};
+        }
+
+        updateAllLineCounts();
+      };
+
       addButton.addEventListener("click", () => {
         const fragment = template.content.cloneNode(true);
         list.appendChild(fragment);
         updateRemoveButtons();
+        updateAllLineCounts();
       });
 
       list.addEventListener("click", (event) => {
@@ -205,9 +287,32 @@
         }
         line.remove();
         updateRemoveButtons();
+        updateAllLineCounts();
+      });
+
+      list.addEventListener("change", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+        if (target.matches('select[name="line_weekday"]')) {
+          const line = target.closest("[data-proposal-line]");
+          updateLineCount(line);
+        }
+      });
+
+      proposalTypeField.addEventListener("change", () => {
+        cachedRequestKey = "";
+        loadWeekdayCounts();
+      });
+
+      seasonField.addEventListener("change", () => {
+        cachedRequestKey = "";
+        loadWeekdayCounts();
       });
 
       updateRemoveButtons();
+      loadWeekdayCounts();
     })();
   </script>
 {% endblock %}
