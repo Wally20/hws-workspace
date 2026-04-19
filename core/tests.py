@@ -274,6 +274,123 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(response["Location"], "/voorstellen-maker?success=Voorstel+verwijderd.")
         mocked_delete.assert_called_once_with(42)
 
+    def test_proposal_training_counts_api_counts_only_matching_agenda_days_in_selected_season(self):
+        client = self.build_authenticated_client()
+        target_dates = [
+            "2026-07-06",
+            "2026-07-08",
+            "2026-07-10",
+            "2027-06-25",
+            "2027-07-02",
+        ]
+        training_ids = [
+            "proposal-training-count-test-1",
+            "proposal-training-count-test-2",
+        ]
+
+        with legacy.get_db_connection() as connection:
+            connection.execute(
+                f"DELETE FROM agenda_day_plans WHERE date IN ({', '.join(['?'] * len(target_dates))})",
+                target_dates,
+            )
+            connection.executemany(
+                """
+                INSERT INTO agenda_day_plans (date, plan_type, updated_at)
+                VALUES (?, ?, ?)
+                """,
+                [
+                    ("2026-07-06", "Samenwerkende amateurclubs", "2026-04-19T12:00:00"),
+                    ("2026-07-08", "Samenwerkende amateurclubs", "2026-04-19T12:00:00"),
+                    ("2026-07-10", "Techniektrainingen", "2026-04-19T12:00:00"),
+                    ("2027-06-25", "Samenwerkende amateurclubs", "2026-04-19T12:00:00"),
+                    ("2027-07-02", "Samenwerkende amateurclubs", "2026-04-19T12:00:00"),
+                ],
+            )
+            connection.executemany(
+                """
+                INSERT INTO agenda_trainings (id, title, date, time, end_time, location, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        training_ids[0],
+                        "Losse techniektraining die niet mag meetellen",
+                        "2026-07-13",
+                        "18:00",
+                        "19:00",
+                        "",
+                        "",
+                    ),
+                    (
+                        training_ids[1],
+                        "Losse amateurclubtraining die niet mag meetellen",
+                        "2026-07-15",
+                        "18:00",
+                        "19:00",
+                        "",
+                        "",
+                    ),
+                ],
+            )
+
+        try:
+            amateurclub_response = client.get(
+                "/api/voorstellen-maker/training-counts",
+                {
+                    "proposal_type": legacy.PROPOSAL_TYPE_OPTIONS[0]["value"],
+                    "season_start_year": "2026",
+                },
+                secure=True,
+            )
+            techniek_response = client.get(
+                "/api/voorstellen-maker/training-counts",
+                {
+                    "proposal_type": legacy.PROPOSAL_TYPE_OPTIONS[1]["value"],
+                    "season_start_year": "2026",
+                },
+                secure=True,
+            )
+
+            self.assertEqual(amateurclub_response.status_code, 200)
+            self.assertEqual(
+                amateurclub_response.json()["weekdayCounts"],
+                {
+                    "monday": 1,
+                    "tuesday": 0,
+                    "wednesday": 1,
+                    "thursday": 0,
+                    "friday": 1,
+                    "saturday": 0,
+                    "sunday": 0,
+                },
+            )
+            self.assertEqual(amateurclub_response.json()["totalTrainings"], 3)
+
+            self.assertEqual(techniek_response.status_code, 200)
+            self.assertEqual(
+                techniek_response.json()["weekdayCounts"],
+                {
+                    "monday": 0,
+                    "tuesday": 0,
+                    "wednesday": 0,
+                    "thursday": 0,
+                    "friday": 1,
+                    "saturday": 0,
+                    "sunday": 0,
+                },
+            )
+            self.assertEqual(techniek_response.json()["totalTrainings"], 1)
+        finally:
+            with legacy.get_db_connection() as connection:
+                connection.execute(
+                    f"DELETE FROM agenda_day_plans WHERE date IN ({', '.join(['?'] * len(target_dates))})",
+                    target_dates,
+                )
+                connection.execute(
+                    f"DELETE FROM agenda_trainings WHERE id IN ({', '.join(['?'] * len(training_ids))})",
+                    training_ids,
+                )
+
     def test_admin_sees_all_accounts_on_team_page(self):
         extra_profiles = [
             (

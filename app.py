@@ -2101,20 +2101,6 @@ def build_proposal_weekday_counts(
             params.append(str(agenda_plan_type))
         query += " ORDER BY date ASC"
         rows = connection.execute(query, params).fetchall()
-        training_rows = []
-        if not rows:
-            training_rows = connection.execute(
-                """
-                SELECT date
-                FROM agenda_trainings
-                WHERE date >= ? AND date <= ?
-                ORDER BY date ASC, time ASC
-                """,
-                (
-                    season_range["start"].isoformat(),
-                    season_range["end"].isoformat(),
-                ),
-            ).fetchall()
 
     counts_by_weekday = {
         str(option["value"]): 0
@@ -2132,15 +2118,6 @@ def build_proposal_weekday_counts(
         weekday_key = weekday_lookup.get(current_date.weekday())
         if weekday_key:
             counts_by_weekday[weekday_key] = counts_by_weekday.get(weekday_key, 0) + 1
-
-    if not rows:
-        for row in training_rows:
-            current_date = parse_iso_date(str(row["date"] or "").strip())
-            if current_date is None:
-                continue
-            weekday_key = weekday_lookup.get(current_date.weekday())
-            if weekday_key:
-                counts_by_weekday[weekday_key] = counts_by_weekday.get(weekday_key, 0) + 1
 
     return counts_by_weekday
 

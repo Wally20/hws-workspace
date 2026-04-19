@@ -26,6 +26,11 @@ urlpatterns = [
     path("taken", views.tasks_page, name="tasks_page"),
     path("voorstellen-maker", views.voorstellen_maker_page, name="voorstellen_maker_page"),
     path("voorstellen-maker/<int:proposal_id>", views.voorstellen_maker_detail_page, name="voorstellen_maker_detail_page"),
+    path(
+        "api/voorstellen-maker/training-counts",
+        views.api_voorstellen_maker_training_counts,
+        name="api_voorstellen_maker_training_counts",
+    ),
     path("social-media", views.social_media_page, name="social_media_page"),
     path("content", views.content_page, name="content_page"),
     path("content/<int:album_id>", views.content_album_page, name="content_album_page"),
