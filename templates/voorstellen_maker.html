@@ -239,7 +239,7 @@
           return;
         }
         const countBox = line.querySelector("[data-proposal-line-count]");
-        const countValue = countBox?.querySelector(".proposal-line-count-value");
+        const countValue = countBox ? countBox.querySelector(".proposal-line-count-value") : null;
         const weekdayField = line.querySelector('select[name="line_weekday"]');
         if (!(countBox instanceof HTMLElement) || !(countValue instanceof HTMLElement) || !(weekdayField instanceof HTMLSelectElement)) {
           return;
@@ -253,7 +253,11 @@
           return;
         }
 
-        const count = Number(cachedWeekdayCounts[weekday] ?? 0);
+        const count = Number(
+          Object.prototype.hasOwnProperty.call(cachedWeekdayCounts, weekday)
+            ? cachedWeekdayCounts[weekday]
+            : 0
+        );
         countValue.textContent = String(count);
         countBox.dataset.state = count > 0 ? "ready" : "empty";
       };
@@ -303,11 +307,16 @@
         updateAllLineCounts();
       };
 
-      addButton.addEventListener("click", () => {
+      const addProposalLine = () => {
         const fragment = template.content.cloneNode(true);
         list.appendChild(fragment);
         updateRemoveButtons();
         updateAllLineCounts();
+      };
+
+      addButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        addProposalLine();
       });
 
       list.addEventListener("click", (event) => {
