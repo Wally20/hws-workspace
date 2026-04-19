@@ -1034,7 +1034,7 @@ textarea:focus {
 }
 
 .voorstellen-layout {
-  grid-template-columns: minmax(360px, 520px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .proposal-lines-section {
