@@ -10,7 +10,6 @@
         <p class="welcome-line">Voeg trainingen toe en houd je planning overzichtelijk bij.</p>
       </div>
       <div class="agenda-header-actions">
-        <button type="button" id="toggleAgendaPlannerEdit" class="subtle-button subtle-button-strong">Bewerk dagplanning</button>
         <button type="button" id="openAgendaModal" class="refresh-button">+ Nieuwe Training</button>
       </div>
     </div>
@@ -69,6 +68,7 @@
       </div>
       <h2 class="agenda-week-label">{{ week_label }}</h2>
       <div class="agenda-toolbar-right">
+        <button type="button" id="toggleAgendaPlannerEdit" class="subtle-button action-small agenda-planner-toggle" aria-controls="agendaPlannerEditor" aria-expanded="false">Dagplanning</button>
         <span class="agenda-view-pill agenda-view-pill-active">Week</span>
         <span class="agenda-view-pill">Maand</span>
       </div>
@@ -88,7 +88,7 @@
               data-day-plan-dropzone="{{ day.key }}"
               data-day-plan-value="{{ day.planType }}"
             >
-              <span class="agenda-day-plan-value">{{ day.planType or "Nog niets gekozen" }}</span>
+              <span class="agenda-day-plan-value"{% if not day.planType %} aria-hidden="true"{% endif %}>{{ day.planType }}</span>
               <button type="button" class="agenda-day-plan-clear" data-clear-day-plan="{{ day.key }}" {% if not day.planType %}hidden{% endif %}>
                 Wis
               </button>

@@ -31,8 +31,9 @@ function setPlannerEditOpen(isOpen) {
   agendaPlannerEditor.hidden = !isOpen;
   agendaGrid?.classList.toggle("agenda-grid-edit-mode", isOpen);
   if (toggleAgendaPlannerEdit) {
-    toggleAgendaPlannerEdit.textContent = isOpen ? "Dagplanning bewerken actief" : "Bewerk dagplanning";
-    toggleAgendaPlannerEdit.classList.toggle("subtle-button-strong", !isOpen);
+    toggleAgendaPlannerEdit.textContent = isOpen ? "Sluit dagplanning" : "Dagplanning";
+    toggleAgendaPlannerEdit.classList.toggle("subtle-button-strong", isOpen);
+    toggleAgendaPlannerEdit.setAttribute("aria-expanded", isOpen ? "true" : "false");
   }
 }
 
@@ -44,7 +45,8 @@ function renderDayPlan(dropzone, planValue) {
   dropzone.dataset.dayPlanValue = planValue;
   dropzone.classList.toggle("agenda-day-plan-dropzone-filled", hasValue);
   if (valueNode) {
-    valueNode.textContent = hasValue ? planValue : "Nog niets gekozen";
+    valueNode.textContent = hasValue ? planValue : "";
+    valueNode.setAttribute("aria-hidden", hasValue ? "false" : "true");
   }
   if (clearButton) {
     clearButton.hidden = !hasValue;

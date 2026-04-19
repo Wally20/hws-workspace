@@ -1470,15 +1470,29 @@ def save_dashboard_events_config(events: List[Dict[str, Any]]) -> None:
         )
 
 
-def load_agenda_trainings() -> List[Dict[str, Any]]:
+def load_agenda_trainings(start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[Dict[str, Any]]:
+    query = """
+        SELECT id, title, date, time, end_time, location, notes
+        FROM agenda_trainings
+    """
+    params: List[str] = []
+    conditions: List[str] = []
+
+    normalized_start_date = str(start_date or "").strip()
+    normalized_end_date = str(end_date or "").strip()
+
+    if normalized_start_date:
+        conditions.append("date >= ?")
+        params.append(normalized_start_date)
+    if normalized_end_date:
+        conditions.append("date <= ?")
+        params.append(normalized_end_date)
+    if conditions:
+        query += "\n        WHERE " + " AND ".join(conditions)
+    query += "\n        ORDER BY date ASC, time ASC"
+
     with get_db_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT id, title, date, time, end_time, location, notes
-            FROM agenda_trainings
-            ORDER BY date ASC, time ASC
-            """
-        ).fetchall()
+        rows = connection.execute(query, params).fetchall()
 
     trainings = []
     for row in rows:
@@ -1494,7 +1508,7 @@ def load_agenda_trainings() -> List[Dict[str, Any]]:
             }
         )
 
-    return sorted(trainings, key=lambda item: (item.get("date", ""), item.get("time", "")))
+    return trainings
 
 
 def save_agenda_trainings(trainings: List[Dict[str, Any]]) -> None:
@@ -4963,7 +4977,8 @@ def agenda_page() -> str:
     day_plans = load_agenda_day_plans([day["key"] for day in week_days])
     for day in week_days:
         day["planType"] = day_plans.get(day["key"], "")
-    trainings = load_agenda_trainings()
+    week_end = week_start + timedelta(days=6)
+    trainings = load_agenda_trainings(week_start.isoformat(), week_end.isoformat())
     calendar_events = build_agenda_week_events(trainings, week_start)
     time_slots = [f"{hour:02d}" for hour in range(24)]
 
