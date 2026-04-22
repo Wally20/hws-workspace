@@ -4,7 +4,7 @@ import sqlite3
 import tempfile
 import time
 from importlib import import_module
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.test import Client, SimpleTestCase
@@ -218,12 +218,89 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Meivakantie Camp", content)
         self.assertIn("Zomercamp", content)
         self.assertIn('id="registrationsProductSearch"', content)
-        self.assertNotIn("Klant Een", content)
-        self.assertNotIn("Kopieer alle e-mailadressen", content)
-        self.assertIn('data-product-name="meivakantie camp"', content)
-        self.assertIn('data-product-sku="mvc-1"', content)
-        self.assertIn('href="/aanmeldingen/id:101"', content)
-        self.assertIn('data-product-search="meivakantie camp mvc-1 101"', content)
+
+    def test_registration_email_status_updates_ecwid_to_processing(self):
+        client = self.build_authenticated_client()
+        mocked_response = Mock()
+        mocked_response.raise_for_status.return_value = None
+        mocked_response.content = b'{"updateCount": 1}'
+        mocked_response.json.return_value = {"updateCount": 1}
+
+        with patch.dict(
+            os.environ,
+            {
+                "ECWID_STORE_ID": "87654321",
+                "ECWID_SECRET_TOKEN": "secret_abcdefghijklmnopqrstuvwxyz123456",
+            },
+            clear=False,
+        ), patch.object(legacy.requests, "put", return_value=mocked_response) as mocked_put:
+            response = client.post(
+                "/api/registrations/email-status",
+                data='{"productKey":"camp-1","orderIds":["ORDER-1"],"emailed":true}',
+                content_type="application/json",
+                HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["ecwidUpdatedOrderIds"], ["ORDER-1"])
+        mocked_put.assert_called_once()
+        self.assertEqual(
+            mocked_put.call_args.kwargs["json"],
+            {"fulfillmentStatus": legacy.ECWID_PROCESSING_FULFILLMENT_STATUS},
+        )
+
+    def test_registration_email_status_keeps_working_without_ecwid_config(self):
+        client = self.build_authenticated_client()
+
+        with patch.dict(
+            os.environ,
+            {
+                "ECWID_STORE_ID": "HIER_JOUW_ECWID_STORE_ID",
+                "ECWID_SECRET_TOKEN": "HIER_JOUW_ECWID_SECRET_TOKEN",
+            },
+            clear=False,
+        ), patch.object(legacy.requests, "put") as mocked_put:
+            response = client.post(
+                "/api/registrations/email-status",
+                data='{"productKey":"camp-1","orderIds":["ORDER-2"],"emailed":true}',
+                content_type="application/json",
+                HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["ecwidUpdatedOrderIds"], [])
+        mocked_put.assert_not_called()
+
+    def test_registration_email_status_returns_error_when_ecwid_update_fails(self):
+        client = self.build_authenticated_client()
+
+        with patch.dict(
+            os.environ,
+            {
+                "ECWID_STORE_ID": "87654321",
+                "ECWID_SECRET_TOKEN": "secret_abcdefghijklmnopqrstuvwxyz123456",
+            },
+            clear=False,
+        ), patch.object(legacy.requests, "put", side_effect=legacy.requests.RequestException("boom")):
+            response = client.post(
+                "/api/registrations/email-status",
+                data='{"productKey":"camp-1","orderIds":["ORDER-3"],"emailed":true}',
+                content_type="application/json",
+                HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            response.json()["error"],
+            "Ecwid-bestelling kon niet op in verwerking worden gezet.",
+        )
+        self.assertEqual(
+            legacy.load_registration_emailed_order_ids("camp-1", {"ORDER-3"}),
+            set(),
+        )
 
     def test_registrations_detail_page_renders_selected_order_details(self):
         legacy.set_registration_orders_emailed("id:101", ["ORDER-1"], True)

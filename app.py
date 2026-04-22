@@ -97,6 +97,7 @@ ECWID_RESPONSE_FIELDS = (
     "paymentMethod,shippingOption,items(productId,name,quantity,price,sku),"
     "shippingPerson(name),billingPerson(name),extraFields,orderExtraFields(id,title,value))"
 )
+ECWID_PROCESSING_FULFILLMENT_STATUS = "PROCESSING"
 
 app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 31536000
@@ -5059,6 +5060,50 @@ def fetch_orders_from_ecwid() -> Dict[str, Any]:
     }
 
 
+def get_ecwid_headers(secret_token: str) -> Dict[str, str]:
+    return {
+        "Authorization": f"Bearer {secret_token}",
+        "Content-Type": "application/json",
+    }
+
+
+def invalidate_ecwid_orders_cache() -> None:
+    with ecwid_orders_cache_lock:
+        ecwid_orders_cache["payload"] = None
+        ecwid_orders_cache["cached_at"] = 0.0
+
+
+def update_ecwid_order_to_processing(order_id: str) -> bool:
+    normalized_order_id = str(order_id or "").strip()
+    if not normalized_order_id:
+        raise ValueError("Bestelling ontbreekt.")
+
+    config = get_config()
+    if not config["store_id"] or not config["secret_token"]:
+        return False
+
+    try:
+        response = requests.put(
+            f"{ECWID_API_BASE}/{config['store_id']}/orders/{normalized_order_id}",
+            headers=get_ecwid_headers(config["secret_token"]),
+            json={"fulfillmentStatus": ECWID_PROCESSING_FULFILLMENT_STATUS},
+            timeout=20,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError("Ecwid-bestelling kon niet op in verwerking worden gezet.") from exc
+
+    response_content = getattr(response, "content", b"")
+    payload = response.json() if response_content else {}
+    if isinstance(payload, dict) and int(payload.get("updateCount") or 0) not in {0, 1}:
+        raise RuntimeError("Ecwid gaf een ongeldige reactie terug bij het bijwerken van de bestelling.")
+    if isinstance(payload, dict) and "updateCount" in payload and int(payload.get("updateCount") or 0) != 1:
+        raise RuntimeError("Ecwid heeft de bestelling niet bijgewerkt.")
+
+    invalidate_ecwid_orders_cache()
+    return True
+
+
 def get_moneybird_headers(token: str) -> Dict[str, str]:
     return {
         "Authorization": f"Bearer {token}",
@@ -6257,6 +6302,15 @@ def api_update_registration_email_status():
     if not isinstance(emailed, bool):
         return jsonify({"error": "Ongeldige e-mailstatus."}), 400
 
+    ecwid_updated_order_ids: List[str] = []
+    if emailed:
+        try:
+            for order_id in order_ids:
+                if update_ecwid_order_to_processing(order_id):
+                    ecwid_updated_order_ids.append(order_id)
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 502
+
     updated_order_ids = set_registration_orders_emailed(product_key, order_ids, emailed)
     return jsonify(
         {
@@ -6264,6 +6318,7 @@ def api_update_registration_email_status():
             "productKey": product_key,
             "orderIds": updated_order_ids,
             "emailed": emailed,
+            "ecwidUpdatedOrderIds": ecwid_updated_order_ids,
         }
     )
 
