@@ -46,6 +46,11 @@
         <p class="leads-summary-value" id="leadsEmailCount">0</p>
         <p class="orders-toolbar-text">unieke e-mailadressen over</p>
       </article>
+      <article class="leads-summary-card">
+        <p class="orders-toolbar-title">Nooit mailen</p>
+        <p class="leads-summary-value" id="leadsBlockedCount">0</p>
+        <p class="orders-toolbar-text">handmatig geblokkeerde e-mailadressen</p>
+      </article>
     </div>
 
     <div class="registrations-actions leads-actions">
@@ -72,6 +77,31 @@
       <span class="leads-legend-chip leads-legend-chip-exclude">Uitsluiten</span>
       <span class="leads-legend-note">Klik op een tegel om toe te voegen. Klik nog eens om naar uitsluiten te wisselen. Een derde klik haalt de tegel weer weg.</span>
     </div>
+
+    <section class="leads-blocklist-panel">
+      <div class="section-head">
+        <div>
+          <h3>Nooit mailen</h3>
+          <p class="section-subtitle">Voeg hier e-mailadressen toe die altijd automatisch uitgesloten moeten worden, ook als je een product selecteert.</p>
+        </div>
+      </div>
+
+      <label class="field leads-result-field">
+        <span>Geblokkeerde e-mailadressen</span>
+        <textarea
+          id="leadBlockedEmailsInput"
+          rows="6"
+          placeholder="Plak hier e-mailadressen, gescheiden door komma's of nieuwe regels."
+        ></textarea>
+      </label>
+
+      <div class="registrations-actions leads-actions leads-blocklist-actions">
+        <button type="button" class="team-secondary-button" id="clearLeadBlockedEmailsButton">
+          Wis blokkeerlijst
+        </button>
+        <span class="registrations-copy-feedback" id="leadBlockedEmailsFeedback" aria-live="polite"></span>
+      </div>
+    </section>
 
     <div class="registrations-product-list registrations-product-grid" id="leadsProductList">
       {% for product in products %}

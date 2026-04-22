@@ -8,10 +8,15 @@ const leadEmailsPreview = document.querySelector("#leadEmailsPreview");
 const leadsIncludedCount = document.querySelector("#leadsIncludedCount");
 const leadsExcludedCount = document.querySelector("#leadsExcludedCount");
 const leadsEmailCount = document.querySelector("#leadsEmailCount");
+const leadsBlockedCount = document.querySelector("#leadsBlockedCount");
+const leadBlockedEmailsInput = document.querySelector("#leadBlockedEmailsInput");
+const clearLeadBlockedEmailsButton = document.querySelector("#clearLeadBlockedEmailsButton");
+const leadBlockedEmailsFeedback = document.querySelector("#leadBlockedEmailsFeedback");
 
 const INCLUDE_STATE = "include";
 const EXCLUDE_STATE = "exclude";
 const UNSELECTED_STATE = "none";
+const BLOCKED_EMAILS_STORAGE_KEY = "hws-leads-blocked-emails";
 
 leadsProductCards.forEach((card, index) => {
   card.dataset.originalIndex = String(index);
@@ -118,6 +123,44 @@ function parseCardEmails(card) {
   }
 }
 
+function parseEmailList(rawValue) {
+  return Array.from(
+    new Set(
+      String(rawValue || "")
+        .split(/[\s,;]+/)
+        .map((email) => String(email || "").trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
+}
+
+function loadBlockedEmails() {
+  if (!leadBlockedEmailsInput) {
+    return;
+  }
+
+  try {
+    const storedValue = window.localStorage.getItem(BLOCKED_EMAILS_STORAGE_KEY);
+    if (storedValue) {
+      leadBlockedEmailsInput.value = storedValue;
+    }
+  } catch (error) {
+    // Ignore storage issues and keep the field usable for the current session.
+  }
+}
+
+function saveBlockedEmails() {
+  if (!leadBlockedEmailsInput) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(BLOCKED_EMAILS_STORAGE_KEY, leadBlockedEmailsInput.value);
+  } catch (error) {
+    // Ignore storage issues and keep the field usable for the current session.
+  }
+}
+
 function collectEmailsForState(state) {
   const emails = new Set();
 
@@ -153,7 +196,8 @@ function updateLeadSummary() {
   );
   const includedEmails = collectEmailsForState(INCLUDE_STATE);
   const excludedEmails = collectEmailsForState(EXCLUDE_STATE);
-  const finalEmails = Array.from(includedEmails).filter((email) => !excludedEmails.has(email));
+  const blockedEmails = new Set(parseEmailList(leadBlockedEmailsInput?.value || ""));
+  const finalEmails = Array.from(includedEmails).filter((email) => !excludedEmails.has(email) && !blockedEmails.has(email.toLowerCase()));
   const finalEmailList = finalEmails.join(", ");
 
   if (leadsIncludedCount) {
@@ -164,6 +208,9 @@ function updateLeadSummary() {
   }
   if (leadsEmailCount) {
     leadsEmailCount.textContent = String(finalEmails.length);
+  }
+  if (leadsBlockedCount) {
+    leadsBlockedCount.textContent = String(blockedEmails.size);
   }
   if (leadEmailsPreview) {
     leadEmailsPreview.value = finalEmailList;
@@ -220,6 +267,27 @@ function clearLeadSelections() {
   updateLeadSummary();
 }
 
+function handleBlockedEmailsInput() {
+  saveBlockedEmails();
+  if (leadBlockedEmailsFeedback) {
+    leadBlockedEmailsFeedback.textContent = "Blokkeerlijst opgeslagen.";
+  }
+  updateLeadSummary();
+}
+
+function clearBlockedEmails() {
+  if (!leadBlockedEmailsInput) {
+    return;
+  }
+
+  leadBlockedEmailsInput.value = "";
+  saveBlockedEmails();
+  if (leadBlockedEmailsFeedback) {
+    leadBlockedEmailsFeedback.textContent = "Blokkeerlijst gewist.";
+  }
+  updateLeadSummary();
+}
+
 leadsProductCards.forEach((card) => {
   card.dataset.selectionState = UNSELECTED_STATE;
   renderSelectionState(card);
@@ -233,6 +301,9 @@ leadsSearchInput?.addEventListener("search", filterProducts);
 leadsSearchInput?.addEventListener("change", filterProducts);
 copyLeadEmailsButton?.addEventListener("click", copyLeadEmails);
 clearLeadSelectionsButton?.addEventListener("click", clearLeadSelections);
+leadBlockedEmailsInput?.addEventListener("input", handleBlockedEmailsInput);
+clearLeadBlockedEmailsButton?.addEventListener("click", clearBlockedEmails);
 
+loadBlockedEmails();
 filterProducts();
 updateLeadSummary();
