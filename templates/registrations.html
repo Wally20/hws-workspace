@@ -49,6 +49,8 @@
             href="{{ product.detailUrl }}"
             class="registrations-product-card {% if selected_product_key == product.productKey %}registrations-product-card-active{% endif %}"
             data-product-search="{{ product.searchText }}"
+            data-product-name="{{ product.name|lower }}"
+            data-product-sku="{{ product.sku|lower }}"
           >
             <div>
               <p class="registrations-product-name">{{ product.name }}</p>

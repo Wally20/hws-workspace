@@ -278,6 +278,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Glutenvrij", content)
         self.assertIn("Komt iets later.", content)
         self.assertIn('data-emails="klant2@example.com, klant1@example.com"', content)
+        self.assertIn('data-product-name="meivakantie camp"', content)
+        self.assertIn('data-product-sku="mvc-1"', content)
         self.assertIn(
             'data-product-search="meivakantie camp mvc-1 101 klant twee klant2@example.com order-2 klant een klant1@example.com order-1"',
             content,
