@@ -3538,7 +3538,6 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "dashboard",
             "agenda",
             "tasks",
-            "registrations",
             "orders",
             "revenue",
             "trainer-fees",
@@ -5729,7 +5728,7 @@ def orders_page() -> str:
 
 @app.get("/aanmeldingen")
 def registrations_page() -> str:
-    access_redirect = require_page_access("registrations")
+    access_redirect = require_page_access("orders")
     if access_redirect is not None:
         return access_redirect
 
@@ -5766,6 +5765,7 @@ def registrations_page() -> str:
         selected_product=selected_product,
         selected_product_key=selected_product["productKey"] if selected_product else "",
         total_products=len(registrations),
+        total_registrations=sum(int(item.get("participantCount") or 0) for item in registrations),
         total_orders=len(orders_payload.get("items", [])),
         refresh_url=build_registrations_page_url(selected_product_key),
         last_updated=format_cache_timestamp(orders_payload.get("cachedAt", 0.0)),

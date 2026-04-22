@@ -7,7 +7,7 @@
     <div>
       <h1>Aanmeldingen</h1>
       <p class="welcome-line">
-        {{ total_products }} producten zichtbaar · {{ total_orders }} bestellingen ingeladen
+        {{ total_products }} producten zichtbaar · {{ total_registrations }} aanmeldingen gevonden
       </p>
     </div>
   </header>
@@ -53,11 +53,11 @@
             <div>
               <p class="registrations-product-name">{{ product.name }}</p>
               <p class="registrations-product-meta">
-                {% if product.sku %}SKU: {{ product.sku }} · {% endif %}{{ product.orderCount }} bestellingen
+                {% if product.sku %}SKU: {{ product.sku }} · {% endif %}{{ product.participantCount }} aanmeldingen
               </p>
             </div>
             <div class="registrations-product-stats">
-              <span>{{ product.participantCount }} aanmeldingen</span>
+              <span>{{ product.orderCount }} bestellingen</span>
               <span>{{ product.emailCount }} e-mails</span>
             </div>
           </a>
@@ -73,7 +73,7 @@
           <div>
             <h2>{{ selected_product.name }}</h2>
             <p class="section-subtitle">
-              {{ selected_product.orderCount }} bestellingen · {{ selected_product.participantCount }} aanmeldingen
+              {{ selected_product.participantCount }} aanmeldingen · {{ selected_product.orderCount }} bestellingen
               {% if selected_product.sku %}· SKU: {{ selected_product.sku }}{% endif %}
             </p>
           </div>
