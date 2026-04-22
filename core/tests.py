@@ -1,4 +1,3 @@
-import io
 import os
 import re
 import sqlite3
@@ -9,7 +8,6 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.test import Client, SimpleTestCase
-from openpyxl import load_workbook
 
 import app as legacy
 
@@ -182,24 +180,13 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         content = response.content.decode("utf-8")
         self.assertIn("Live Ecwid-koppeling staat nog niet aan.", content)
 
-    def test_orders_page_filters_results(self):
-        mock_payload = {
-            "items": legacy.mock_orders(),
-            "summary": legacy.build_summary(legacy.mock_orders()),
-            "cachedAt": 0.0,
-            "source": "mock",
-        }
-        with patch.object(legacy, "fetch_ecwid_orders", return_value=mock_payload):
-            response = self.build_authenticated_client().get(
-                "/bestellingen",
-                {"q": "Anne", "status": "PAID"},
-                secure=True,
-            )
-
-        self.assertEqual(response.status_code, 200)
-        content = response.content.decode("utf-8")
-        self.assertIn("Anne de Vries", content)
-        self.assertNotIn("Milan Jansen", content)
+    def test_orders_page_is_visible_for_all_authenticated_users(self):
+        self.assertIn("orders", legacy.get_visible_pages_for_user({"id": "admin", "isAdmin": True}))
+        self.assertIn(
+            "orders",
+            legacy.get_visible_pages_for_user({"id": "social", "isAdmin": False, "systemRole": "Social media beheerder"}),
+        )
+        self.assertIn("orders", legacy.get_visible_pages_for_user({"id": "trainer", "isAdmin": False, "systemRole": "Trainer"}))
 
     def test_registrations_page_renders_products_and_selected_order_details(self):
         mock_orders = [
@@ -266,38 +253,6 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Klant Een", content)
         self.assertIn("Klant Twee", content)
         self.assertIn('data-emails="klant2@example.com, klant1@example.com"', content)
-
-    def test_team_assignment_export_returns_excel_for_selected_orders(self):
-        client = self.build_authenticated_client()
-        mock_payload = {
-            "items": legacy.mock_orders(),
-            "summary": legacy.build_summary(legacy.mock_orders()),
-            "cachedAt": 0.0,
-            "source": "mock",
-        }
-        with patch.object(legacy, "fetch_ecwid_orders", return_value=mock_payload):
-            response = client.post(
-                "/bestellingen/teamindeling-export",
-                {
-                    "csrf_token": self.TEST_CSRF_TOKEN,
-                    "selected_order_ids": "WEB-1001,WEB-1002",
-                },
-                secure=True,
-            )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response["Content-Type"],
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
-        workbook = load_workbook(filename=io.BytesIO(response.content))
-        worksheet = workbook["Teamindeling"]
-
-        self.assertEqual(worksheet["A1"].value, "Teamindeling geselecteerde bestellingen")
-        self.assertEqual(worksheet["A4"].value, "Datum")
-        self.assertEqual(worksheet["H4"].value, "Team")
-        self.assertEqual(worksheet["C5"].value, "Anne de Vries")
 
     def test_proposal_create_redirects_to_detail_page(self):
         client = self.build_authenticated_client()

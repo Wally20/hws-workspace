@@ -3548,8 +3548,8 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "profile",
         }
     if is_social_media_manager(user):
-        return {"dashboard", "voorstellen-maker", "social-media", "content", "profile"}
-    return {"profile"}
+        return {"dashboard", "orders", "voorstellen-maker", "social-media", "content", "profile"}
+    return {"orders", "profile"}
 
 
 def user_can_access_page(user: Optional[Dict[str, Any]], page_key: str) -> bool:
