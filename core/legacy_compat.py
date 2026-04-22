@@ -24,6 +24,7 @@ ENDPOINTS = {
     "index": "index",
     "registrations_page": "registrations_page",
     "registrations_detail_page": "registrations_detail_page",
+    "leads_page": "leads_page",
     "revenue_home_page": "revenue_home_page",
     "revenue_total_page": "revenue_total_page",
     "revenue_monthly_page": "revenue_monthly_page",

@@ -12,6 +12,7 @@ urlpatterns = [
     path("", views.index, name="index"),
     path("aanmeldingen", views.registrations_page, name="registrations_page"),
     path("aanmeldingen/<path:product_key>", views.registrations_detail_page, name="registrations_detail_page"),
+    path("leads", views.leads_page, name="leads_page"),
     path("omzet", views.revenue_home_page, name="revenue_home_page"),
     path("omzet/totaal", views.revenue_total_page, name="revenue_total_page"),
     path("omzet/per-maand", views.revenue_monthly_page, name="revenue_monthly_page"),

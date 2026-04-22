@@ -188,6 +188,14 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         )
         self.assertIn("orders", legacy.get_visible_pages_for_user({"id": "trainer", "isAdmin": False, "systemRole": "Trainer"}))
 
+    def test_leads_page_is_visible_for_all_authenticated_users(self):
+        self.assertIn("leads", legacy.get_visible_pages_for_user({"id": "admin", "isAdmin": True}))
+        self.assertIn(
+            "leads",
+            legacy.get_visible_pages_for_user({"id": "social", "isAdmin": False, "systemRole": "Social media beheerder"}),
+        )
+        self.assertIn("leads", legacy.get_visible_pages_for_user({"id": "trainer", "isAdmin": False, "systemRole": "Trainer"}))
+
     def test_registrations_page_only_loads_products_for_overview(self):
         catalog_payload = {
             "items": [
@@ -313,6 +321,74 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response["Location"], "/aanmeldingen/id:101")
+
+    def test_leads_page_renders_product_email_selection(self):
+        mock_orders = [
+            {
+                "id": "ORDER-1",
+                "orderNumber": "ORDER-1",
+                "createdAt": "2026-04-10T10:00:00+02:00",
+                "status": "PAID",
+                "paymentStatus": "PAID",
+                "fulfillmentStatus": "AWAITING_PROCESSING",
+                "total": 79.0,
+                "email": "klant1@example.com",
+                "customerName": "Klant Een",
+                "paymentMethod": "iDEAL",
+                "shippingMethod": "Digitaal",
+                "itemCount": 1,
+                "items": [
+                    {"productId": 101, "name": "Meivakantie Camp", "quantity": 1, "price": 79.0, "sku": "MVC-1"},
+                ],
+            },
+            {
+                "id": "ORDER-2",
+                "orderNumber": "ORDER-2",
+                "createdAt": "2026-04-11T11:30:00+02:00",
+                "status": "PAID",
+                "paymentStatus": "PAID",
+                "fulfillmentStatus": "AWAITING_PROCESSING",
+                "total": 99.0,
+                "email": "klant2@example.com",
+                "customerName": "Klant Twee",
+                "paymentMethod": "iDEAL",
+                "shippingMethod": "Digitaal",
+                "itemCount": 1,
+                "items": [
+                    {"productId": 102, "name": "Zomercamp", "quantity": 1, "price": 99.0, "sku": "ZC-1"},
+                ],
+            },
+        ]
+        catalog_payload = {
+            "items": [
+                {"id": "101", "name": "Meivakantie Camp", "sku": "MVC-1", "price": 79.0, "enabled": True},
+                {"id": "102", "name": "Zomercamp", "sku": "ZC-1", "price": 99.0, "enabled": True},
+            ],
+            "source": "ecwid",
+        }
+        orders_payload = {
+            "items": mock_orders,
+            "summary": legacy.build_summary(mock_orders),
+            "cachedAt": 0.0,
+            "source": "ecwid",
+        }
+
+        with patch.object(legacy, "fetch_catalog_products", return_value=catalog_payload), patch.object(
+            legacy,
+            "fetch_ecwid_orders",
+            return_value=orders_payload,
+        ):
+            response = self.build_authenticated_client().get("/leads", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Leads", content)
+        self.assertIn("Meivakantie Camp", content)
+        self.assertIn("Zomercamp", content)
+        self.assertIn('id="copyLeadEmailsButton"', content)
+        self.assertIn('id="leadEmailsPreview"', content)
+        self.assertIn('data-product-emails=\'["klant1@example.com"]\'', content)
+        self.assertIn('data-product-emails=\'["klant2@example.com"]\'', content)
 
     def test_proposal_create_redirects_to_detail_page(self):
         client = self.build_authenticated_client()
