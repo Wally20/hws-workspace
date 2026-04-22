@@ -38,13 +38,13 @@ function scoreProductMatch(card, query) {
   const matchedWordCount = queryWords.filter((queryWord) =>
     searchableWords.some((word) => word.includes(queryWord))
   ).length;
+  const matchedAllWords = matchedWordCount === queryWords.length;
 
-  if (!matchedWordCount) {
+  if (!matchedAllWords) {
     return Number.POSITIVE_INFINITY;
   }
 
   const fullQuery = queryWords.join(" ");
-  const matchedAllWords = matchedWordCount === queryWords.length;
   const exactTitleMatch = name === fullQuery;
   const titleStartsWithQuery = name.startsWith(fullQuery);
   const titleContainsFullQuery = name.includes(fullQuery);
@@ -75,6 +75,27 @@ function scoreProductMatch(card, query) {
   return 20 - matchedWordCount;
 }
 
+let autoSelectTimeoutId = null;
+
+function autoSelectTopProduct(query, rankedCards) {
+  if (autoSelectTimeoutId) {
+    window.clearTimeout(autoSelectTimeoutId);
+  }
+
+  if (!query.trim() || !rankedCards.length) {
+    return;
+  }
+
+  const topCard = rankedCards[0]?.card;
+  if (!topCard || topCard.classList.contains("registrations-product-card-active")) {
+    return;
+  }
+
+  autoSelectTimeoutId = window.setTimeout(() => {
+    window.location.assign(topCard.href);
+  }, 250);
+}
+
 function filterProducts() {
   const query = String(productSearchInput?.value || "");
   const rankedCards = [];
@@ -98,6 +119,8 @@ function filterProducts() {
     .forEach(({ card }) => {
       productList?.appendChild(card);
     });
+
+  autoSelectTopProduct(query, rankedCards);
 }
 
 async function copyRegistrationEmails() {
