@@ -188,7 +188,35 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         )
         self.assertIn("orders", legacy.get_visible_pages_for_user({"id": "trainer", "isAdmin": False, "systemRole": "Trainer"}))
 
-    def test_registrations_page_renders_products_and_selected_order_details(self):
+    def test_registrations_page_only_loads_products_for_overview(self):
+        catalog_payload = {
+            "items": [
+                {"id": "101", "name": "Meivakantie Camp", "sku": "MVC-1", "price": 79.0, "enabled": True},
+                {"id": "102", "name": "Zomercamp", "sku": "ZC-1", "price": 99.0, "enabled": True},
+            ],
+            "source": "ecwid",
+        }
+
+        with patch.object(legacy, "fetch_catalog_products", return_value=catalog_payload), patch.object(
+            legacy,
+            "fetch_ecwid_orders",
+        ) as mocked_fetch_orders:
+            response = self.build_authenticated_client().get("/aanmeldingen", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        mocked_fetch_orders.assert_not_called()
+        self.assertIn("Meivakantie Camp", content)
+        self.assertIn("Zomercamp", content)
+        self.assertIn('id="registrationsProductSearch"', content)
+        self.assertNotIn("Klant Een", content)
+        self.assertNotIn("Kopieer alle e-mailadressen", content)
+        self.assertIn('data-product-name="meivakantie camp"', content)
+        self.assertIn('data-product-sku="mvc-1"', content)
+        self.assertIn('href="/aanmeldingen/id:101"', content)
+        self.assertIn('data-product-search="meivakantie camp mvc-1 101"', content)
+
+    def test_registrations_detail_page_renders_selected_order_details(self):
         mock_orders = [
             {
                 "id": "ORDER-1",
@@ -260,12 +288,11 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             "fetch_ecwid_orders",
             return_value=orders_payload,
         ):
-            response = self.build_authenticated_client().get("/aanmeldingen?product=id:101", secure=True)
+            response = self.build_authenticated_client().get("/aanmeldingen/id:101", secure=True)
 
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
         self.assertIn("Meivakantie Camp", content)
-        self.assertIn("Zomercamp", content)
         self.assertIn("Klant Een", content)
         self.assertIn("Klant Twee", content)
         self.assertIn("Voornaam", content)
@@ -278,12 +305,14 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Glutenvrij", content)
         self.assertIn("Komt iets later.", content)
         self.assertIn('data-emails="klant2@example.com, klant1@example.com"', content)
-        self.assertIn('data-product-name="meivakantie camp"', content)
-        self.assertIn('data-product-sku="mvc-1"', content)
-        self.assertIn(
-            'data-product-search="meivakantie camp mvc-1 101 klant twee klant2@example.com order-2 klant een klant1@example.com order-1"',
-            content,
-        )
+        self.assertIn("Terug naar alle aanmeldingen", content)
+        self.assertNotIn('id="registrationsProductSearch"', content)
+
+    def test_registrations_page_redirects_legacy_product_query_to_detail_page(self):
+        response = self.build_authenticated_client().get("/aanmeldingen?product=id:101", secure=True)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/aanmeldingen/id:101")
 
     def test_proposal_create_redirects_to_detail_page(self):
         client = self.build_authenticated_client()

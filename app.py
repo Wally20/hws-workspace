@@ -956,10 +956,49 @@ def build_catalog_product_key(product: Dict[str, Any]) -> str:
     return f"fallback:{name}|{sku}"
 
 
-def build_registrations_page_url(selected_product_key: str = "") -> str:
-    if selected_product_key.strip():
-        return url_for("registrations_page", product=selected_product_key.strip())
+def build_registrations_page_url() -> str:
     return url_for("registrations_page")
+
+
+def build_registration_detail_url(product_key: str) -> str:
+    return url_for("registrations_detail_page", product_key=product_key.strip())
+
+
+def build_registrations_overview_entries(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    entries = []
+
+    for product in products:
+        normalized_product = normalize_product(product)
+        product_key = build_catalog_product_key(normalized_product)
+        search_parts = [
+            normalized_product["name"],
+            normalized_product["sku"],
+            normalized_product["id"],
+        ]
+        entries.append(
+            {
+                "productKey": product_key,
+                "productId": normalized_product["id"],
+                "name": normalized_product["name"],
+                "sku": normalized_product["sku"],
+                "enabled": normalized_product["enabled"],
+                "searchText": " ".join(
+                    str(part).strip().lower()
+                    for part in search_parts
+                    if str(part or "").strip()
+                ),
+                "detailUrl": build_registration_detail_url(product_key),
+            }
+        )
+
+    entries.sort(
+        key=lambda item: (
+            item["name"].lower(),
+            item["sku"].lower(),
+            item["productKey"],
+        )
+    )
+    return entries
 
 
 def build_product_registration_summary(
@@ -1059,6 +1098,90 @@ def build_product_registration_summary(
         )
     )
     return entries
+
+
+def build_registration_product_detail(
+    products: List[Dict[str, Any]],
+    orders: List[Dict[str, Any]],
+    selected_product_key: str,
+) -> Optional[Dict[str, Any]]:
+    normalized_product_key = selected_product_key.strip()
+    if not normalized_product_key:
+        return None
+
+    selected_product = next(
+        (normalize_product(product) for product in products if build_catalog_product_key(product) == normalized_product_key),
+        None,
+    )
+
+    detail_entry = None
+    if selected_product is not None:
+        detail_entry = {
+            "productKey": normalized_product_key,
+            "productId": selected_product["id"],
+            "name": selected_product["name"],
+            "sku": selected_product["sku"],
+            "price": selected_product["price"],
+            "enabled": selected_product["enabled"],
+            "orderCount": 0,
+            "participantCount": 0,
+            "emailCount": 0,
+            "emails": [],
+            "orders": [],
+        }
+
+    for order in sort_orders_desc(orders):
+        created_at = parse_iso_datetime(order.get("createdAt", ""))
+        display_date = created_at.strftime("%d-%m-%Y") if created_at else "-"
+        display_time = created_at.strftime("%H:%M") if created_at else "-"
+        for item in order.get("items", []):
+            if build_order_item_product_key(item) != normalized_product_key:
+                continue
+
+            if detail_entry is None:
+                detail_entry = {
+                    "productKey": normalized_product_key,
+                    "productId": None if item.get("productId") is None else str(item.get("productId")),
+                    "name": str(item.get("name", "") or "Naamloos product"),
+                    "sku": str(item.get("sku", "") or ""),
+                    "price": float(item.get("price") or 0),
+                    "enabled": True,
+                    "orderCount": 0,
+                    "participantCount": 0,
+                    "emailCount": 0,
+                    "emails": [],
+                    "orders": [],
+                }
+
+            email = str(order.get("email", "") or "").strip()
+            if email and email not in detail_entry["emails"]:
+                detail_entry["emails"].append(email)
+
+            detail_entry["orderCount"] += 1
+            detail_entry["participantCount"] += max(int(item.get("quantity") or 0), 0)
+            detail_entry["orders"].append(
+                {
+                    "id": str(order.get("id", "") or ""),
+                    "orderNumber": str(order.get("orderNumber", "") or order.get("id", "")),
+                    "customerName": str(order.get("customerName", "") or "Onbekende klant"),
+                    "email": email,
+                    "status": str(order.get("status", "") or "-"),
+                    "paymentStatus": str(order.get("paymentStatus", "") or "-"),
+                    "displayDate": display_date,
+                    "displayTime": display_time,
+                    "quantity": max(int(item.get("quantity") or 0), 0),
+                    "total": float(order.get("total") or 0),
+                    "itemPrice": float(item.get("price") or 0),
+                    "registrationDetails": extract_registration_details(order, str(order.get("customerName", "") or "")),
+                }
+            )
+
+    if detail_entry is None:
+        return None
+
+    detail_entry["emailCount"] = len(detail_entry["emails"])
+    detail_entry["emailList"] = ", ".join(detail_entry["emails"])
+    return detail_entry
 
 
 def build_orders_filter_options(orders: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, str]]]:
@@ -5829,24 +5952,45 @@ def registrations_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
+    selected_product_key = request.args.get("product", "").strip()
+    if selected_product_key:
+        return redirect(build_registration_detail_url(selected_product_key))
+
+    products_payload = fetch_catalog_products()
+    product_message = products_payload.get("message")
+    registrations = build_registrations_overview_entries(products_payload.get("items", []))
+
+    return render_template(
+        "registrations.html",
+        active_page="registrations",
+        products=registrations,
+        total_products=len(registrations),
+        refresh_url=build_registrations_page_url(),
+        last_updated=format_cache_timestamp(products_payload.get("cachedAt", 0.0)),
+        message=product_message or None,
+    )
+
+
+@app.get("/aanmeldingen/<path:product_key>")
+def registrations_detail_page(product_key: str) -> str:
+    access_redirect = require_page_access("orders")
+    if access_redirect is not None:
+        return access_redirect
+
+    normalized_product_key = str(product_key or "").strip()
+    if not normalized_product_key:
+        return redirect(build_registrations_page_url())
+
     products_payload = fetch_catalog_products()
     orders_payload = fetch_ecwid_orders()
-    registrations = build_product_registration_summary(
+    selected_product = build_registration_product_detail(
         products_payload.get("items", []),
         orders_payload.get("items", []),
+        normalized_product_key,
     )
-    selected_product_key = request.args.get("product", "").strip()
-    registrations = [
-        {
-            **item,
-            "detailUrl": build_registrations_page_url(item["productKey"]),
-        }
-        for item in registrations
-    ]
-    selected_product = next(
-        (item for item in registrations if item["productKey"] == selected_product_key),
-        registrations[0] if registrations else None,
-    )
+
+    if selected_product is None:
+        abort(404)
 
     product_message = products_payload.get("message")
     order_message = orders_payload.get("message")
@@ -5856,15 +6000,11 @@ def registrations_page() -> str:
             message_parts.append(message)
 
     return render_template(
-        "registrations.html",
+        "registration_detail.html",
         active_page="registrations",
-        products=registrations,
         selected_product=selected_product,
-        selected_product_key=selected_product["productKey"] if selected_product else "",
-        total_products=len(registrations),
-        total_registrations=sum(int(item.get("participantCount") or 0) for item in registrations),
-        total_orders=len(orders_payload.get("items", [])),
-        refresh_url=build_registrations_page_url(selected_product_key),
+        refresh_url=build_registration_detail_url(normalized_product_key),
+        back_url=build_registrations_page_url(),
         last_updated=format_cache_timestamp(orders_payload.get("cachedAt", 0.0)),
         message=" ".join(message_parts) if message_parts else None,
     )

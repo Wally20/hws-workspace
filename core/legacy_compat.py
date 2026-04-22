@@ -23,6 +23,7 @@ ENDPOINTS = {
     "logout_page": "logout_page",
     "index": "index",
     "registrations_page": "registrations_page",
+    "registrations_detail_page": "registrations_detail_page",
     "revenue_home_page": "revenue_home_page",
     "revenue_total_page": "revenue_total_page",
     "revenue_monthly_page": "revenue_monthly_page",
@@ -50,6 +51,7 @@ ENDPOINTS = {
 
 PATH_KWARGS = {
     "invite_accept_page": {"invite_token"},
+    "registrations_detail_page": {"product_key"},
     "voorstellen_maker_detail_page": {"proposal_id"},
     "content_album_page": {"album_id"},
 }

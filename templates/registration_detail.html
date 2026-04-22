@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}{{ selected_product.name }} | Aanmeldingen | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="page-back-link"><a href="{{ back_url }}">Terug naar alle aanmeldingen</a></p>
+      <h1>{{ selected_product.name }}</h1>
+      <p class="welcome-line">
+        {{ selected_product.participantCount }} aanmeldingen · {{ selected_product.orderCount }} bestellingen
+        {% if selected_product.sku %}· SKU: {{ selected_product.sku }}{% endif %}
+      </p>
+    </div>
+  </header>
+
+  <section class="orders-toolbar">
+    <div class="orders-toolbar-copy">
+      <p class="orders-toolbar-title">Paginainfo</p>
+      <p class="orders-toolbar-text">Laatst bijgewerkt: {{ last_updated }}</p>
+    </div>
+    <a href="{{ refresh_url }}" class="refresh-button orders-toolbar-button">Nu verversen</a>
+  </section>
+
+  {% if message %}
+    <section class="notice">{{ message }}</section>
+  {% endif %}
+
+  <section class="orders-panel registrations-detail-panel">
+    <div class="registrations-actions">
+      <div class="registrations-actions-copy">
+        <p class="orders-toolbar-title">E-mailadressen</p>
+        <p class="orders-toolbar-text">{{ selected_product.emailCount }} unieke adressen klaar om te kopieren</p>
+      </div>
+      <button
+        type="button"
+        class="team-primary-button"
+        id="copyRegistrationEmailsButton"
+        data-emails="{{ selected_product.emailList }}"
+        {% if not selected_product.emailList %}disabled{% endif %}
+      >
+        Kopieer alle e-mailadressen
+      </button>
+      <span class="registrations-copy-feedback" id="registrationCopyFeedback" aria-live="polite"></span>
+    </div>
+
+    <div class="registrations-orders-list">
+      {% for order in selected_product.orders %}
+        <article class="registrations-order-card">
+          <div class="registrations-order-topline">
+            <p class="registrations-order-title">{{ order.customerName }}</p>
+            <p class="registrations-order-meta">Order {{ order.orderNumber }}</p>
+          </div>
+          <div class="registrations-order-grid">
+            <div>
+              <span class="registrations-order-label">Datum</span>
+              <span>{{ order.displayDate }} om {{ order.displayTime }}</span>
+            </div>
+            <div>
+              <span class="registrations-order-label">E-mail</span>
+              <span>{{ order.email or "-" }}</span>
+            </div>
+            <div>
+              <span class="registrations-order-label">Aantal</span>
+              <span>{{ order.quantity }}</span>
+            </div>
+            <div>
+              <span class="registrations-order-label">Betaalstatus</span>
+              <span>{{ order.paymentStatus.replace("_", " ").title() }}</span>
+            </div>
+          </div>
+          <div class="registrations-order-grid">
+            <div>
+              <span class="registrations-order-label">Voornaam</span>
+              <span>{{ order.registrationDetails.firstName or "-" }}</span>
+            </div>
+            <div>
+              <span class="registrations-order-label">Achternaam</span>
+              <span>{{ order.registrationDetails.lastName or "-" }}</span>
+            </div>
+            <div>
+              <span class="registrations-order-label">Geslacht</span>
+              <span>{{ order.registrationDetails.gender or "-" }}</span>
+            </div>
+            <div>
+              <span class="registrations-order-label">Club/Team</span>
+              <span>{{ order.registrationDetails.clubTeam or "-" }}</span>
+            </div>
+            <div>
+              <span class="registrations-order-label">Dieetwensen</span>
+              <span>{{ order.registrationDetails.dietaryWishes or "-" }}</span>
+            </div>
+            <div>
+              <span class="registrations-order-label">Opmerkingen</span>
+              <span>{{ order.registrationDetails.comments or "-" }}</span>
+            </div>
+          </div>
+        </article>
+      {% else %}
+        <div class="empty-state">Voor dit product zijn nog geen bestellingen gevonden.</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <script src="../static/registrations.js?v={{ asset_version }}" defer></script>
+{% endblock %}

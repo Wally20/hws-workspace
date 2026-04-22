@@ -2553,14 +2553,7 @@ textarea:focus {
   }
 }
 
-.registrations-layout {
-  display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-  gap: 24px;
-  align-items: start;
-}
-
-.registrations-products-panel,
+.registrations-overview-panel,
 .registrations-detail-panel {
   background: var(--panel, #fff);
   border-radius: 24px;
@@ -2573,10 +2566,22 @@ textarea:focus {
   margin-bottom: 18px;
 }
 
+.registrations-search-field-wide {
+  width: 100%;
+}
+
+.registrations-search-field-wide input {
+  width: 100%;
+}
+
 .registrations-product-list,
 .registrations-orders-list {
   display: grid;
   gap: 14px;
+}
+
+.registrations-product-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .registrations-product-card {
@@ -2591,6 +2596,10 @@ textarea:focus {
   color: inherit;
   text-decoration: none;
   transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.registrations-product-card-overview {
+  min-height: 108px;
 }
 
 .registrations-product-card[hidden] {
@@ -2684,18 +2693,29 @@ textarea:focus {
   letter-spacing: 0.04em;
 }
 
-@media (max-width: 980px) {
-  .registrations-layout {
-    grid-template-columns: 1fr;
-  }
+.page-back-link {
+  margin: 0 0 8px;
+}
 
+.page-back-link a {
+  color: var(--accent, #0e7490);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.page-back-link a:hover,
+.page-back-link a:focus-visible {
+  text-decoration: underline;
+}
+
+@media (max-width: 980px) {
   .registrations-order-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 640px) {
-  .registrations-products-panel,
+  .registrations-overview-panel,
   .registrations-detail-panel {
     padding: 18px;
     border-radius: 20px;

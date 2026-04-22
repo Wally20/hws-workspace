@@ -7,7 +7,7 @@
     <div>
       <h1>Aanmeldingen</h1>
       <p class="welcome-line">
-        {{ total_products }} producten zichtbaar · {{ total_registrations }} aanmeldingen gevonden
+        {{ total_products }} producten zichtbaar
       </p>
     </div>
   </header>
@@ -24,140 +24,44 @@
     <section class="notice">{{ message }}</section>
   {% endif %}
 
-  <section class="registrations-layout">
-    <aside class="registrations-products-panel">
-      <div class="section-head">
-        <div>
-          <h2>Producten</h2>
-          <p class="section-subtitle">Klik op een product om alle bijbehorende bestellingen te zien.</p>
-        </div>
+  <section class="registrations-overview-panel">
+    <div class="section-head">
+      <div>
+        <h2>Producten</h2>
+        <p class="section-subtitle">Zoek een product en open daarna de detailpagina met de bijbehorende aanmeldingen.</p>
       </div>
+    </div>
 
-      <label class="field registrations-search-field">
-        <span>Zoek product</span>
-        <input
-          type="search"
-          id="registrationsProductSearch"
-          placeholder="Zoek op productnaam of SKU"
-          autocomplete="off"
+    <label class="field registrations-search-field registrations-search-field-wide">
+      <span>Zoek product</span>
+      <input
+        type="search"
+        id="registrationsProductSearch"
+        placeholder="Zoek op productnaam of SKU"
+        autocomplete="off"
+      >
+    </label>
+
+    <div class="registrations-product-list registrations-product-grid" id="registrationsProductList">
+      {% for product in products %}
+        <a
+          href="{{ product.detailUrl }}"
+          class="registrations-product-card registrations-product-card-overview"
+          data-product-search="{{ product.searchText }}"
+          data-product-name="{{ product.name|lower }}"
+          data-product-sku="{{ product.sku|lower }}"
         >
-      </label>
-
-      <div class="registrations-product-list" id="registrationsProductList">
-        {% for product in products %}
-          <a
-            href="{{ product.detailUrl }}"
-            class="registrations-product-card {% if selected_product_key == product.productKey %}registrations-product-card-active{% endif %}"
-            data-product-search="{{ product.searchText }}"
-            data-product-name="{{ product.name|lower }}"
-            data-product-sku="{{ product.sku|lower }}"
-          >
-            <div>
-              <p class="registrations-product-name">{{ product.name }}</p>
-              <p class="registrations-product-meta">
-                {% if product.sku %}SKU: {{ product.sku }} · {% endif %}{{ product.participantCount }} aanmeldingen
-              </p>
-            </div>
-            <div class="registrations-product-stats">
-              <span>{{ product.orderCount }} bestellingen</span>
-              <span>{{ product.emailCount }} e-mails</span>
-            </div>
-          </a>
-        {% else %}
-          <div class="empty-state">Er zijn geen producten om te tonen.</div>
-        {% endfor %}
-      </div>
-    </aside>
-
-    <section class="orders-panel registrations-detail-panel">
-      {% if selected_product %}
-        <div class="section-head">
           <div>
-            <h2>{{ selected_product.name }}</h2>
-            <p class="section-subtitle">
-              {{ selected_product.participantCount }} aanmeldingen · {{ selected_product.orderCount }} bestellingen
-              {% if selected_product.sku %}· SKU: {{ selected_product.sku }}{% endif %}
+            <p class="registrations-product-name">{{ product.name }}</p>
+            <p class="registrations-product-meta">
+              {% if product.sku %}SKU: {{ product.sku }}{% else %}Open productdetails{% endif %}
             </p>
           </div>
-        </div>
-
-        <div class="registrations-actions">
-          <div class="registrations-actions-copy">
-            <p class="orders-toolbar-title">E-mailadressen</p>
-            <p class="orders-toolbar-text">{{ selected_product.emailCount }} unieke adressen klaar om te kopieren</p>
-          </div>
-          <button
-            type="button"
-            class="team-primary-button"
-            id="copyRegistrationEmailsButton"
-            data-emails="{{ selected_product.emailList }}"
-            {% if not selected_product.emailList %}disabled{% endif %}
-          >
-            Kopieer alle e-mailadressen
-          </button>
-          <span class="registrations-copy-feedback" id="registrationCopyFeedback" aria-live="polite"></span>
-        </div>
-
-        <div class="registrations-orders-list">
-          {% for order in selected_product.orders %}
-            <article class="registrations-order-card">
-              <div class="registrations-order-topline">
-                <p class="registrations-order-title">{{ order.customerName }}</p>
-                <p class="registrations-order-meta">Order {{ order.orderNumber }}</p>
-              </div>
-              <div class="registrations-order-grid">
-                <div>
-                  <span class="registrations-order-label">Datum</span>
-                  <span>{{ order.displayDate }} om {{ order.displayTime }}</span>
-                </div>
-                <div>
-                  <span class="registrations-order-label">E-mail</span>
-                  <span>{{ order.email or "-" }}</span>
-                </div>
-                <div>
-                  <span class="registrations-order-label">Aantal</span>
-                  <span>{{ order.quantity }}</span>
-                </div>
-                <div>
-                  <span class="registrations-order-label">Betaalstatus</span>
-                  <span>{{ order.paymentStatus.replace("_", " ").title() }}</span>
-                </div>
-              </div>
-              <div class="registrations-order-grid">
-                <div>
-                  <span class="registrations-order-label">Voornaam</span>
-                  <span>{{ order.registrationDetails.firstName or "-" }}</span>
-                </div>
-                <div>
-                  <span class="registrations-order-label">Achternaam</span>
-                  <span>{{ order.registrationDetails.lastName or "-" }}</span>
-                </div>
-                <div>
-                  <span class="registrations-order-label">Geslacht</span>
-                  <span>{{ order.registrationDetails.gender or "-" }}</span>
-                </div>
-                <div>
-                  <span class="registrations-order-label">Club/Team</span>
-                  <span>{{ order.registrationDetails.clubTeam or "-" }}</span>
-                </div>
-                <div>
-                  <span class="registrations-order-label">Dieetwensen</span>
-                  <span>{{ order.registrationDetails.dietaryWishes or "-" }}</span>
-                </div>
-                <div>
-                  <span class="registrations-order-label">Opmerkingen</span>
-                  <span>{{ order.registrationDetails.comments or "-" }}</span>
-                </div>
-              </div>
-            </article>
-          {% else %}
-            <div class="empty-state">Voor dit product zijn nog geen bestellingen gevonden.</div>
-          {% endfor %}
-        </div>
+        </a>
       {% else %}
-        <div class="empty-state">Kies een product om de aanmeldingen te bekijken.</div>
-      {% endif %}
-    </section>
+        <div class="empty-state">Er zijn geen producten om te tonen.</div>
+      {% endfor %}
+    </div>
   </section>
 
   <script src="../static/registrations.js?v={{ asset_version }}" defer></script>
