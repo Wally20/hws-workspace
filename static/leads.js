@@ -136,7 +136,7 @@ function parseEmailList(rawValue) {
 }
 
 function collectEmailsForState(state) {
-  const emails = new Set();
+  const emails = new Map();
 
   leadsProductCards.forEach((card) => {
     if ((card.dataset.selectionState || UNSELECTED_STATE) !== state) {
@@ -144,9 +144,10 @@ function collectEmailsForState(state) {
     }
 
     parseCardEmails(card).forEach((email) => {
-      const normalizedEmail = String(email || "").trim();
-      if (normalizedEmail) {
-        emails.add(normalizedEmail);
+      const displayEmail = String(email || "").trim();
+      const normalizedEmail = displayEmail.toLowerCase();
+      if (normalizedEmail && !emails.has(normalizedEmail)) {
+        emails.set(normalizedEmail, displayEmail);
       }
     });
   });
@@ -171,7 +172,9 @@ function updateLeadSummary() {
   const includedEmails = collectEmailsForState(INCLUDE_STATE);
   const excludedEmails = collectEmailsForState(EXCLUDE_STATE);
   const blockedEmails = new Set(parseEmailList(leadBlockedEmailsInput?.value || ""));
-  const finalEmails = Array.from(includedEmails).filter((email) => !excludedEmails.has(email) && !blockedEmails.has(email.toLowerCase()));
+  const finalEmails = Array.from(includedEmails.entries())
+    .filter(([normalizedEmail]) => !excludedEmails.has(normalizedEmail) && !blockedEmails.has(normalizedEmail))
+    .map(([, displayEmail]) => displayEmail);
   const finalEmailList = finalEmails.join(", ");
 
   if (leadsIncludedCount) {
