@@ -2377,6 +2377,40 @@ def save_dashboard_preference(key: str, value: str) -> None:
         )
 
 
+def load_dashboard_preference(key: str, default: str = "") -> str:
+    with get_db_connection() as connection:
+        row = connection.execute(
+            "SELECT value FROM dashboard_preferences WHERE key = ?",
+            (key,),
+        ).fetchone()
+
+    if row is None:
+        return default
+    return str(row["value"] or default)
+
+
+def normalize_blocked_lead_emails(raw_value: Any) -> str:
+    seen_emails: Set[str] = set()
+    normalized_emails: List[str] = []
+    for email in re.split(r"[\s,;]+", str(raw_value or "")):
+        normalized_email = str(email or "").strip().lower()
+        if not normalized_email or normalized_email in seen_emails:
+            continue
+        seen_emails.add(normalized_email)
+        normalized_emails.append(normalized_email)
+    return "\n".join(normalized_emails)
+
+
+def load_blocked_lead_emails() -> str:
+    return load_dashboard_preference("leads_blocked_emails", "")
+
+
+def save_blocked_lead_emails(raw_value: Any) -> str:
+    normalized_value = normalize_blocked_lead_emails(raw_value)
+    save_dashboard_preference("leads_blocked_emails", normalized_value)
+    return normalized_value
+
+
 def load_dashboard_weather_settings() -> Dict[str, str]:
     defaults = {
         "weather_name": "Deventer",
@@ -6128,10 +6162,29 @@ def leads_page() -> str:
         "leads.html",
         active_page="leads",
         products=leads_products,
+        blocked_emails_value=load_blocked_lead_emails(),
         total_products=len(leads_products),
         refresh_url=build_leads_page_url(),
         last_updated=format_cache_timestamp(orders_payload.get("cachedAt", 0.0)),
         message=" ".join(message_parts) if message_parts else None,
+    )
+
+
+@app.post("/api/leads/blocked-emails")
+def api_save_leads_blocked_emails():
+    access_redirect = require_page_access("leads")
+    if access_redirect is not None:
+        return access_redirect
+
+    payload = request.get_json(silent=True) or {}
+    normalized_value = save_blocked_lead_emails(payload.get("blockedEmails", ""))
+    blocked_count = len(normalized_value.splitlines()) if normalized_value else 0
+    return jsonify(
+        {
+            "ok": True,
+            "blockedEmails": normalized_value,
+            "blockedCount": blocked_count,
+        }
     )
 
 

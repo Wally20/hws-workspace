@@ -360,6 +360,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(response["Location"], "/aanmeldingen/id:101")
 
     def test_leads_page_renders_product_email_selection(self):
+        legacy.save_blocked_lead_emails("nooit@example.com\nstop@example.com")
         mock_orders = [
             {
                 "id": "ORDER-1",
@@ -424,8 +425,25 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Zomercamp", content)
         self.assertIn('id="copyLeadEmailsButton"', content)
         self.assertIn('id="leadEmailsPreview"', content)
+        self.assertIn('id="saveLeadBlockedEmailsButton"', content)
         self.assertIn('data-product-emails=\'["klant1@example.com"]\'', content)
         self.assertIn('data-product-emails=\'["klant2@example.com"]\'', content)
+        self.assertIn(">nooit@example.com\nstop@example.com</textarea>", content)
+
+    def test_leads_blocked_emails_api_saves_normalized_list(self):
+        client = self.build_authenticated_client()
+
+        response = client.post(
+            "/api/leads/blocked-emails",
+            data='{"blockedEmails":"Test@Example.com, tweede@example.com\\n test@example.com "}',
+            content_type="application/json",
+            HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["blockedEmails"], "test@example.com\ntweede@example.com")
+        self.assertEqual(legacy.load_blocked_lead_emails(), "test@example.com\ntweede@example.com")
 
     def test_proposal_create_redirects_to_detail_page(self):
         client = self.build_authenticated_client()

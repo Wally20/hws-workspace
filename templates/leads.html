@@ -92,10 +92,13 @@
           id="leadBlockedEmailsInput"
           rows="6"
           placeholder="Plak hier e-mailadressen, gescheiden door komma's of nieuwe regels."
-        ></textarea>
+        >{{ blocked_emails_value }}</textarea>
       </label>
 
       <div class="registrations-actions leads-actions leads-blocklist-actions">
+        <button type="button" class="team-primary-button" id="saveLeadBlockedEmailsButton">
+          Opslaan
+        </button>
         <button type="button" class="team-secondary-button" id="clearLeadBlockedEmailsButton">
           Wis blokkeerlijst
         </button>

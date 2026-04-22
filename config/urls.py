@@ -44,6 +44,11 @@ urlpatterns = [
         views.api_update_registration_email_status,
         name="api_update_registration_email_status",
     ),
+    path(
+        "api/leads/blocked-emails",
+        views.api_save_leads_blocked_emails,
+        name="api_save_leads_blocked_emails",
+    ),
     path("api/dashboard-weather", views.api_dashboard_weather, name="api_dashboard_weather"),
     path("api/agenda-school-holidays", views.api_agenda_school_holidays, name="api_agenda_school_holidays"),
     path("api/agenda-public-holidays", views.api_agenda_public_holidays, name="api_agenda_public_holidays"),

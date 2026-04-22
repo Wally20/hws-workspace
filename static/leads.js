@@ -10,13 +10,14 @@ const leadsExcludedCount = document.querySelector("#leadsExcludedCount");
 const leadsEmailCount = document.querySelector("#leadsEmailCount");
 const leadsBlockedCount = document.querySelector("#leadsBlockedCount");
 const leadBlockedEmailsInput = document.querySelector("#leadBlockedEmailsInput");
+const saveLeadBlockedEmailsButton = document.querySelector("#saveLeadBlockedEmailsButton");
 const clearLeadBlockedEmailsButton = document.querySelector("#clearLeadBlockedEmailsButton");
 const leadBlockedEmailsFeedback = document.querySelector("#leadBlockedEmailsFeedback");
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
 
 const INCLUDE_STATE = "include";
 const EXCLUDE_STATE = "exclude";
 const UNSELECTED_STATE = "none";
-const BLOCKED_EMAILS_STORAGE_KEY = "hws-leads-blocked-emails";
 
 leadsProductCards.forEach((card, index) => {
   card.dataset.originalIndex = String(index);
@@ -134,33 +135,6 @@ function parseEmailList(rawValue) {
   );
 }
 
-function loadBlockedEmails() {
-  if (!leadBlockedEmailsInput) {
-    return;
-  }
-
-  try {
-    const storedValue = window.localStorage.getItem(BLOCKED_EMAILS_STORAGE_KEY);
-    if (storedValue) {
-      leadBlockedEmailsInput.value = storedValue;
-    }
-  } catch (error) {
-    // Ignore storage issues and keep the field usable for the current session.
-  }
-}
-
-function saveBlockedEmails() {
-  if (!leadBlockedEmailsInput) {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(BLOCKED_EMAILS_STORAGE_KEY, leadBlockedEmailsInput.value);
-  } catch (error) {
-    // Ignore storage issues and keep the field usable for the current session.
-  }
-}
-
 function collectEmailsForState(state) {
   const emails = new Set();
 
@@ -267,25 +241,89 @@ function clearLeadSelections() {
   updateLeadSummary();
 }
 
+async function saveBlockedEmails() {
+  if (!(leadBlockedEmailsInput instanceof HTMLTextAreaElement)) {
+    return;
+  }
+
+  const response = await fetch("/api/leads/blocked-emails", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: JSON.stringify({
+      blockedEmails: leadBlockedEmailsInput.value,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed with status ${response.status}`);
+  }
+
+  const payload = await response.json();
+  leadBlockedEmailsInput.value = String(payload.blockedEmails || "");
+}
+
 function handleBlockedEmailsInput() {
-  saveBlockedEmails();
   if (leadBlockedEmailsFeedback) {
-    leadBlockedEmailsFeedback.textContent = "Blokkeerlijst opgeslagen.";
+    leadBlockedEmailsFeedback.textContent = "Niet-opgeslagen wijzigingen.";
   }
   updateLeadSummary();
 }
 
-function clearBlockedEmails() {
-  if (!leadBlockedEmailsInput) {
+async function handleSaveBlockedEmails() {
+  if (!(leadBlockedEmailsInput instanceof HTMLTextAreaElement)) {
+    return;
+  }
+
+  if (saveLeadBlockedEmailsButton instanceof HTMLButtonElement) {
+    saveLeadBlockedEmailsButton.disabled = true;
+  }
+
+  try {
+    await saveBlockedEmails();
+    if (leadBlockedEmailsFeedback) {
+      leadBlockedEmailsFeedback.textContent = "Blokkeerlijst opgeslagen.";
+    }
+    updateLeadSummary();
+  } catch (error) {
+    if (leadBlockedEmailsFeedback) {
+      leadBlockedEmailsFeedback.textContent = "Opslaan lukte niet. Probeer het opnieuw.";
+    }
+  } finally {
+    if (saveLeadBlockedEmailsButton instanceof HTMLButtonElement) {
+      saveLeadBlockedEmailsButton.disabled = false;
+    }
+  }
+}
+
+async function clearBlockedEmails() {
+  if (!(leadBlockedEmailsInput instanceof HTMLTextAreaElement)) {
     return;
   }
 
   leadBlockedEmailsInput.value = "";
-  saveBlockedEmails();
-  if (leadBlockedEmailsFeedback) {
-    leadBlockedEmailsFeedback.textContent = "Blokkeerlijst gewist.";
+  if (saveLeadBlockedEmailsButton instanceof HTMLButtonElement) {
+    saveLeadBlockedEmailsButton.disabled = true;
   }
-  updateLeadSummary();
+
+  try {
+    await saveBlockedEmails();
+    if (leadBlockedEmailsFeedback) {
+      leadBlockedEmailsFeedback.textContent = "Blokkeerlijst gewist.";
+    }
+    updateLeadSummary();
+  } catch (error) {
+    if (leadBlockedEmailsFeedback) {
+      leadBlockedEmailsFeedback.textContent = "Wissen lukte niet. Probeer het opnieuw.";
+    }
+    updateLeadSummary();
+  } finally {
+    if (saveLeadBlockedEmailsButton instanceof HTMLButtonElement) {
+      saveLeadBlockedEmailsButton.disabled = false;
+    }
+  }
 }
 
 leadsProductCards.forEach((card) => {
@@ -302,8 +340,8 @@ leadsSearchInput?.addEventListener("change", filterProducts);
 copyLeadEmailsButton?.addEventListener("click", copyLeadEmails);
 clearLeadSelectionsButton?.addEventListener("click", clearLeadSelections);
 leadBlockedEmailsInput?.addEventListener("input", handleBlockedEmailsInput);
+saveLeadBlockedEmailsButton?.addEventListener("click", handleSaveBlockedEmails);
 clearLeadBlockedEmailsButton?.addEventListener("click", clearBlockedEmails);
 
-loadBlockedEmails();
 filterProducts();
 updateLeadSummary();
