@@ -203,6 +203,14 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 "paymentMethod": "iDEAL",
                 "shippingMethod": "Digitaal",
                 "itemCount": 1,
+                "orderExtraFields": [
+                    {"title": "Voornaam", "value": "Klant"},
+                    {"title": "Achternaam", "value": "Een"},
+                    {"title": "Geslacht", "value": "Jongen"},
+                    {"title": "Club/Team", "value": "VV Voorst JO11-1"},
+                    {"title": "Dieetwensen", "value": "Glutenvrij"},
+                    {"title": "Opmerkingen", "value": "Komt iets later."},
+                ],
                 "items": [
                     {"productId": 101, "name": "Meivakantie Camp", "quantity": 1, "price": 79.0, "sku": "MVC-1"},
                 ],
@@ -220,6 +228,14 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 "paymentMethod": "iDEAL",
                 "shippingMethod": "Digitaal",
                 "itemCount": 1,
+                "orderExtraFields": [
+                    {"title": "Voornaam", "value": "Klant"},
+                    {"title": "Achternaam", "value": "Twee"},
+                    {"title": "Geslacht", "value": "Meisje"},
+                    {"title": "Club/Team", "value": "SV Twello MO13-1"},
+                    {"title": "Dieetwensen", "value": "Geen"},
+                    {"title": "Opmerkingen", "value": "Heeft kniebrace om."},
+                ],
                 "items": [
                     {"productId": 101, "name": "Meivakantie Camp", "quantity": 1, "price": 79.0, "sku": "MVC-1"},
                 ],
@@ -252,7 +268,20 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Zomercamp", content)
         self.assertIn("Klant Een", content)
         self.assertIn("Klant Twee", content)
+        self.assertIn("Voornaam", content)
+        self.assertIn("Achternaam", content)
+        self.assertIn("Geslacht", content)
+        self.assertIn("Club/Team", content)
+        self.assertIn("Dieetwensen", content)
+        self.assertIn("Opmerkingen", content)
+        self.assertIn("VV Voorst JO11-1", content)
+        self.assertIn("Glutenvrij", content)
+        self.assertIn("Komt iets later.", content)
         self.assertIn('data-emails="klant2@example.com, klant1@example.com"', content)
+        self.assertIn(
+            'data-product-search="meivakantie camp mvc-1 101 klant twee klant2@example.com order-2 klant een klant1@example.com order-1"',
+            content,
+        )
 
     def test_proposal_create_redirects_to_detail_page(self):
         client = self.build_authenticated_client()

@@ -48,7 +48,7 @@
           <a
             href="{{ product.detailUrl }}"
             class="registrations-product-card {% if selected_product_key == product.productKey %}registrations-product-card-active{% endif %}"
-            data-product-search="{{ (product.name ~ ' ' ~ product.sku)|lower }}"
+            data-product-search="{{ product.searchText }}"
           >
             <div>
               <p class="registrations-product-name">{{ product.name }}</p>
@@ -119,6 +119,32 @@
                 <div>
                   <span class="registrations-order-label">Betaalstatus</span>
                   <span>{{ order.paymentStatus.replace("_", " ").title() }}</span>
+                </div>
+              </div>
+              <div class="registrations-order-grid">
+                <div>
+                  <span class="registrations-order-label">Voornaam</span>
+                  <span>{{ order.registrationDetails.firstName or "-" }}</span>
+                </div>
+                <div>
+                  <span class="registrations-order-label">Achternaam</span>
+                  <span>{{ order.registrationDetails.lastName or "-" }}</span>
+                </div>
+                <div>
+                  <span class="registrations-order-label">Geslacht</span>
+                  <span>{{ order.registrationDetails.gender or "-" }}</span>
+                </div>
+                <div>
+                  <span class="registrations-order-label">Club/Team</span>
+                  <span>{{ order.registrationDetails.clubTeam or "-" }}</span>
+                </div>
+                <div>
+                  <span class="registrations-order-label">Dieetwensen</span>
+                  <span>{{ order.registrationDetails.dietaryWishes or "-" }}</span>
+                </div>
+                <div>
+                  <span class="registrations-order-label">Opmerkingen</span>
+                  <span>{{ order.registrationDetails.comments or "-" }}</span>
                 </div>
               </div>
             </article>

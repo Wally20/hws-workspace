@@ -95,7 +95,7 @@ ECWID_RESPONSE_FIELDS = (
     "total,count,offset,limit,"
     "items(id,orderNumber,createDate,status,paymentStatus,fulfillmentStatus,total,email,"
     "paymentMethod,shippingOption,items(productId,name,quantity,price,sku),"
-    "shippingPerson(name),billingPerson(name))"
+    "shippingPerson(name),billingPerson(name),extraFields,orderExtraFields(id,title,value))"
 )
 
 app = Flask(__name__)
@@ -689,6 +689,86 @@ def format_ecwid_date(value: str) -> str:
     return value
 
 
+def split_full_name(full_name: str) -> Tuple[str, str]:
+    normalized_name = str(full_name or "").strip()
+    if not normalized_name:
+        return "", ""
+    name_parts = [part for part in normalized_name.split() if part]
+    if not name_parts:
+        return "", ""
+    if len(name_parts) == 1:
+        return name_parts[0], ""
+    return name_parts[0], " ".join(name_parts[1:])
+
+
+def normalize_order_extra_fields(order: Dict[str, Any]) -> Dict[str, str]:
+    normalized_fields: Dict[str, str] = {}
+
+    for field in order.get("orderExtraFields", []) or []:
+        if not isinstance(field, dict):
+            continue
+        key_candidates = [field.get("title"), field.get("id")]
+        value = str(field.get("value", "") or "").strip()
+        if not value:
+            continue
+        for key_candidate in key_candidates:
+            normalized_key = normalize_match_text(str(key_candidate or ""))
+            if normalized_key and normalized_key not in normalized_fields:
+                normalized_fields[normalized_key] = value
+
+    for raw_key, raw_value in (order.get("extraFields") or {}).items():
+        value = str(raw_value or "").strip()
+        normalized_key = normalize_match_text(str(raw_key or ""))
+        if normalized_key and value and normalized_key not in normalized_fields:
+            normalized_fields[normalized_key] = value
+
+    return normalized_fields
+
+
+def find_order_field_value(extra_fields: Dict[str, str], *field_names: str) -> str:
+    for field_name in field_names:
+        normalized_name = normalize_match_text(field_name)
+        if not normalized_name:
+            continue
+        for key, value in extra_fields.items():
+            key_tokens = set(key.split())
+            name_tokens = set(normalized_name.split())
+            if key == normalized_name or (name_tokens and name_tokens.issubset(key_tokens)):
+                return value
+    return ""
+
+
+def extract_registration_details(order: Dict[str, Any], customer_name: str = "") -> Dict[str, str]:
+    existing_details = order.get("registrationDetails")
+    if isinstance(existing_details, dict) and existing_details:
+        return {
+            "firstName": str(existing_details.get("firstName", "") or "").strip(),
+            "lastName": str(existing_details.get("lastName", "") or "").strip(),
+            "gender": str(existing_details.get("gender", "") or "").strip(),
+            "clubTeam": str(existing_details.get("clubTeam", "") or "").strip(),
+            "dietaryWishes": str(existing_details.get("dietaryWishes", "") or "").strip(),
+            "comments": str(existing_details.get("comments", "") or "").strip(),
+        }
+
+    resolved_customer_name = (
+        str(customer_name or "").strip()
+        or str(order.get("customerName", "") or "").strip()
+        or str(order.get("shippingPerson", {}).get("name", "") or "").strip()
+        or str(order.get("billingPerson", {}).get("name", "") or "").strip()
+    )
+    extra_fields = normalize_order_extra_fields(order)
+    fallback_first_name, fallback_last_name = split_full_name(resolved_customer_name)
+
+    return {
+        "firstName": find_order_field_value(extra_fields, "voornaam", "first name", "firstname") or fallback_first_name,
+        "lastName": find_order_field_value(extra_fields, "achternaam", "last name", "lastname") or fallback_last_name,
+        "gender": find_order_field_value(extra_fields, "geslacht", "gender"),
+        "clubTeam": find_order_field_value(extra_fields, "club/team", "club team", "club", "team"),
+        "dietaryWishes": find_order_field_value(extra_fields, "dieetwensen", "dieet wensen", "allergieen", "allergieën", "dietary wishes"),
+        "comments": find_order_field_value(extra_fields, "opmerkingen", "opmerking", "comments", "commentaar"),
+    }
+
+
 def normalize_order(order: Dict[str, Any]) -> Dict[str, Any]:
     customer_name = (
         order.get("shippingPerson", {}).get("name")
@@ -696,6 +776,7 @@ def normalize_order(order: Dict[str, Any]) -> Dict[str, Any]:
         or "Onbekende klant"
     )
     products = order.get("items", [])
+    registration_details = extract_registration_details(order, customer_name)
 
     return {
         "id": order.get("id", ""),
@@ -711,6 +792,7 @@ def normalize_order(order: Dict[str, Any]) -> Dict[str, Any]:
         "shippingMethod": order.get("shippingOption", "Niet opgegeven"),
         "itemCount": sum(item.get("quantity", 0) for item in products),
         "isRefunded": order.get("paymentStatus") == "REFUNDED",
+        "registrationDetails": registration_details,
         "items": [
             {
                 "productId": item.get("productId"),
@@ -944,6 +1026,7 @@ def build_product_registration_summary(
                     "quantity": max(int(item.get("quantity") or 0), 0),
                     "total": float(order.get("total") or 0),
                     "itemPrice": float(item.get("price") or 0),
+                    "registrationDetails": extract_registration_details(order, str(order.get("customerName", "") or "")),
                 }
             )
 
@@ -952,6 +1035,20 @@ def build_product_registration_summary(
         next_entry = dict(entry)
         next_entry["emailCount"] = len(next_entry["emails"])
         next_entry["emailList"] = ", ".join(next_entry["emails"])
+        search_parts = [next_entry["name"], next_entry["sku"], next_entry["productId"]]
+        for order in next_entry["orders"]:
+            search_parts.extend(
+                [
+                    order.get("customerName", ""),
+                    order.get("email", ""),
+                    order.get("orderNumber", ""),
+                ]
+            )
+        next_entry["searchText"] = " ".join(
+            str(part).strip().lower()
+            for part in search_parts
+            if str(part or "").strip()
+        )
         entries.append(next_entry)
 
     entries.sort(
