@@ -2774,6 +2774,10 @@ textarea:focus {
   transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
+.registrations-product-card[hidden] {
+  display: none !important;
+}
+
 .registrations-product-card:hover,
 .registrations-product-card:focus-visible {
   transform: translateY(-1px);

@@ -183,7 +183,7 @@ def legacy_render_template(template_name: str, **context: Any) -> HttpResponse:
     user = legacy.get_current_user()
     template = engines["jinja2"].get_template(template_name)
     merged_context = {
-        "asset_version": legacy.ASSET_VERSION,
+        "asset_version": legacy.get_asset_version(),
         "legacy_csrf_token": legacy.ensure_csrf_token(),
         "csp_nonce": getattr(request, "csp_nonce", ""),
         "current_user": user,
