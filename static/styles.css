@@ -2959,9 +2959,22 @@ textarea:focus {
 
 .leads-product-card {
   width: 100%;
+  min-width: 0;
   text-align: left;
   cursor: pointer;
   font: inherit;
+}
+
+.leads-product-card > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.leads-product-card .registrations-product-name,
+.leads-product-card .registrations-product-meta,
+.leads-product-card .registrations-product-stats span {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .leads-product-card-included {
@@ -2977,7 +2990,10 @@ textarea:focus {
 }
 
 .leads-product-stats {
+  flex: 0 1 140px;
   align-self: stretch;
+  min-width: 0;
+  white-space: normal;
 }
 
 .leads-result-field {
