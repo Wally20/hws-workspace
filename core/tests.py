@@ -302,6 +302,70 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             set(),
         )
 
+    def test_sync_emailed_registration_orders_updates_each_unique_order_once(self):
+        client = self.build_authenticated_client()
+        legacy.set_registration_orders_emailed("camp-1", ["ORDER-1", "ORDER-2"], True)
+        legacy.set_registration_orders_emailed("camp-2", ["ORDER-1"], True)
+
+        mocked_response = Mock()
+        mocked_response.raise_for_status.return_value = None
+        mocked_response.content = b'{"updateCount": 1}'
+        mocked_response.json.return_value = {"updateCount": 1}
+
+        with patch.dict(
+            os.environ,
+            {
+                "ECWID_STORE_ID": "87654321",
+                "ECWID_SECRET_TOKEN": "secret_abcdefghijklmnopqrstuvwxyz123456",
+            },
+            clear=False,
+        ), patch.object(legacy.requests, "put", return_value=mocked_response) as mocked_put:
+            response = client.post(
+                "/api/registrations/sync-emailed-orders",
+                data="{}",
+                content_type="application/json",
+                HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["syncedOrderIds"], ["ORDER-1", "ORDER-2"])
+        self.assertEqual(response.json()["failedOrderIds"], [])
+        self.assertEqual(mocked_put.call_count, 2)
+
+    def test_sync_emailed_registration_orders_reports_partial_failures(self):
+        client = self.build_authenticated_client()
+        legacy.set_registration_orders_emailed("camp-1", ["ORDER-1", "ORDER-2"], True)
+
+        mocked_response = Mock()
+        mocked_response.raise_for_status.return_value = None
+        mocked_response.content = b'{"updateCount": 1}'
+        mocked_response.json.return_value = {"updateCount": 1}
+
+        with patch.dict(
+            os.environ,
+            {
+                "ECWID_STORE_ID": "87654321",
+                "ECWID_SECRET_TOKEN": "secret_abcdefghijklmnopqrstuvwxyz123456",
+            },
+            clear=False,
+        ), patch.object(
+            legacy.requests,
+            "put",
+            side_effect=[legacy.requests.RequestException("boom"), mocked_response],
+        ):
+            response = client.post(
+                "/api/registrations/sync-emailed-orders",
+                data="{}",
+                content_type="application/json",
+                HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()["syncedOrderIds"], ["ORDER-2"])
+        self.assertEqual(response.json()["failedOrderIds"], ["ORDER-1"])
+
     def test_registrations_detail_page_renders_selected_order_details(self):
         legacy.set_registration_orders_emailed("id:101", ["ORDER-1"], True)
         mock_orders = [

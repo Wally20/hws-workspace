@@ -4,6 +4,8 @@ const productCards = Array.from(document.querySelectorAll(".registrations-produc
 const copyEmailsButton = document.querySelector("#copyRegistrationEmailsButton");
 const copyPendingEmailsButton = document.querySelector("#copyPendingRegistrationEmailsButton");
 const copyFeedback = document.querySelector("#registrationCopyFeedback");
+const syncEmailedOrdersButton = document.querySelector("#syncEmailedOrdersButton");
+const syncEmailedOrdersFeedback = document.querySelector("#syncEmailedOrdersFeedback");
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
 const emailedOrderCount = document.querySelector("#registrationEmailedOrderCount");
 const pendingEmailCount = document.querySelector("#registrationPendingEmailCount");
@@ -247,6 +249,27 @@ async function updateRegistrationEmailStatus(orderIds, emailed) {
   }
 }
 
+async function syncEmailedOrdersToEcwid() {
+  const response = await fetch("/api/registrations/sync-emailed-orders", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: "{}",
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const errorMessage = typeof payload.error === "string" && payload.error ? payload.error : "Synchroniseren lukte niet.";
+    const error = new Error(errorMessage);
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+}
+
 async function copyPendingRegistrationEmails() {
   const { pendingEmails, pendingOrderIds } = getRegistrationEmailState();
   const emails = pendingEmails.join(", ");
@@ -310,6 +333,32 @@ async function handleRegistrationEmailedToggle(event) {
   }
 }
 
+async function handleSyncEmailedOrders() {
+  if (!(syncEmailedOrdersButton instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  syncEmailedOrdersButton.disabled = true;
+  if (syncEmailedOrdersFeedback) {
+    syncEmailedOrdersFeedback.textContent = "Synchroniseren met Ecwid...";
+  }
+
+  try {
+    const payload = await syncEmailedOrdersToEcwid();
+    if (syncEmailedOrdersFeedback) {
+      syncEmailedOrdersFeedback.textContent =
+        payload.message || "De gemailde bestellingen zijn met Ecwid gesynchroniseerd.";
+    }
+  } catch (error) {
+    if (syncEmailedOrdersFeedback) {
+      syncEmailedOrdersFeedback.textContent =
+        error instanceof Error && error.message ? error.message : "Synchroniseren lukte niet. Probeer het opnieuw.";
+    }
+  } finally {
+    syncEmailedOrdersButton.disabled = false;
+  }
+}
+
 productSearchInput?.addEventListener("input", filterProducts);
 productSearchInput?.addEventListener("search", filterProducts);
 productSearchInput?.addEventListener("change", filterProducts);
@@ -318,6 +367,7 @@ copyPendingEmailsButton?.addEventListener("click", copyPendingRegistrationEmails
 emailedCheckboxes.forEach((checkbox) => {
   checkbox.addEventListener("change", handleRegistrationEmailedToggle);
 });
+syncEmailedOrdersButton?.addEventListener("click", handleSyncEmailedOrders);
 
 filterProducts();
 syncRegistrationOrderUI();

@@ -17,8 +17,18 @@
       <p class="orders-toolbar-title">Paginainfo</p>
       <p class="orders-toolbar-text">Laatst bijgewerkt: {{ last_updated }}</p>
     </div>
-    <a href="{{ refresh_url }}" class="refresh-button orders-toolbar-button">Nu verversen</a>
+    <div class="registrations-toolbar-actions">
+      <button
+        type="button"
+        class="subtle-button subtle-button-strong orders-toolbar-button"
+        id="syncEmailedOrdersButton"
+      >
+        Synchroniseer gemailde bestellingen met Ecwid
+      </button>
+      <a href="{{ refresh_url }}" class="refresh-button orders-toolbar-button">Nu verversen</a>
+    </div>
   </section>
+  <span class="registrations-copy-feedback" id="syncEmailedOrdersFeedback" aria-live="polite"></span>
 
   {% if message %}
     <section class="notice">{{ message }}</section>

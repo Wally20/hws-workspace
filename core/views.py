@@ -52,6 +52,7 @@ api_dashboard_weather = legacy_view("api_dashboard_weather")
 api_agenda_school_holidays = legacy_view("api_agenda_school_holidays")
 api_agenda_public_holidays = legacy_view("api_agenda_public_holidays")
 api_update_registration_email_status = legacy_view("api_update_registration_email_status")
+api_sync_emailed_registration_orders = legacy_view("api_sync_emailed_registration_orders")
 api_save_leads_blocked_emails = legacy_view("api_save_leads_blocked_emails")
 
 

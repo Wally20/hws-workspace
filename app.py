@@ -1272,6 +1272,20 @@ def load_registration_emailed_order_ids(
     return {str(row["order_id"] or "").strip() for row in rows if str(row["order_id"] or "").strip()}
 
 
+def load_all_registration_emailed_order_ids() -> List[str]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT DISTINCT order_id
+            FROM registration_email_statuses
+            WHERE trim(order_id) != ''
+            ORDER BY order_id
+            """
+        ).fetchall()
+
+    return [str(row["order_id"] or "").strip() for row in rows if str(row["order_id"] or "").strip()]
+
+
 def set_registration_orders_emailed(product_key: str, order_ids: List[str], emailed: bool) -> List[str]:
     normalized_product_key = str(product_key or "").strip()
     normalized_order_ids = normalize_registration_email_status_order_ids(order_ids)
@@ -5104,6 +5118,30 @@ def update_ecwid_order_to_processing(order_id: str) -> bool:
     return True
 
 
+def sync_emailed_registration_orders_to_ecwid(order_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    normalized_order_ids = normalize_registration_email_status_order_ids(
+        load_all_registration_emailed_order_ids() if order_ids is None else order_ids
+    )
+    synced_order_ids: List[str] = []
+    failed_order_ids: List[str] = []
+
+    for order_id in normalized_order_ids:
+        try:
+            updated = update_ecwid_order_to_processing(order_id)
+        except RuntimeError:
+            failed_order_ids.append(order_id)
+            continue
+
+        if updated:
+            synced_order_ids.append(order_id)
+
+    return {
+        "orderIds": normalized_order_ids,
+        "syncedOrderIds": synced_order_ids,
+        "failedOrderIds": failed_order_ids,
+    }
+
+
 def get_moneybird_headers(token: str) -> Dict[str, str]:
     return {
         "Authorization": f"Bearer {token}",
@@ -6320,6 +6358,52 @@ def api_update_registration_email_status():
             "emailed": emailed,
             "ecwidUpdatedOrderIds": ecwid_updated_order_ids,
         }
+    )
+
+
+@app.post("/api/registrations/sync-emailed-orders")
+def api_sync_emailed_registration_orders():
+    access_redirect = require_page_access("orders")
+    if access_redirect is not None:
+        return access_redirect
+
+    config = get_config()
+    if not config["store_id"] or not config["secret_token"]:
+        return jsonify({"error": "Live Ecwid-koppeling staat nog niet aan."}), 400
+
+    order_ids = load_all_registration_emailed_order_ids()
+    if not order_ids:
+        return jsonify(
+            {
+                "ok": True,
+                "orderIds": [],
+                "syncedOrderIds": [],
+                "failedOrderIds": [],
+                "message": "Er staan nog geen bestellingen op gemaild om te synchroniseren.",
+            }
+        )
+
+    sync_result = sync_emailed_registration_orders_to_ecwid(order_ids)
+    status_code = 200 if not sync_result["failedOrderIds"] else 502
+    message = (
+        f"{len(sync_result['syncedOrderIds'])} gemailde bestellingen zijn naar Ecwid gesynchroniseerd."
+        if not sync_result["failedOrderIds"]
+        else (
+            f"{len(sync_result['syncedOrderIds'])} bestellingen gesynchroniseerd, "
+            f"{len(sync_result['failedOrderIds'])} niet bijgewerkt."
+        )
+    )
+    return (
+        jsonify(
+            {
+                "ok": not sync_result["failedOrderIds"],
+                "orderIds": sync_result["orderIds"],
+                "syncedOrderIds": sync_result["syncedOrderIds"],
+                "failedOrderIds": sync_result["failedOrderIds"],
+                "message": message,
+            }
+        ),
+        status_code,
     )
 
 

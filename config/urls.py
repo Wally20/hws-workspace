@@ -45,6 +45,11 @@ urlpatterns = [
         name="api_update_registration_email_status",
     ),
     path(
+        "api/registrations/sync-emailed-orders",
+        views.api_sync_emailed_registration_orders,
+        name="api_sync_emailed_registration_orders",
+    ),
+    path(
         "api/leads/blocked-emails",
         views.api_save_leads_blocked_emails,
         name="api_save_leads_blocked_emails",
