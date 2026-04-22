@@ -75,27 +75,6 @@ function scoreProductMatch(card, query) {
   return 20 - matchedWordCount;
 }
 
-let autoSelectTimeoutId = null;
-
-function autoSelectTopProduct(query, rankedCards) {
-  if (autoSelectTimeoutId) {
-    window.clearTimeout(autoSelectTimeoutId);
-  }
-
-  if (!query.trim() || !rankedCards.length) {
-    return;
-  }
-
-  const topCard = rankedCards[0]?.card;
-  if (!topCard || topCard.classList.contains("registrations-product-card-active")) {
-    return;
-  }
-
-  autoSelectTimeoutId = window.setTimeout(() => {
-    window.location.assign(topCard.href);
-  }, 250);
-}
-
 function filterProducts() {
   const query = String(productSearchInput?.value || "");
   const rankedCards = [];
@@ -119,8 +98,6 @@ function filterProducts() {
     .forEach(({ card }) => {
       productList?.appendChild(card);
     });
-
-  autoSelectTopProduct(query, rankedCards);
 }
 
 async function copyRegistrationEmails() {
