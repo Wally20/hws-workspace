@@ -8,47 +8,75 @@ productCards.forEach((card, index) => {
   card.dataset.originalIndex = String(index);
 });
 
-function scoreProductMatch(card, query) {
-  const name = String(card.dataset.productName || "").toLowerCase();
-  const sku = String(card.dataset.productSku || "").toLowerCase();
-  const searchText = String(card.dataset.productSearch || "").toLowerCase();
+function normalizeSearchValue(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
 
-  if (!query) {
+function tokenizeSearchValue(value) {
+  return normalizeSearchValue(value)
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+function scoreProductMatch(card, query) {
+  const name = normalizeSearchValue(card.dataset.productName || "");
+  const sku = normalizeSearchValue(card.dataset.productSku || "");
+  const queryWords = tokenizeSearchValue(query);
+
+  if (!queryWords.length) {
     return 0;
   }
 
-  if (!searchText.includes(query)) {
+  const nameWords = tokenizeSearchValue(name);
+  const skuWords = tokenizeSearchValue(sku);
+  const searchableWords = [...nameWords, ...skuWords];
+
+  const matchedWordCount = queryWords.filter((queryWord) =>
+    searchableWords.some((word) => word.includes(queryWord))
+  ).length;
+
+  if (!matchedWordCount) {
     return Number.POSITIVE_INFINITY;
   }
 
-  const nameWords = name.split(/\s+/).filter(Boolean);
+  const fullQuery = queryWords.join(" ");
+  const matchedAllWords = matchedWordCount === queryWords.length;
+  const exactTitleMatch = name === fullQuery;
+  const titleStartsWithQuery = name.startsWith(fullQuery);
+  const titleContainsFullQuery = name.includes(fullQuery);
+  const titleWordPrefixMatches = queryWords.filter((queryWord) =>
+    nameWords.some((word) => word.startsWith(queryWord))
+  ).length;
+  const skuStartsWithQuery = sku.startsWith(fullQuery);
+  const skuContainsFullQuery = sku.includes(fullQuery);
 
-  if (name === query) {
+  if (exactTitleMatch) {
     return 0;
   }
-  if (name.startsWith(query)) {
+  if (matchedAllWords && titleStartsWithQuery) {
     return 1;
   }
-  if (nameWords.some((word) => word.startsWith(query))) {
+  if (matchedAllWords && titleWordPrefixMatches === queryWords.length) {
     return 2;
   }
-  if (name.includes(query)) {
+  if (matchedAllWords && titleContainsFullQuery) {
     return 3;
   }
-  if (sku === query) {
+  if (matchedAllWords && skuStartsWithQuery) {
     return 4;
   }
-  if (sku.startsWith(query)) {
+  if (matchedAllWords && skuContainsFullQuery) {
     return 5;
   }
-  if (sku.includes(query)) {
-    return 6;
-  }
-  return 7;
+  return 20 - matchedWordCount;
 }
 
 function filterProducts() {
-  const query = String(productSearchInput?.value || "").trim().toLowerCase();
+  const query = String(productSearchInput?.value || "");
   const rankedCards = [];
 
   productCards.forEach((card) => {
