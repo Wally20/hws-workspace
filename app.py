@@ -960,6 +960,10 @@ def build_registrations_page_url() -> str:
     return url_for("registrations_page")
 
 
+def build_leads_page_url() -> str:
+    return url_for("leads_page")
+
+
 def build_registration_detail_url(product_key: str) -> str:
     return url_for("registrations_detail_page", product_key=product_key.strip())
 
@@ -3759,6 +3763,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "agenda",
             "tasks",
             "orders",
+            "leads",
             "revenue",
             "trainer-fees",
             "voorstellen-maker",
@@ -3768,8 +3773,8 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "profile",
         }
     if is_social_media_manager(user):
-        return {"dashboard", "orders", "voorstellen-maker", "social-media", "content", "profile"}
-    return {"orders", "profile"}
+        return {"dashboard", "orders", "leads", "voorstellen-maker", "social-media", "content", "profile"}
+    return {"orders", "leads", "profile"}
 
 
 def user_can_access_page(user: Optional[Dict[str, Any]], page_key: str) -> bool:
@@ -5968,6 +5973,52 @@ def registrations_page() -> str:
         refresh_url=build_registrations_page_url(),
         last_updated=format_cache_timestamp(products_payload.get("cachedAt", 0.0)),
         message=product_message or None,
+    )
+
+
+@app.get("/leads")
+def leads_page() -> str:
+    access_redirect = require_page_access("leads")
+    if access_redirect is not None:
+        return access_redirect
+
+    products_payload = fetch_catalog_products()
+    orders_payload = fetch_ecwid_orders()
+    product_summaries = build_product_registration_summary(
+        products_payload.get("items", []),
+        orders_payload.get("items", []),
+    )
+
+    leads_products = [
+        {
+            "productKey": product["productKey"],
+            "productId": product["productId"],
+            "name": product["name"],
+            "sku": product["sku"],
+            "orderCount": product["orderCount"],
+            "participantCount": product["participantCount"],
+            "emailCount": product["emailCount"],
+            "emails": product["emails"],
+            "searchText": product["searchText"],
+        }
+        for product in product_summaries
+    ]
+
+    product_message = products_payload.get("message")
+    order_message = orders_payload.get("message")
+    message_parts = []
+    for message in (product_message, order_message):
+        if message and message not in message_parts:
+            message_parts.append(message)
+
+    return render_template(
+        "leads.html",
+        active_page="leads",
+        products=leads_products,
+        total_products=len(leads_products),
+        refresh_url=build_leads_page_url(),
+        last_updated=format_cache_timestamp(orders_payload.get("cachedAt", 0.0)),
+        message=" ".join(message_parts) if message_parts else None,
     )
 
 

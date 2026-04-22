@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}Leads | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Leads</h1>
+      <p class="welcome-line">{{ total_products }} producten beschikbaar voor selecties</p>
+    </div>
+  </header>
+
+  <section class="orders-toolbar">
+    <div class="orders-toolbar-copy">
+      <p class="orders-toolbar-title">Paginainfo</p>
+      <p class="orders-toolbar-text">Laatst bijgewerkt: {{ last_updated }}</p>
+    </div>
+    <a href="{{ refresh_url }}" class="refresh-button orders-toolbar-button">Nu verversen</a>
+  </section>
+
+  {% if message %}
+    <section class="notice">{{ message }}</section>
+  {% endif %}
+
+  <section class="registrations-overview-panel leads-page-panel">
+    <div class="section-head">
+      <div>
+        <h2>E-mailselectie</h2>
+        <p class="section-subtitle">Selecteer producten om adressen toe te voegen en kies daarna producten die je juist wilt uitsluiten.</p>
+      </div>
+    </div>
+
+    <div class="leads-summary-grid">
+      <article class="leads-summary-card">
+        <p class="orders-toolbar-title">Geselecteerd</p>
+        <p class="leads-summary-value" id="leadsIncludedCount">0</p>
+        <p class="orders-toolbar-text">producten waarvan e-mails worden meegenomen</p>
+      </article>
+      <article class="leads-summary-card">
+        <p class="orders-toolbar-title">Uitgesloten</p>
+        <p class="leads-summary-value" id="leadsExcludedCount">0</p>
+        <p class="orders-toolbar-text">producten waarvan e-mails worden verwijderd</p>
+      </article>
+      <article class="leads-summary-card">
+        <p class="orders-toolbar-title">Resultaat</p>
+        <p class="leads-summary-value" id="leadsEmailCount">0</p>
+        <p class="orders-toolbar-text">unieke e-mailadressen over</p>
+      </article>
+    </div>
+
+    <div class="registrations-actions leads-actions">
+      <label class="field registrations-search-field registrations-search-field-wide leads-search-field">
+        <span>Zoek product</span>
+        <input
+          type="search"
+          id="leadsProductSearch"
+          placeholder="Zoek op productnaam of SKU"
+          autocomplete="off"
+        >
+      </label>
+      <button type="button" class="team-primary-button" id="copyLeadEmailsButton" disabled>
+        Kopieer e-mailadressen
+      </button>
+      <button type="button" class="team-secondary-button" id="clearLeadSelectionsButton">
+        Wis selectie
+      </button>
+      <span class="registrations-copy-feedback" id="leadCopyFeedback" aria-live="polite"></span>
+    </div>
+
+    <div class="leads-legend">
+      <span class="leads-legend-chip leads-legend-chip-include">Toevoegen</span>
+      <span class="leads-legend-chip leads-legend-chip-exclude">Uitsluiten</span>
+      <span class="leads-legend-note">Klik op een tegel om toe te voegen. Klik nog eens om naar uitsluiten te wisselen. Een derde klik haalt de tegel weer weg.</span>
+    </div>
+
+    <div class="registrations-product-list registrations-product-grid" id="leadsProductList">
+      {% for product in products %}
+        <button
+          type="button"
+          class="registrations-product-card registrations-product-card-overview leads-product-card"
+          data-product-key="{{ product.productKey }}"
+          data-product-name="{{ product.name|lower }}"
+          data-product-sku="{{ product.sku|lower }}"
+          data-product-search="{{ product.searchText }}"
+          data-product-emails='{{ product.emails|tojson }}'
+        >
+          <div>
+            <p class="registrations-product-name">{{ product.name }}</p>
+            <p class="registrations-product-meta">
+              {% if product.sku %}SKU: {{ product.sku }}{% else %}Geen SKU beschikbaar{% endif %}
+            </p>
+          </div>
+          <div class="registrations-product-stats leads-product-stats">
+            <span>{{ product.emailCount }} e-mails</span>
+            <span>{{ product.participantCount }} aanmeldingen</span>
+            <span>{{ product.orderCount }} bestellingen</span>
+          </div>
+        </button>
+      {% else %}
+        <div class="empty-state">Er zijn geen producten om te tonen.</div>
+      {% endfor %}
+    </div>
+
+    <label class="field leads-result-field">
+      <span>Geselecteerde e-mailadressen</span>
+      <textarea id="leadEmailsPreview" rows="8" readonly placeholder="Selecteer eerst een of meer producten."></textarea>
+    </label>
+  </section>
+
+  <script src="../static/leads.js?v={{ asset_version }}" defer></script>
+{% endblock %}
