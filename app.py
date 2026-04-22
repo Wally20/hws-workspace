@@ -762,6 +762,208 @@ def decorate_orders_for_list(orders: List[Dict[str, Any]]) -> List[Dict[str, Any
     return decorated_orders
 
 
+def normalize_product(product: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": None if product.get("id") is None else str(product.get("id")),
+        "name": str(product.get("name", "") or "Naamloos product"),
+        "sku": str(product.get("sku", "") or ""),
+        "price": float(product.get("price") or 0),
+        "enabled": bool(product.get("enabled", True)),
+    }
+
+
+def build_mock_catalog_products(orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    products_by_key: Dict[str, Dict[str, Any]] = {}
+    for order in orders:
+        for item in order.get("items", []):
+            product_key = build_order_item_product_key(item)
+            if product_key in products_by_key:
+                continue
+            products_by_key[product_key] = {
+                "id": None if item.get("productId") is None else str(item.get("productId")),
+                "name": str(item.get("name", "") or "Naamloos product"),
+                "sku": str(item.get("sku", "") or ""),
+                "price": float(item.get("price") or 0),
+                "enabled": True,
+            }
+    return sorted(products_by_key.values(), key=lambda product: product["name"].lower())
+
+
+def fetch_catalog_products_payload() -> Dict[str, Any]:
+    config = get_config()
+    if not config["store_id"] or not config["secret_token"]:
+        mock_products = build_mock_catalog_products(mock_orders())
+        return {
+            "source": "mock",
+            "items": mock_products,
+            "message": (
+                "Live Ecwid-koppeling staat nog niet aan. "
+                "Voeg ECWID_STORE_ID en ECWID_SECRET_TOKEN toe."
+            ),
+        }
+
+    all_products: List[Dict[str, Any]] = []
+    offset = 0
+    limit = 100
+    total = 0
+
+    try:
+        while True:
+            response = requests.get(
+                f"{ECWID_API_BASE}/{config['store_id']}/products",
+                headers={"Authorization": f"Bearer {config['secret_token']}"},
+                params={
+                    "offset": offset,
+                    "limit": limit,
+                    "responseFields": "total,count,items(id,name,sku,price,enabled)",
+                },
+                timeout=20,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            items = payload.get("items", [])
+            total = payload.get("total", total)
+            all_products.extend(normalize_product(item) for item in items)
+
+            if not items or len(items) < limit or len(all_products) >= total:
+                break
+
+            offset += limit
+    except requests.RequestException:
+        mock_products = build_mock_catalog_products(mock_orders())
+        return {
+            "source": "mock",
+            "items": mock_products,
+            "message": (
+                "Ecwid-producten konden nu niet worden geladen. "
+                "Tijdelijke voorbeelddata wordt getoond."
+            ),
+        }
+
+    return {
+        "source": "ecwid",
+        "items": all_products,
+        "total": total,
+        "count": len(all_products),
+    }
+
+
+def fetch_catalog_products() -> Dict[str, Any]:
+    payload = fetch_catalog_products_payload()
+    payload["items"] = sorted(payload.get("items", []), key=lambda product: str(product.get("name", "")).lower())
+    return payload
+
+
+def build_order_item_product_key(item: Dict[str, Any]) -> str:
+    product_id = item.get("productId")
+    if product_id is not None and str(product_id).strip():
+        return f"id:{str(product_id).strip()}"
+
+    name = str(item.get("name", "") or "Naamloos product").strip().lower()
+    sku = str(item.get("sku", "") or "").strip().lower()
+    return f"fallback:{name}|{sku}"
+
+
+def build_catalog_product_key(product: Dict[str, Any]) -> str:
+    product_id = product.get("id")
+    if product_id is not None and str(product_id).strip():
+        return f"id:{str(product_id).strip()}"
+
+    name = str(product.get("name", "") or "Naamloos product").strip().lower()
+    sku = str(product.get("sku", "") or "").strip().lower()
+    return f"fallback:{name}|{sku}"
+
+
+def build_registrations_page_url(selected_product_key: str = "") -> str:
+    if selected_product_key.strip():
+        return url_for("registrations_page", product=selected_product_key.strip())
+    return url_for("registrations_page")
+
+
+def build_product_registration_summary(
+    products: List[Dict[str, Any]],
+    orders: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    entries_by_key: Dict[str, Dict[str, Any]] = {}
+
+    for product in products:
+        product_key = build_catalog_product_key(product)
+        entries_by_key[product_key] = {
+            "productKey": product_key,
+            "productId": None if product.get("id") is None else str(product.get("id")),
+            "name": str(product.get("name", "") or "Naamloos product"),
+            "sku": str(product.get("sku", "") or ""),
+            "price": float(product.get("price") or 0),
+            "enabled": bool(product.get("enabled", True)),
+            "orderCount": 0,
+            "participantCount": 0,
+            "emailCount": 0,
+            "emails": [],
+            "orders": [],
+        }
+
+    for order in sort_orders_desc(orders):
+        created_at = parse_iso_datetime(order.get("createdAt", ""))
+        display_date = created_at.strftime("%d-%m-%Y") if created_at else "-"
+        display_time = created_at.strftime("%H:%M") if created_at else "-"
+        for item in order.get("items", []):
+            product_key = build_order_item_product_key(item)
+            entry = entries_by_key.get(product_key)
+            if entry is None:
+                entry = {
+                    "productKey": product_key,
+                    "productId": None if item.get("productId") is None else str(item.get("productId")),
+                    "name": str(item.get("name", "") or "Naamloos product"),
+                    "sku": str(item.get("sku", "") or ""),
+                    "price": float(item.get("price") or 0),
+                    "enabled": True,
+                    "orderCount": 0,
+                    "participantCount": 0,
+                    "emailCount": 0,
+                    "emails": [],
+                    "orders": [],
+                }
+                entries_by_key[product_key] = entry
+
+            email = str(order.get("email", "") or "").strip()
+            if email and email not in entry["emails"]:
+                entry["emails"].append(email)
+
+            entry["orderCount"] += 1
+            entry["participantCount"] += max(int(item.get("quantity") or 0), 0)
+            entry["orders"].append(
+                {
+                    "id": str(order.get("id", "") or ""),
+                    "orderNumber": str(order.get("orderNumber", "") or order.get("id", "")),
+                    "customerName": str(order.get("customerName", "") or "Onbekende klant"),
+                    "email": email,
+                    "status": str(order.get("status", "") or "-"),
+                    "paymentStatus": str(order.get("paymentStatus", "") or "-"),
+                    "displayDate": display_date,
+                    "displayTime": display_time,
+                    "quantity": max(int(item.get("quantity") or 0), 0),
+                    "total": float(order.get("total") or 0),
+                    "itemPrice": float(item.get("price") or 0),
+                }
+            )
+
+    entries = []
+    for entry in entries_by_key.values():
+        next_entry = dict(entry)
+        next_entry["emailCount"] = len(next_entry["emails"])
+        next_entry["emailList"] = ", ".join(next_entry["emails"])
+        entries.append(next_entry)
+
+    entries.sort(
+        key=lambda item: (
+            item["name"].lower(),
+            item["sku"].lower(),
+            item["productKey"],
+        )
+    )
+    return entries
+
+
 def build_orders_filter_options(orders: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, str]]]:
     statuses = sorted(
         {str(order.get("status", "")).strip() for order in orders if str(order.get("status", "")).strip()}
@@ -3336,6 +3538,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "dashboard",
             "agenda",
             "tasks",
+            "registrations",
             "orders",
             "revenue",
             "trainer-fees",
@@ -4385,36 +4588,12 @@ def build_product_summary(orders: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def search_catalog_products(keyword: str) -> List[Dict[str, Any]]:
-    config = get_config()
-    if not config["store_id"] or not config["secret_token"] or not keyword.strip():
+    if not keyword.strip():
         return []
 
     query = normalize_match_text(keyword)
     query_tokens = {token for token in query.split() if token}
-    products = []
-    offset = 0
-    limit = 100
-
-    while True:
-        response = requests.get(
-            f"{ECWID_API_BASE}/{config['store_id']}/products",
-            headers={"Authorization": f"Bearer {config['secret_token']}"},
-            params={
-                "offset": offset,
-                "limit": limit,
-                "responseFields": "total,count,items(id,name,sku,price,enabled)",
-            },
-            timeout=20,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        items = payload.get("items", [])
-        products.extend(items)
-
-        if not items or len(items) < limit or len(products) >= payload.get("total", 0):
-            break
-
-        offset += limit
+    products = fetch_catalog_products().get("items", [])
 
     filtered_products = []
     for item in products:
@@ -5545,6 +5724,52 @@ def orders_page() -> str:
             else ""
         ),
         pagination_links=pagination_links,
+    )
+
+
+@app.get("/aanmeldingen")
+def registrations_page() -> str:
+    access_redirect = require_page_access("registrations")
+    if access_redirect is not None:
+        return access_redirect
+
+    products_payload = fetch_catalog_products()
+    orders_payload = fetch_ecwid_orders()
+    registrations = build_product_registration_summary(
+        products_payload.get("items", []),
+        orders_payload.get("items", []),
+    )
+    selected_product_key = request.args.get("product", "").strip()
+    registrations = [
+        {
+            **item,
+            "detailUrl": build_registrations_page_url(item["productKey"]),
+        }
+        for item in registrations
+    ]
+    selected_product = next(
+        (item for item in registrations if item["productKey"] == selected_product_key),
+        registrations[0] if registrations else None,
+    )
+
+    product_message = products_payload.get("message")
+    order_message = orders_payload.get("message")
+    message_parts = []
+    for message in (product_message, order_message):
+        if message and message not in message_parts:
+            message_parts.append(message)
+
+    return render_template(
+        "registrations.html",
+        active_page="registrations",
+        products=registrations,
+        selected_product=selected_product,
+        selected_product_key=selected_product["productKey"] if selected_product else "",
+        total_products=len(registrations),
+        total_orders=len(orders_payload.get("items", [])),
+        refresh_url=build_registrations_page_url(selected_product_key),
+        last_updated=format_cache_timestamp(orders_payload.get("cachedAt", 0.0)),
+        message=" ".join(message_parts) if message_parts else None,
     )
 
 

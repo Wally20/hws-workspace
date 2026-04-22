@@ -201,6 +201,72 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Anne de Vries", content)
         self.assertNotIn("Milan Jansen", content)
 
+    def test_registrations_page_renders_products_and_selected_order_details(self):
+        mock_orders = [
+            {
+                "id": "ORDER-1",
+                "orderNumber": "ORDER-1",
+                "createdAt": "2026-04-10T10:00:00+02:00",
+                "status": "PAID",
+                "paymentStatus": "PAID",
+                "fulfillmentStatus": "AWAITING_PROCESSING",
+                "total": 79.0,
+                "email": "klant1@example.com",
+                "customerName": "Klant Een",
+                "paymentMethod": "iDEAL",
+                "shippingMethod": "Digitaal",
+                "itemCount": 1,
+                "items": [
+                    {"productId": 101, "name": "Meivakantie Camp", "quantity": 1, "price": 79.0, "sku": "MVC-1"},
+                ],
+            },
+            {
+                "id": "ORDER-2",
+                "orderNumber": "ORDER-2",
+                "createdAt": "2026-04-11T11:30:00+02:00",
+                "status": "PAID",
+                "paymentStatus": "PAID",
+                "fulfillmentStatus": "AWAITING_PROCESSING",
+                "total": 79.0,
+                "email": "klant2@example.com",
+                "customerName": "Klant Twee",
+                "paymentMethod": "iDEAL",
+                "shippingMethod": "Digitaal",
+                "itemCount": 1,
+                "items": [
+                    {"productId": 101, "name": "Meivakantie Camp", "quantity": 1, "price": 79.0, "sku": "MVC-1"},
+                ],
+            },
+        ]
+        catalog_payload = {
+            "items": [
+                {"id": "101", "name": "Meivakantie Camp", "sku": "MVC-1", "price": 79.0, "enabled": True},
+                {"id": "102", "name": "Zomercamp", "sku": "ZC-1", "price": 99.0, "enabled": True},
+            ],
+            "source": "ecwid",
+        }
+        orders_payload = {
+            "items": mock_orders,
+            "summary": legacy.build_summary(mock_orders),
+            "cachedAt": 0.0,
+            "source": "ecwid",
+        }
+
+        with patch.object(legacy, "fetch_catalog_products", return_value=catalog_payload), patch.object(
+            legacy,
+            "fetch_ecwid_orders",
+            return_value=orders_payload,
+        ):
+            response = self.build_authenticated_client().get("/aanmeldingen?product=id:101", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Meivakantie Camp", content)
+        self.assertIn("Zomercamp", content)
+        self.assertIn("Klant Een", content)
+        self.assertIn("Klant Twee", content)
+        self.assertIn('data-emails="klant2@example.com, klant1@example.com"', content)
+
     def test_team_assignment_export_returns_excel_for_selected_orders(self):
         client = self.build_authenticated_client()
         mock_payload = {
@@ -319,6 +385,14 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response["Location"], "/voorstellen-maker?success=Voorstel+verwijderd.")
         mocked_delete.assert_called_once_with(42)
+
+    def test_proposal_builder_page_renders_script_nonce_for_inline_logic(self):
+        response = self.build_authenticated_client().get("/voorstellen-maker", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn('<script nonce="', content)
+        self.assertIn('id="addProposalLineButton"', content)
 
     def test_proposal_training_counts_api_counts_only_matching_agenda_days_in_selected_season(self):
         client = self.build_authenticated_client()

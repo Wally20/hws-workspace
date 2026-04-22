@@ -22,6 +22,7 @@ ENDPOINTS = {
     "invite_accept_page": "invite_accept_page",
     "logout_page": "logout_page",
     "index": "index",
+    "registrations_page": "registrations_page",
     "orders_page": "orders_page",
     "export_orders_team_assignment": "export_orders_team_assignment",
     "revenue_home_page": "revenue_home_page",

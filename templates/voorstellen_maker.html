@@ -208,7 +208,7 @@
     </article>
   </template>
 
-  <script>
+  <script nonce="{{ csp_nonce }}">
     (() => {
       const list = document.getElementById("proposalLinesList");
       const addButton = document.getElementById("addProposalLineButton");

@@ -10,6 +10,7 @@ urlpatterns = [
     path("uitnodiging/<str:invite_token>", views.invite_accept_page, name="invite_accept_page"),
     path("logout", views.logout_page, name="logout_page"),
     path("", views.index, name="index"),
+    path("aanmeldingen", views.registrations_page, name="registrations_page"),
     path("bestellingen", views.orders_page, name="orders_page"),
     path("bestellingen/teamindeling-export", views.export_orders_team_assignment, name="export_orders_team_assignment"),
     path("omzet", views.revenue_home_page, name="revenue_home_page"),
