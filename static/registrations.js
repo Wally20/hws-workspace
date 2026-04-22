@@ -119,4 +119,8 @@ async function copyRegistrationEmails() {
 }
 
 productSearchInput?.addEventListener("input", filterProducts);
+productSearchInput?.addEventListener("search", filterProducts);
+productSearchInput?.addEventListener("change", filterProducts);
 copyEmailsButton?.addEventListener("click", copyRegistrationEmails);
+
+filterProducts();
