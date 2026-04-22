@@ -30,26 +30,58 @@
     <div class="registrations-actions">
       <div class="registrations-actions-copy">
         <p class="orders-toolbar-title">E-mailadressen</p>
-        <p class="orders-toolbar-text">{{ selected_product.emailCount }} unieke adressen klaar om te kopieren</p>
+        <p class="orders-toolbar-text">
+          <span id="registrationEmailCount">{{ selected_product.emailCount }}</span> unieke adressen totaal ·
+          <span id="registrationPendingEmailCount">{{ selected_product.pendingEmailCount }}</span> nog niet gemaild
+        </p>
+        <p class="orders-toolbar-text">
+          <span id="registrationEmailedOrderCount">{{ selected_product.emailedOrderCount }}</span> van
+          {{ selected_product.orderCount }} bestellingen op gemaild
+        </p>
       </div>
       <button
         type="button"
         class="team-primary-button"
         id="copyRegistrationEmailsButton"
-        data-emails="{{ selected_product.emailList }}"
+        data-product-key="{{ selected_product.productKey }}"
         {% if not selected_product.emailList %}disabled{% endif %}
       >
         Kopieer alle e-mailadressen
+      </button>
+      <button
+        type="button"
+        class="subtle-button subtle-button-strong"
+        id="copyPendingRegistrationEmailsButton"
+        data-product-key="{{ selected_product.productKey }}"
+        {% if not selected_product.pendingEmailList %}disabled{% endif %}
+      >
+        Kopieer e-mailadressen die nog niet gemaild zijn
       </button>
       <span class="registrations-copy-feedback" id="registrationCopyFeedback" aria-live="polite"></span>
     </div>
 
     <div class="registrations-orders-list">
       {% for order in selected_product.orders %}
-        <article class="registrations-order-card">
+        <article
+          class="registrations-order-card {% if order.emailed %}registrations-order-card-emailed{% else %}registrations-order-card-pending{% endif %}"
+          data-registration-order
+          data-order-id="{{ order.id }}"
+          data-email="{{ order.email }}"
+        >
           <div class="registrations-order-topline">
-            <p class="registrations-order-title">{{ order.customerName }}</p>
-            <p class="registrations-order-meta">Order {{ order.orderNumber }}</p>
+            <div>
+              <p class="registrations-order-title">{{ order.customerName }}</p>
+              <p class="registrations-order-meta">Order {{ order.orderNumber }}</p>
+            </div>
+            <label class="registrations-email-status-toggle">
+              <input
+                type="checkbox"
+                class="registration-emailed-checkbox"
+                data-order-id="{{ order.id }}"
+                {% if order.emailed %}checked{% endif %}
+              >
+              <span>Klant gemaild</span>
+            </label>
           </div>
           <div class="registrations-order-grid">
             <div>

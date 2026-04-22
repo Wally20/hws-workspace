@@ -39,6 +39,11 @@ urlpatterns = [
     path("api/dashboard-summary", views.api_dashboard_summary, name="api_dashboard_summary"),
     path("api/products/search", views.api_product_search, name="api_product_search"),
     path("api/dashboard-events", views.api_dashboard_events, name="api_dashboard_events"),
+    path(
+        "api/registrations/email-status",
+        views.api_update_registration_email_status,
+        name="api_update_registration_email_status",
+    ),
     path("api/dashboard-weather", views.api_dashboard_weather, name="api_dashboard_weather"),
     path("api/agenda-school-holidays", views.api_agenda_school_holidays, name="api_agenda_school_holidays"),
     path("api/agenda-public-holidays", views.api_agenda_public_holidays, name="api_agenda_public_holidays"),

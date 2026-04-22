@@ -18,6 +18,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
     def tearDown(self):
         with legacy.get_db_connection() as connection:
             connection.execute("DELETE FROM rate_limit_attempts")
+            connection.execute("DELETE FROM registration_email_statuses")
         super().tearDown()
 
     def extract_csrf_token(self, response) -> str:
@@ -225,6 +226,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn('data-product-search="meivakantie camp mvc-1 101"', content)
 
     def test_registrations_detail_page_renders_selected_order_details(self):
+        legacy.set_registration_orders_emailed("id:101", ["ORDER-1"], True)
         mock_orders = [
             {
                 "id": "ORDER-1",
@@ -312,9 +314,44 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("VV Voorst JO11-1", content)
         self.assertIn("Glutenvrij", content)
         self.assertIn("Komt iets later.", content)
-        self.assertIn('data-emails="klant2@example.com, klant1@example.com"', content)
+        self.assertIn("Kopieer alle e-mailadressen", content)
+        self.assertIn("Kopieer e-mailadressen die nog niet gemaild zijn", content)
+        self.assertIn('data-product-key="id:101"', content)
+        self.assertIn('data-order-id="ORDER-1"', content)
+        self.assertIn('data-order-id="ORDER-2"', content)
+        self.assertIn('class="registration-emailed-checkbox"', content)
+        self.assertRegex(content, r'class="registration-emailed-checkbox"[^>]*data-order-id="ORDER-1"[^>]*checked')
+        self.assertIn('id="registrationPendingEmailCount">1</span> nog niet gemaild', content)
         self.assertIn("Terug naar alle aanmeldingen", content)
         self.assertNotIn('id="registrationsProductSearch"', content)
+
+    def test_registration_email_status_api_updates_and_clears_status(self):
+        client = self.build_authenticated_client()
+
+        set_response = client.post(
+            "/api/registrations/email-status",
+            data='{"productKey":"id:101","orderIds":["ORDER-1","ORDER-2"],"emailed":true}',
+            content_type="application/json",
+            HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+            secure=True,
+        )
+
+        self.assertEqual(set_response.status_code, 200)
+        self.assertEqual(
+            legacy.load_registration_emailed_order_ids("id:101"),
+            {"ORDER-1", "ORDER-2"},
+        )
+
+        clear_response = client.post(
+            "/api/registrations/email-status",
+            data='{"productKey":"id:101","orderIds":["ORDER-2"],"emailed":false}',
+            content_type="application/json",
+            HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+            secure=True,
+        )
+
+        self.assertEqual(clear_response.status_code, 200)
+        self.assertEqual(legacy.load_registration_emailed_order_ids("id:101"), {"ORDER-1"})
 
     def test_registrations_page_redirects_legacy_product_query_to_detail_page(self):
         response = self.build_authenticated_client().get("/aanmeldingen?product=id:101", secure=True)

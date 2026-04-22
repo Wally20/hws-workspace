@@ -1134,6 +1134,8 @@ def build_registration_product_detail(
             "orders": [],
         }
 
+    known_order_ids: Set[str] = set()
+
     for order in sort_orders_desc(orders):
         created_at = parse_iso_datetime(order.get("createdAt", ""))
         display_date = created_at.strftime("%d-%m-%Y") if created_at else "-"
@@ -1161,11 +1163,13 @@ def build_registration_product_detail(
             if email and email not in detail_entry["emails"]:
                 detail_entry["emails"].append(email)
 
+            order_id = str(order.get("id", "") or "")
+            known_order_ids.add(order_id)
             detail_entry["orderCount"] += 1
             detail_entry["participantCount"] += max(int(item.get("quantity") or 0), 0)
             detail_entry["orders"].append(
                 {
-                    "id": str(order.get("id", "") or ""),
+                    "id": order_id,
                     "orderNumber": str(order.get("orderNumber", "") or order.get("id", "")),
                     "customerName": str(order.get("customerName", "") or "Onbekende klant"),
                     "email": email,
@@ -1183,9 +1187,108 @@ def build_registration_product_detail(
     if detail_entry is None:
         return None
 
+    emailed_order_ids = load_registration_emailed_order_ids(normalized_product_key, known_order_ids)
+    pending_emails: List[str] = []
+    pending_email_keys: Set[str] = set()
+    emailed_order_count = 0
+
+    for order in detail_entry["orders"]:
+        order["emailed"] = order["id"] in emailed_order_ids
+        if order["emailed"]:
+            emailed_order_count += 1
+            continue
+
+        email = str(order.get("email", "") or "").strip()
+        normalized_email = email.lower()
+        if email and normalized_email not in pending_email_keys:
+            pending_email_keys.add(normalized_email)
+            pending_emails.append(email)
+
     detail_entry["emailCount"] = len(detail_entry["emails"])
     detail_entry["emailList"] = ", ".join(detail_entry["emails"])
+    detail_entry["pendingEmailCount"] = len(pending_emails)
+    detail_entry["pendingEmailList"] = ", ".join(pending_emails)
+    detail_entry["emailedOrderCount"] = emailed_order_count
+    detail_entry["pendingOrderCount"] = len(detail_entry["orders"]) - emailed_order_count
     return detail_entry
+
+
+def normalize_registration_email_status_order_ids(order_ids: Any) -> List[str]:
+    if not isinstance(order_ids, list):
+        return []
+
+    normalized_ids: List[str] = []
+    seen_ids: Set[str] = set()
+    for raw_order_id in order_ids:
+        order_id = str(raw_order_id or "").strip()
+        if not order_id or order_id in seen_ids:
+            continue
+        seen_ids.add(order_id)
+        normalized_ids.append(order_id)
+    return normalized_ids
+
+
+def load_registration_emailed_order_ids(
+    product_key: str,
+    order_ids: Optional[Set[str]] = None,
+) -> Set[str]:
+    normalized_product_key = str(product_key or "").strip()
+    if not normalized_product_key:
+        return set()
+
+    with get_db_connection() as connection:
+        if order_ids:
+            placeholders = ", ".join("?" for _ in order_ids)
+            rows = connection.execute(
+                f"""
+                SELECT order_id
+                FROM registration_email_statuses
+                WHERE product_key = ?
+                  AND order_id IN ({placeholders})
+                """,
+                (normalized_product_key, *sorted(order_ids)),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """
+                SELECT order_id
+                FROM registration_email_statuses
+                WHERE product_key = ?
+                """,
+                (normalized_product_key,),
+            ).fetchall()
+
+    return {str(row["order_id"] or "").strip() for row in rows if str(row["order_id"] or "").strip()}
+
+
+def set_registration_orders_emailed(product_key: str, order_ids: List[str], emailed: bool) -> List[str]:
+    normalized_product_key = str(product_key or "").strip()
+    normalized_order_ids = normalize_registration_email_status_order_ids(order_ids)
+    if not normalized_product_key or not normalized_order_ids:
+        return []
+
+    with get_db_connection() as connection:
+        if emailed:
+            timestamp = utcnow_iso()
+            connection.executemany(
+                """
+                INSERT INTO registration_email_statuses (product_key, order_id, emailed_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(product_key, order_id) DO UPDATE SET emailed_at = excluded.emailed_at
+                """,
+                [(normalized_product_key, order_id, timestamp) for order_id in normalized_order_ids],
+            )
+        else:
+            connection.executemany(
+                """
+                DELETE FROM registration_email_statuses
+                WHERE product_key = ?
+                  AND order_id = ?
+                """,
+                [(normalized_product_key, order_id) for order_id in normalized_order_ids],
+            )
+
+    return normalized_order_ids
 
 
 def build_orders_filter_options(orders: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, str]]]:
@@ -1764,6 +1867,16 @@ def init_db() -> None:
                 request_key TEXT NOT NULL,
                 created_at REAL NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS registration_email_statuses (
+                product_key TEXT NOT NULL,
+                order_id TEXT NOT NULL,
+                emailed_at TEXT NOT NULL,
+                PRIMARY KEY (product_key, order_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_registration_email_statuses_product_key
+            ON registration_email_statuses (product_key);
             """
         )
 
@@ -6058,6 +6171,37 @@ def registrations_detail_page(product_key: str) -> str:
         back_url=build_registrations_page_url(),
         last_updated=format_cache_timestamp(orders_payload.get("cachedAt", 0.0)),
         message=" ".join(message_parts) if message_parts else None,
+    )
+
+
+@app.post("/api/registrations/email-status")
+def api_update_registration_email_status():
+    access_redirect = require_page_access("orders")
+    if access_redirect is not None:
+        return access_redirect
+
+    payload = request.get_json(silent=True) or {}
+    product_key = str(payload.get("productKey", "") or "").strip()
+    order_ids = normalize_registration_email_status_order_ids(payload.get("orderIds", []))
+    emailed = payload.get("emailed")
+
+    if not product_key:
+        return jsonify({"error": "Product ontbreekt."}), 400
+    if not order_ids:
+        return jsonify({"error": "Geen bestellingen geselecteerd."}), 400
+    if len(order_ids) > 500:
+        return jsonify({"error": "Te veel bestellingen in één verzoek."}), 400
+    if not isinstance(emailed, bool):
+        return jsonify({"error": "Ongeldige e-mailstatus."}), 400
+
+    updated_order_ids = set_registration_orders_emailed(product_key, order_ids, emailed)
+    return jsonify(
+        {
+            "ok": True,
+            "productKey": product_key,
+            "orderIds": updated_order_ids,
+            "emailed": emailed,
+        }
     )
 
 

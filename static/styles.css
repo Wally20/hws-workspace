@@ -2863,6 +2863,15 @@ textarea:focus {
   background: rgba(255, 255, 255, 0.92);
 }
 
+.registrations-order-card-emailed {
+  border-color: rgba(22, 163, 74, 0.24);
+  background: linear-gradient(135deg, rgba(240, 253, 244, 0.95), rgba(255, 255, 255, 0.94));
+}
+
+.registrations-order-card-pending {
+  border-color: rgba(245, 158, 11, 0.24);
+}
+
 .registrations-order-topline {
   display: flex;
   align-items: baseline;
@@ -2870,6 +2879,26 @@ textarea:focus {
   gap: 12px;
   margin-bottom: 14px;
   flex-wrap: wrap;
+}
+
+.registrations-email-status-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.95);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.registrations-email-status-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: #0f766e;
 }
 
 .registrations-order-grid {
