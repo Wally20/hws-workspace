@@ -244,6 +244,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 "orderExtraFields": [
                     {"title": "Voornaam", "value": "Klant"},
                     {"title": "Achternaam", "value": "Een"},
+                    {"title": "Geboortedatum", "value": "14-05-2014"},
                     {"title": "Geslacht", "value": "Jongen"},
                     {"title": "Club/Team", "value": "VV Voorst JO11-1"},
                     {"title": "Dieetwensen", "value": "Glutenvrij"},
@@ -269,6 +270,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 "orderExtraFields": [
                     {"title": "Voornaam", "value": "Klant"},
                     {"title": "Achternaam", "value": "Twee"},
+                    {"title": "Geboortedatum", "value": "02-11-2013"},
                     {"title": "Geslacht", "value": "Meisje"},
                     {"title": "Club/Team", "value": "SV Twello MO13-1"},
                     {"title": "Dieetwensen", "value": "Geen"},
@@ -307,10 +309,12 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Klant Twee", content)
         self.assertIn("Voornaam", content)
         self.assertIn("Achternaam", content)
+        self.assertIn("Geboortedatum", content)
         self.assertIn("Geslacht", content)
         self.assertIn("Club/Team", content)
         self.assertIn("Dieetwensen", content)
         self.assertIn("Opmerkingen", content)
+        self.assertIn("14-05-2014", content)
         self.assertIn("VV Voorst JO11-1", content)
         self.assertIn("Glutenvrij", content)
         self.assertIn("Komt iets later.", content)

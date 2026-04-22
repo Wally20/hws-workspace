@@ -744,6 +744,7 @@ def extract_registration_details(order: Dict[str, Any], customer_name: str = "")
         return {
             "firstName": str(existing_details.get("firstName", "") or "").strip(),
             "lastName": str(existing_details.get("lastName", "") or "").strip(),
+            "birthDate": str(existing_details.get("birthDate", "") or "").strip(),
             "gender": str(existing_details.get("gender", "") or "").strip(),
             "clubTeam": str(existing_details.get("clubTeam", "") or "").strip(),
             "dietaryWishes": str(existing_details.get("dietaryWishes", "") or "").strip(),
@@ -762,6 +763,15 @@ def extract_registration_details(order: Dict[str, Any], customer_name: str = "")
     return {
         "firstName": find_order_field_value(extra_fields, "voornaam", "first name", "firstname") or fallback_first_name,
         "lastName": find_order_field_value(extra_fields, "achternaam", "last name", "lastname") or fallback_last_name,
+        "birthDate": find_order_field_value(
+            extra_fields,
+            "geboortedatum",
+            "geboorte datum",
+            "birth date",
+            "date of birth",
+            "birthday",
+            "dob",
+        ),
         "gender": find_order_field_value(extra_fields, "geslacht", "gender"),
         "clubTeam": find_order_field_value(extra_fields, "club/team", "club team", "club", "team"),
         "dietaryWishes": find_order_field_value(extra_fields, "dieetwensen", "dieet wensen", "allergieen", "allergieën", "dietary wishes"),
