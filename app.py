@@ -124,10 +124,11 @@ agenda_public_holidays_cache_lock = threading.Lock()
 content_album_lock = threading.Lock()
 
 PASSWORD_HASH_METHOD = os.getenv("PASSWORD_HASH_METHOD", "").strip() or "scrypt"
+SESSION_PERSISTENT_SECONDS = max(86400, int(os.getenv("SESSION_PERSISTENT_SECONDS", "34560000") or "34560000"))
 SESSION_IDLE_TIMEOUT_SECONDS = max(300, int(os.getenv("SESSION_IDLE_TIMEOUT_SECONDS", "3600") or "3600"))
 SESSION_ABSOLUTE_TIMEOUT_SECONDS = max(
     SESSION_IDLE_TIMEOUT_SECONDS,
-    int(os.getenv("SESSION_ABSOLUTE_TIMEOUT_SECONDS", "43200") or "43200"),
+    int(os.getenv("SESSION_ABSOLUTE_TIMEOUT_SECONDS", str(SESSION_PERSISTENT_SECONDS)) or str(SESSION_PERSISTENT_SECONDS)),
 )
 CSRF_TOKEN_LENGTH = 48
 GENERIC_AUTH_ERROR_MESSAGE = "De combinatie van inloggegevens is ongeldig of de actie kon niet worden voltooid."
@@ -228,10 +229,11 @@ def get_env_int(name: str, default: int) -> int:
 
 
 PASSWORD_HASH_METHOD = get_env("PASSWORD_HASH_METHOD") or PASSWORD_HASH_METHOD
+SESSION_PERSISTENT_SECONDS = max(86400, get_env_int("SESSION_PERSISTENT_SECONDS", SESSION_PERSISTENT_SECONDS))
 SESSION_IDLE_TIMEOUT_SECONDS = max(300, get_env_int("SESSION_IDLE_TIMEOUT_SECONDS", SESSION_IDLE_TIMEOUT_SECONDS))
 SESSION_ABSOLUTE_TIMEOUT_SECONDS = max(
     SESSION_IDLE_TIMEOUT_SECONDS,
-    get_env_int("SESSION_ABSOLUTE_TIMEOUT_SECONDS", SESSION_ABSOLUTE_TIMEOUT_SECONDS),
+    get_env_int("SESSION_ABSOLUTE_TIMEOUT_SECONDS", max(SESSION_ABSOLUTE_TIMEOUT_SECONDS, SESSION_PERSISTENT_SECONDS)),
 )
 AGENDA_SCHOOL_REGION = (get_env("AGENDA_SCHOOL_REGION") or "midden").strip().lower() or "midden"
 
@@ -320,7 +322,7 @@ def configure_app() -> None:
         SESSION_COOKIE_SECURE=session_cookie_secure_default,
         SESSION_COOKIE_SAMESITE=get_env("SESSION_COOKIE_SAMESITE") or "Lax",
         PREFERRED_URL_SCHEME=get_env("PREFERRED_URL_SCHEME") or "https",
-        PERMANENT_SESSION_LIFETIME=timedelta(seconds=SESSION_ABSOLUTE_TIMEOUT_SECONDS),
+        PERMANENT_SESSION_LIFETIME=timedelta(seconds=SESSION_PERSISTENT_SECONDS),
     )
 
     if trusted_hosts:
@@ -445,16 +447,8 @@ def handle_session_timeout() -> Optional[Any]:
         return None
 
     now = int(time.time())
-    started_at = int(session.get("session_started_at", now) or now)
-    last_seen_at = int(session.get("session_last_seen_at", now) or now)
-    expired = (now - last_seen_at) > SESSION_IDLE_TIMEOUT_SECONDS or (now - started_at) > SESSION_ABSOLUTE_TIMEOUT_SECONDS
-    if expired:
-        session.clear()
-        ensure_csrf_token()
-        if request.path.startswith("/api/"):
-            return jsonify({"error": "Sessie verlopen. Log opnieuw in."}), 401
-        return redirect(url_for("login_page", next=request.path))
-
+    if not session.get("session_started_at"):
+        session["session_started_at"] = now
     session["session_last_seen_at"] = now
     session.permanent = True
     ensure_csrf_token()
