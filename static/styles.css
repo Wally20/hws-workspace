@@ -2325,8 +2325,7 @@ textarea:focus {
 
 .login-background {
   position: fixed;
-  inset: 0 var(--login-panel-width) 0 auto;
-  width: min(calc(100vw - var(--login-panel-width)), 80vh);
+  inset: 0 var(--login-panel-width) 0 0;
   z-index: 0;
   display: grid;
   place-items: center;
