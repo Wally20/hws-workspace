@@ -192,16 +192,16 @@ function setSummaryCopyState(button, stateText) {
 }
 
 async function copyAgendaSummaryDays(button) {
-  const card = button.closest("[data-agenda-summary-card]");
-  const copyText = card?.dataset.agendaSummaryCopy || "";
-  const summaryLabel = card?.dataset.agendaSummaryLabel || "deze tegel";
+  const copyText = button.dataset.agendaSummaryCopy || "";
+  const summaryLabel = button.dataset.agendaSummaryLabel || "deze tegel";
+  const weekdayLabel = button.dataset.agendaSummaryWeekday || "deze dag";
   if (!copyText.trim()) {
     return;
   }
 
   try {
     await copyTextWithFallback(copyText);
-    setSummaryCopyState(button, `Dagen voor ${summaryLabel} gekopieerd`);
+    setSummaryCopyState(button, `${weekdayLabel} voor ${summaryLabel} gekopieerd`);
   } catch (error) {
     console.error("Dagen konden niet worden gekopieerd.", error);
     setSummaryCopyState(button, "Kopieren mislukt");
@@ -606,10 +606,10 @@ agendaPlannerForm?.addEventListener("submit", () => {
 });
 
 agendaSummaryCopyButtons.forEach((button) => {
-  const card = button.closest("[data-agenda-summary-card]");
-  const summaryLabel = card?.dataset.agendaSummaryLabel || "deze tegel";
-  button.setAttribute("aria-label", `Kopieer dagen voor ${summaryLabel}`);
-  button.setAttribute("title", `Kopieer dagen voor ${summaryLabel}`);
+  const summaryLabel = button.dataset.agendaSummaryLabel || "deze tegel";
+  const weekdayLabel = button.dataset.agendaSummaryWeekday || "deze dag";
+  button.setAttribute("aria-label", `Kopieer ${weekdayLabel} voor ${summaryLabel}`);
+  button.setAttribute("title", `Kopieer ${weekdayLabel} voor ${summaryLabel}`);
   button.addEventListener("click", () => copyAgendaSummaryDays(button));
 });
 

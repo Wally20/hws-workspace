@@ -4577,7 +4577,10 @@ def build_agenda_day_plan_summary(day_plans: List[Dict[str, Any]]) -> List[Dict[
         option: {weekday: 0 for weekday in range(7)}
         for option in AGENDA_DAY_PLAN_OPTIONS
     }
-    plan_days = {option: [] for option in AGENDA_DAY_PLAN_OPTIONS}
+    weekday_days = {
+        option: {weekday: [] for weekday in range(7)}
+        for option in AGENDA_DAY_PLAN_OPTIONS
+    }
 
     for day_plan in day_plans:
         plan_type = str(day_plan.get("planType") or day_plan.get("plan_type") or "").strip()
@@ -4590,23 +4593,25 @@ def build_agenda_day_plan_summary(day_plans: List[Dict[str, Any]]) -> List[Dict[
         if isinstance(current_date, date):
             plan_counts[plan_type] += 1
             weekday_counts[plan_type][current_date.weekday()] += 1
-            plan_days[plan_type].append(current_date)
+            weekday_days[plan_type][current_date.weekday()].append(current_date)
 
     for option in AGENDA_DAY_PLAN_OPTIONS:
-        sorted_days = sorted(plan_days[option])
         item = {
             "label": option,
             "count": plan_counts.get(option, 0),
-            "days": [
-                {
-                    "date": day_value.isoformat(),
-                    "label": format_agenda_summary_day_label(day_value),
-                }
-                for day_value in sorted_days
-            ],
-            "copyText": build_numbered_agenda_day_copy_text(sorted_days),
             "details": [
-                {"label": DUTCH_WEEKDAY_NAMES[weekday], "count": count}
+                {
+                    "label": DUTCH_WEEKDAY_NAMES[weekday],
+                    "count": count,
+                    "days": [
+                        {
+                            "date": day_value.isoformat(),
+                            "label": format_agenda_summary_day_label(day_value),
+                        }
+                        for day_value in sorted(weekday_days[option][weekday])
+                    ],
+                    "copyText": build_numbered_agenda_day_copy_text(weekday_days[option][weekday]),
+                }
                 for weekday, count in weekday_counts[option].items()
                 if count > 0
             ],

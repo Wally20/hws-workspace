@@ -1033,34 +1033,6 @@ textarea:focus {
   border-color: rgba(148, 163, 184, 0.2);
 }
 
-.agenda-plan-summary-copy {
-  display: inline-grid;
-  justify-items: start;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.agenda-plan-summary-copy:disabled {
-  cursor: default;
-}
-
-.agenda-plan-summary-copy:not(:disabled):hover .agenda-plan-summary-caption,
-.agenda-plan-summary-copy:not(:disabled):focus-visible .agenda-plan-summary-caption {
-  color: #111827;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.agenda-plan-summary-copy:focus-visible {
-  outline: 3px solid rgba(31, 184, 129, 0.25);
-  outline-offset: 6px;
-  border-radius: 8px;
-}
-
 .voorstellen-layout {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -1223,6 +1195,28 @@ textarea:focus {
 
 .agenda-plan-summary-details {
   margin-top: 18px;
+}
+
+.agenda-plan-summary-detail-copy {
+  width: 100%;
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.agenda-plan-summary-detail-copy:hover,
+.agenda-plan-summary-detail-copy:focus-visible {
+  background: rgba(31, 184, 129, 0.08);
+}
+
+.agenda-plan-summary-detail-copy:focus-visible {
+  outline: 3px solid rgba(31, 184, 129, 0.25);
+  outline-offset: 2px;
 }
 
 .agenda-month-board {

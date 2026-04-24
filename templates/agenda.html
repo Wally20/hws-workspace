@@ -212,27 +212,25 @@
       {% for item in agenda_day_plan_summary %}
         <article
           class="summary-card compact-summary-card agenda-plan-summary-card"
-          data-agenda-summary-card
           data-agenda-summary-label="{{ item.label }}"
-          data-agenda-summary-copy="{{ item.copyText }}"
         >
           <p class="panel-title">{{ item.label }}</p>
-          <button
-            type="button"
-            class="agenda-plan-summary-copy"
-            data-agenda-summary-copy-button
-            {% if not item.copyText %}disabled{% endif %}
-          >
-            <span class="agenda-plan-summary-value">{{ item.count }}</span>
-            <span class="agenda-plan-summary-caption">{{ "dag" if item.count == 1 else "dagen" }}</span>
-          </button>
+          <p class="agenda-plan-summary-value">{{ item.count }}</p>
+          <p class="agenda-plan-summary-caption">{{ "dag" if item.count == 1 else "dagen" }}</p>
           {% if item.details %}
             <div class="compact-stat-list agenda-plan-summary-details">
               {% for detail in item.details %}
-                <div class="compact-stat-row">
+                <button
+                  type="button"
+                  class="compact-stat-row agenda-plan-summary-detail-copy"
+                  data-agenda-summary-copy-button
+                  data-agenda-summary-label="{{ item.label }}"
+                  data-agenda-summary-weekday="{{ detail.label }}"
+                  data-agenda-summary-copy="{{ detail.copyText }}"
+                >
                   <span>{{ detail.label }}</span>
                   <span class="compact-stat-value">{{ detail.count }}</span>
-                </div>
+                </button>
               {% endfor %}
             </div>
           {% endif %}
