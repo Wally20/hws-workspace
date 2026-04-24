@@ -82,6 +82,20 @@ AGENDA_SUMMARY_FILTER_OPTIONS = (
     },
 )
 DUTCH_MONTH_NAMES = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
+DUTCH_FULL_MONTH_NAMES = [
+    "januari",
+    "februari",
+    "maart",
+    "april",
+    "mei",
+    "juni",
+    "juli",
+    "augustus",
+    "september",
+    "oktober",
+    "november",
+    "december",
+]
 DUTCH_WEEKDAY_NAMES = [
     "Maandag",
     "Dinsdag",
@@ -4542,6 +4556,20 @@ def get_week_days(week_start: date) -> List[Dict[str, Any]]:
     return days
 
 
+def format_agenda_summary_day_label(day_value: date) -> str:
+    return (
+        f"{DUTCH_WEEKDAY_NAMES[day_value.weekday()]} "
+        f"{day_value.day} {DUTCH_FULL_MONTH_NAMES[day_value.month - 1]} {day_value.year}"
+    )
+
+
+def build_numbered_agenda_day_copy_text(days: List[date]) -> str:
+    return "\n".join(
+        f"{index}. {format_agenda_summary_day_label(day_value)}"
+        for index, day_value in enumerate(sorted(days), start=1)
+    )
+
+
 def build_agenda_day_plan_summary(day_plans: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     summary: List[Dict[str, Any]] = []
     plan_counts = {option: 0 for option in AGENDA_DAY_PLAN_OPTIONS}
@@ -4549,24 +4577,34 @@ def build_agenda_day_plan_summary(day_plans: List[Dict[str, Any]]) -> List[Dict[
         option: {weekday: 0 for weekday in range(7)}
         for option in AGENDA_DAY_PLAN_OPTIONS
     }
+    plan_days = {option: [] for option in AGENDA_DAY_PLAN_OPTIONS}
 
     for day_plan in day_plans:
         plan_type = str(day_plan.get("planType") or day_plan.get("plan_type") or "").strip()
         if plan_type not in plan_counts:
             continue
 
-        plan_counts[plan_type] += 1
-
         current_date = day_plan.get("date")
         if isinstance(current_date, str):
             current_date = parse_iso_date(current_date.strip())
         if isinstance(current_date, date):
+            plan_counts[plan_type] += 1
             weekday_counts[plan_type][current_date.weekday()] += 1
+            plan_days[plan_type].append(current_date)
 
     for option in AGENDA_DAY_PLAN_OPTIONS:
+        sorted_days = sorted(plan_days[option])
         item = {
             "label": option,
             "count": plan_counts.get(option, 0),
+            "days": [
+                {
+                    "date": day_value.isoformat(),
+                    "label": format_agenda_summary_day_label(day_value),
+                }
+                for day_value in sorted_days
+            ],
+            "copyText": build_numbered_agenda_day_copy_text(sorted_days),
             "details": [
                 {"label": DUTCH_WEEKDAY_NAMES[weekday], "count": count}
                 for weekday, count in weekday_counts[option].items()

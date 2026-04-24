@@ -12,6 +12,7 @@ const clearDayPlanButtons = document.querySelectorAll("[data-clear-day-plan]");
 const agendaGrid = document.querySelector("#agendaGrid");
 const agendaPlanSurfaces = document.querySelectorAll("[data-agenda-plan-surface]");
 const agendaLabelsRoot = document.querySelector("[data-agenda-school-region]");
+const agendaSummaryCopyButtons = document.querySelectorAll("[data-agenda-summary-copy-button]");
 
 const agendaDayPlans = {};
 let activeDraggedPlan = "";
@@ -156,6 +157,55 @@ async function fetchWithCache(url, cacheKey) {
 
 function normalizeText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function copyTextWithFallback(value) {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(value);
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = value;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.top = "-1000px";
+  textArea.style.opacity = "0";
+  document.body.appendChild(textArea);
+  textArea.select();
+  document.execCommand("copy");
+  textArea.remove();
+  return Promise.resolve();
+}
+
+function setSummaryCopyState(button, stateText) {
+  const defaultLabel = button.dataset.defaultAriaLabel || button.getAttribute("aria-label") || "";
+  if (!button.dataset.defaultAriaLabel) {
+    button.dataset.defaultAriaLabel = defaultLabel;
+  }
+  button.setAttribute("aria-label", stateText || defaultLabel);
+  if (!stateText) {
+    return;
+  }
+  window.setTimeout(() => {
+    button.setAttribute("aria-label", button.dataset.defaultAriaLabel || defaultLabel);
+  }, 1600);
+}
+
+async function copyAgendaSummaryDays(button) {
+  const card = button.closest("[data-agenda-summary-card]");
+  const copyText = card?.dataset.agendaSummaryCopy || "";
+  const summaryLabel = card?.dataset.agendaSummaryLabel || "deze tegel";
+  if (!copyText.trim()) {
+    return;
+  }
+
+  try {
+    await copyTextWithFallback(copyText);
+    setSummaryCopyState(button, `Dagen voor ${summaryLabel} gekopieerd`);
+  } catch (error) {
+    console.error("Dagen konden niet worden gekopieerd.", error);
+    setSummaryCopyState(button, "Kopieren mislukt");
+  }
 }
 
 function normalizeRegion(value) {
@@ -553,6 +603,14 @@ cancelAgendaPlannerEdit?.addEventListener("click", () => setPlannerEditOpen(fals
 
 agendaPlannerForm?.addEventListener("submit", () => {
   syncDayPlansInput();
+});
+
+agendaSummaryCopyButtons.forEach((button) => {
+  const card = button.closest("[data-agenda-summary-card]");
+  const summaryLabel = card?.dataset.agendaSummaryLabel || "deze tegel";
+  button.setAttribute("aria-label", `Kopieer dagen voor ${summaryLabel}`);
+  button.setAttribute("title", `Kopieer dagen voor ${summaryLabel}`);
+  button.addEventListener("click", () => copyAgendaSummaryDays(button));
 });
 
 agendaModal?.addEventListener("click", (event) => {

@@ -1304,6 +1304,27 @@ class AgendaDayPlanSummaryTests(SimpleTestCase):
             ],
         )
 
+    def test_filtered_agenda_summary_copy_text_uses_only_filtered_days(self):
+        filtered_day_plans = legacy.filter_agenda_day_plans_for_summary(
+            [
+                {"date": "2026-08-23", "planType": "Voetbaldag"},
+                {"date": "2026-08-24", "planType": "Voetbaldag"},
+                {"date": "2027-06-13", "planType": "Voetbaldag"},
+                {"date": "2027-06-14", "planType": "Voetbaldag"},
+            ],
+            "season_2026_2027",
+        )
+
+        summary_by_label = {
+            item["label"]: item
+            for item in legacy.build_agenda_day_plan_summary(filtered_day_plans)
+        }
+
+        self.assertEqual(
+            summary_by_label["Voetbaldag"]["copyText"],
+            "1. Maandag 24 augustus 2026\n2. Zondag 13 juni 2027",
+        )
+
     def test_build_agenda_day_plan_summary_counts_all_saved_days_per_weekday(self):
         summary = legacy.build_agenda_day_plan_summary(
             [
@@ -1325,6 +1346,12 @@ class AgendaDayPlanSummaryTests(SimpleTestCase):
                 {
                     "label": "Geen activiteit",
                     "count": 3,
+                    "days": [
+                        {"date": "2026-07-06", "label": "Maandag 6 juli 2026"},
+                        {"date": "2026-07-08", "label": "Woensdag 8 juli 2026"},
+                        {"date": "2026-07-13", "label": "Maandag 13 juli 2026"},
+                    ],
+                    "copyText": "1. Maandag 6 juli 2026\n2. Woensdag 8 juli 2026\n3. Maandag 13 juli 2026",
                     "details": [
                         {"label": "Maandag", "count": 2},
                         {"label": "Woensdag", "count": 1},
@@ -1333,6 +1360,11 @@ class AgendaDayPlanSummaryTests(SimpleTestCase):
                 {
                     "label": "Voetbaldag",
                     "count": 2,
+                    "days": [
+                        {"date": "2026-07-07", "label": "Dinsdag 7 juli 2026"},
+                        {"date": "2026-07-14", "label": "Dinsdag 14 juli 2026"},
+                    ],
+                    "copyText": "1. Dinsdag 7 juli 2026\n2. Dinsdag 14 juli 2026",
                     "details": [
                         {"label": "Dinsdag", "count": 2},
                     ],
@@ -1340,6 +1372,11 @@ class AgendaDayPlanSummaryTests(SimpleTestCase):
                 {
                     "label": "Samenwerkende amateurclubs",
                     "count": 2,
+                    "days": [
+                        {"date": "2026-07-06", "label": "Maandag 6 juli 2026"},
+                        {"date": "2026-07-08", "label": "Woensdag 8 juli 2026"},
+                    ],
+                    "copyText": "1. Maandag 6 juli 2026\n2. Woensdag 8 juli 2026",
                     "details": [
                         {"label": "Maandag", "count": 1},
                         {"label": "Woensdag", "count": 1},
@@ -1348,6 +1385,11 @@ class AgendaDayPlanSummaryTests(SimpleTestCase):
                 {
                     "label": "Techniektrainingen",
                     "count": 2,
+                    "days": [
+                        {"date": "2026-07-10", "label": "Vrijdag 10 juli 2026"},
+                        {"date": "2026-07-17", "label": "Vrijdag 17 juli 2026"},
+                    ],
+                    "copyText": "1. Vrijdag 10 juli 2026\n2. Vrijdag 17 juli 2026",
                     "details": [
                         {"label": "Vrijdag", "count": 2},
                     ],
