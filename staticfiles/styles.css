@@ -2158,32 +2158,32 @@ textarea:focus {
 .login-background-slide {
   background-position: center;
   background-repeat: no-repeat;
-  background-size: contain;
+  background-size: contain, cover;
   opacity: 0;
   transform: scale(1);
   animation: loginBackgroundCycle 20s ease-in-out infinite;
 }
 
 .login-background-slide-1 {
-  background-image: url("../static/assets/HWS20-03-2026-4.jpg");
+  background-image: url("../static/assets/HWS20-03-2026-4.jpg"), url("../static/assets/HWS20-03-2026-4.jpg");
   background-position: center 42%;
   animation-delay: 0s;
 }
 
 .login-background-slide-2 {
-  background-image: url("../static/assets/HWS20-03-2026-13.jpg");
+  background-image: url("../static/assets/HWS20-03-2026-13.jpg"), url("../static/assets/HWS20-03-2026-13.jpg");
   background-position: center 32%;
   animation-delay: 5s;
 }
 
 .login-background-slide-3 {
-  background-image: url("../static/assets/HWS20-03-2026-27.jpg");
+  background-image: url("../static/assets/HWS20-03-2026-27.jpg"), url("../static/assets/HWS20-03-2026-27.jpg");
   background-position: center 44%;
   animation-delay: 10s;
 }
 
 .login-background-slide-4 {
-  background-image: url("../static/assets/HWS20-03-2026-31.jpg");
+  background-image: url("../static/assets/HWS20-03-2026-31.jpg"), url("../static/assets/HWS20-03-2026-31.jpg");
   background-position: center 36%;
   animation-delay: 15s;
 }
