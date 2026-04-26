@@ -24,6 +24,7 @@ urlpatterns = [
     path("profiel", views.personal_profile_page, name="personal_profile_page"),
     path("trainers", views.trainers_page, name="trainers_page"),
     path("agenda", views.agenda_page, name="agenda_page"),
+    path("oefeningen-bibliotheek", views.oefeningen_bibliotheek_page, name="oefeningen_bibliotheek_page"),
     path("taken", views.tasks_page, name="tasks_page"),
     path("voorstellen-maker", views.voorstellen_maker_page, name="voorstellen_maker_page"),
     path("voorstellen-maker/<int:proposal_id>", views.voorstellen_maker_detail_page, name="voorstellen_maker_detail_page"),

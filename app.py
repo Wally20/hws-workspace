@@ -11,12 +11,14 @@ import hashlib
 import hmac
 import mimetypes
 import unicodedata
+import zipfile
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal, InvalidOperation
 from datetime import date, datetime, time as dt_time, timedelta
 from math import ceil
 from typing import Any, Dict, List, Optional, Set, Tuple
+from xml.etree import ElementTree as XmlElementTree
 
 import requests
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
@@ -36,6 +38,27 @@ DATA_DIR = os.getenv("DATA_DIR", BUNDLED_DATA_DIR)
 DATABASE_PATH = os.path.join(DATA_DIR, "app.db")
 DASHBOARD_EVENTS_PATH = os.path.join(DATA_DIR, "dashboard_events.json")
 AGENDA_TRAININGS_PATH = os.path.join(DATA_DIR, "agenda_trainings.json")
+PPTX_XML_NAMESPACES = {
+    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
+}
+PPTX_SLIDE_WIDTH = 12192000
+PPTX_SLIDE_HEIGHT = 6858000
+EXERCISE_FIELD_MIN_X = 350000
+EXERCISE_FIELD_MAX_X = 4700000
+EXERCISE_FIELD_MIN_Y = 1600000
+EXERCISE_FIELD_MAX_Y = 5200000
+EXERCISE_TEXT_LABELS = (
+    "OEFENING:",
+    "TRAININGSOEFENING:",
+    "DUUR:",
+    "OMSCHRIJVING OEFENING:",
+    "MATERIALEN:",
+    "AFMETINGEN:",
+    "COACHING:",
+    "VARIATIE MAKKELIJKER MAKEN:",
+    "VARIATIE MOEILIJKER MAKEN:",
+)
 AGENDA_DAY_PLAN_OPTIONS = (
     "Geen activiteit",
     "Voetbaldag",
@@ -536,6 +559,9 @@ def validate_image_signature(content_type: str, file_bytes: bytes) -> bool:
 
 def apply_security_headers(response: Any) -> Any:
     for header_name, header_value in SECURITY_HEADERS.items():
+        if header_name == "Content-Security-Policy" and not is_request_secure():
+            header_value = header_value.replace("upgrade-insecure-requests", "").strip()
+            header_value = re.sub(r";\s*;", ";", header_value).rstrip("; ")
         response.headers.setdefault(header_name, header_value)
     if is_request_secure():
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
@@ -1791,6 +1817,23 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS exercises (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                category TEXT,
+                duration TEXT,
+                training_exercise TEXT,
+                description TEXT,
+                coaching TEXT,
+                variation_easier TEXT,
+                variation_harder TEXT,
+                dimensions TEXT,
+                materials TEXT,
+                field_json TEXT NOT NULL DEFAULT '{}',
+                source_slide INTEGER,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS trainer_profiles (
                 id TEXT PRIMARY KEY,
                 full_name TEXT NOT NULL,
@@ -1960,6 +2003,34 @@ def init_db() -> None:
         if "storage_backend" not in content_photo_columns:
             connection.execute("ALTER TABLE content_photos ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'local'")
 
+        exercise_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(exercises)").fetchall()
+        }
+        if "title" not in exercise_columns:
+            connection.execute("ALTER TABLE exercises ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+            if "name" in exercise_columns:
+                connection.execute("UPDATE exercises SET title = name WHERE title = ''")
+        if "duration" not in exercise_columns:
+            connection.execute("ALTER TABLE exercises ADD COLUMN duration TEXT")
+        if "training_exercise" not in exercise_columns:
+            connection.execute("ALTER TABLE exercises ADD COLUMN training_exercise TEXT")
+        if "variation_easier" not in exercise_columns:
+            connection.execute("ALTER TABLE exercises ADD COLUMN variation_easier TEXT")
+        if "variation_harder" not in exercise_columns:
+            connection.execute("ALTER TABLE exercises ADD COLUMN variation_harder TEXT")
+        if "dimensions" not in exercise_columns:
+            connection.execute("ALTER TABLE exercises ADD COLUMN dimensions TEXT")
+        if "materials" not in exercise_columns:
+            connection.execute("ALTER TABLE exercises ADD COLUMN materials TEXT")
+        if "field_json" not in exercise_columns:
+            connection.execute("ALTER TABLE exercises ADD COLUMN field_json TEXT NOT NULL DEFAULT '{}'")
+        if "source_slide" not in exercise_columns:
+            connection.execute("ALTER TABLE exercises ADD COLUMN source_slide INTEGER")
+        if "updated_at" not in exercise_columns:
+            connection.execute("ALTER TABLE exercises ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
+            connection.execute("UPDATE exercises SET updated_at = created_at WHERE updated_at = '' AND created_at IS NOT NULL")
+
         proposal_columns = {
             row["name"]
             for row in connection.execute("PRAGMA table_info(proposals)").fetchall()
@@ -2031,6 +2102,12 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_agenda_day_plans_date
             ON agenda_day_plans (date)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_exercises_category_title
+            ON exercises (category, title)
             """
         )
         connection.execute(
@@ -2181,6 +2258,303 @@ def save_dashboard_events_config(events: List[Dict[str, Any]]) -> None:
                     json.dumps(item.get("matchTerms", []), ensure_ascii=True),
                 )
                 for item in events
+            ],
+        )
+
+
+def normalize_exercise_text(value: Any) -> str:
+    normalized = str(value or "").replace("\r", "\n")
+    normalized = re.sub(r"[ \t]+", " ", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    return normalized.strip(" \n\t-")
+
+
+def extract_pptx_slide_text(slide_root: XmlElementTree.Element) -> List[str]:
+    lines: List[str] = []
+    for text_node in slide_root.findall(".//a:t", PPTX_XML_NAMESPACES):
+        value = normalize_exercise_text(text_node.text or "")
+        if value:
+            lines.append(value)
+    return lines
+
+
+def parse_exercise_text(lines: List[str]) -> Dict[str, str]:
+    label_map = {
+        "OEFENING:": "title",
+        "TRAININGSOEFENING:": "trainingExercise",
+        "DUUR:": "duration",
+        "OMSCHRIJVING OEFENING:": "description",
+        "MATERIALEN:": "materials",
+        "AFMETINGEN:": "dimensions",
+        "COACHING:": "coaching",
+        "VARIATIE MAKKELIJKER MAKEN:": "variationEasier",
+        "VARIATIE MOEILIJKER MAKEN:": "variationHarder",
+    }
+    sections: Dict[str, List[str]] = {value: [] for value in label_map.values()}
+    current_key = ""
+
+    for raw_line in lines:
+        line = normalize_exercise_text(raw_line)
+        if not line:
+            continue
+        upper_line = line.upper()
+        if upper_line in label_map:
+            current_key = label_map[upper_line]
+            continue
+        if current_key:
+            sections[current_key].append(line)
+
+    parsed = {key: normalize_exercise_text("\n".join(value)) for key, value in sections.items()}
+    duration = parsed.get("duration", "")
+    if duration:
+        parsed["duration"] = normalize_exercise_text(duration.replace("\n", " "))
+    return parsed
+
+
+def pptx_shape_bounds(shape: XmlElementTree.Element) -> Optional[Dict[str, float]]:
+    xfrm = shape.find(".//a:xfrm", PPTX_XML_NAMESPACES)
+    if xfrm is None:
+        return None
+    offset = xfrm.find("a:off", PPTX_XML_NAMESPACES)
+    extent = xfrm.find("a:ext", PPTX_XML_NAMESPACES)
+    if offset is None or extent is None:
+        return None
+    try:
+        x = float(offset.get("x") or 0)
+        y = float(offset.get("y") or 0)
+        width = float(extent.get("cx") or 0)
+        height = float(extent.get("cy") or 0)
+    except ValueError:
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return {"x": x, "y": y, "width": width, "height": height}
+
+
+def pptx_shape_fill(shape: XmlElementTree.Element) -> str:
+    color = shape.find(".//a:solidFill/a:srgbClr", PPTX_XML_NAMESPACES)
+    if color is not None:
+        value = str(color.get("val") or "").strip()
+        if re.fullmatch(r"[0-9A-Fa-f]{6}", value):
+            return f"#{value.upper()}"
+    return "#111111"
+
+
+def pptx_shape_text(shape: XmlElementTree.Element) -> str:
+    return normalize_exercise_text(" ".join(text.text or "" for text in shape.findall(".//a:t", PPTX_XML_NAMESPACES)))
+
+
+def is_exercise_field_shape(bounds: Dict[str, float]) -> bool:
+    center_x = bounds["x"] + bounds["width"] / 2
+    center_y = bounds["y"] + bounds["height"] / 2
+    return (
+        EXERCISE_FIELD_MIN_X <= center_x <= EXERCISE_FIELD_MAX_X
+        and EXERCISE_FIELD_MIN_Y <= center_y <= EXERCISE_FIELD_MAX_Y
+    )
+
+
+def extract_pptx_field_json(slide_root: XmlElementTree.Element) -> Dict[str, Any]:
+    elements: List[Dict[str, Any]] = []
+
+    for shape in slide_root.findall(".//p:sp", PPTX_XML_NAMESPACES):
+        bounds = pptx_shape_bounds(shape)
+        if bounds is None or not is_exercise_field_shape(bounds) or pptx_shape_text(shape):
+            continue
+        if bounds["width"] > 4300000 or bounds["height"] > 3900000:
+            continue
+        preset = ""
+        geometry = shape.find(".//a:prstGeom", PPTX_XML_NAMESPACES)
+        if geometry is not None:
+            preset = str(geometry.get("prst") or "").strip()
+        name_node = shape.find(".//p:cNvPr", PPTX_XML_NAMESPACES)
+        name = str(name_node.get("name") or "") if name_node is not None else ""
+        kind = "ellipse" if preset == "ellipse" or "Voetbal" in name or "DvW" in name else "rect"
+        if "Trapezium" in name or preset in {"trapezoid", "parallelogram"}:
+            kind = "cone"
+        elements.append(
+            {
+                "type": kind,
+                "x": bounds["x"],
+                "y": bounds["y"],
+                "width": bounds["width"],
+                "height": bounds["height"],
+                "fill": pptx_shape_fill(shape),
+            }
+        )
+
+    for connector in slide_root.findall(".//p:cxnSp", PPTX_XML_NAMESPACES):
+        bounds = pptx_shape_bounds(connector)
+        if bounds is None or not is_exercise_field_shape(bounds):
+            continue
+        elements.append(
+            {
+                "type": "line",
+                "x": bounds["x"],
+                "y": bounds["y"],
+                "width": bounds["width"],
+                "height": bounds["height"],
+                "fill": pptx_shape_fill(connector),
+            }
+        )
+
+    if not elements:
+        return {"viewBox": [0, 0, PPTX_SLIDE_WIDTH, PPTX_SLIDE_HEIGHT], "elements": []}
+
+    min_x = max(0, min(float(item["x"]) for item in elements) - 220000)
+    min_y = max(0, min(float(item["y"]) for item in elements) - 220000)
+    max_x = min(PPTX_SLIDE_WIDTH, max(float(item["x"]) + float(item["width"]) for item in elements) + 220000)
+    max_y = min(PPTX_SLIDE_HEIGHT, max(float(item["y"]) + float(item["height"]) for item in elements) + 220000)
+    return {"viewBox": [min_x, min_y, max_x - min_x, max_y - min_y], "elements": elements[:120]}
+
+
+def parse_exercises_from_pptx(file_bytes: bytes) -> List[Dict[str, Any]]:
+    exercises: List[Dict[str, Any]] = []
+    current_category = ""
+
+    with zipfile.ZipFile(BytesIO(file_bytes)) as archive:
+        slide_names = sorted(
+            [
+                name
+                for name in archive.namelist()
+                if name.startswith("ppt/slides/slide") and name.endswith(".xml")
+            ],
+            key=lambda name: int(re.search(r"slide(\d+)\.xml$", name).group(1)),
+        )
+
+        for slide_name in slide_names:
+            slide_number = int(re.search(r"slide(\d+)\.xml$", slide_name).group(1))
+            slide_root = XmlElementTree.fromstring(archive.read(slide_name))
+            lines = extract_pptx_slide_text(slide_root)
+            has_exercise = any(line.upper() == "OEFENING:" for line in lines)
+            if not has_exercise:
+                category_candidates = [
+                    line
+                    for line in lines
+                    if line and line.upper() not in EXERCISE_TEXT_LABELS and line != "-"
+                ]
+                if category_candidates:
+                    current_category = category_candidates[0]
+                continue
+
+            parsed = parse_exercise_text(lines)
+            title = normalize_exercise_text(parsed.get("title", ""))
+            if not title:
+                continue
+            exercises.append(
+                {
+                    "title": title,
+                    "category": current_category,
+                    "duration": parsed.get("duration", ""),
+                    "trainingExercise": parsed.get("trainingExercise", ""),
+                    "description": parsed.get("description", ""),
+                    "coaching": parsed.get("coaching", ""),
+                    "variationEasier": parsed.get("variationEasier", ""),
+                    "variationHarder": parsed.get("variationHarder", ""),
+                    "dimensions": parsed.get("dimensions", ""),
+                    "materials": parsed.get("materials", ""),
+                    "field": extract_pptx_field_json(slide_root),
+                    "sourceSlide": slide_number,
+                }
+            )
+
+    return exercises
+
+
+def load_exercises() -> List[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, title, category, duration, training_exercise, description, coaching,
+                   variation_easier, variation_harder, dimensions, materials, field_json,
+                   source_slide, updated_at
+            FROM exercises
+            ORDER BY category COLLATE NOCASE, title COLLATE NOCASE
+            """
+        ).fetchall()
+
+    exercises = []
+    for row in rows:
+        try:
+            field = json.loads(str(row["field_json"] or "{}"))
+        except json.JSONDecodeError:
+            field = {"viewBox": [0, 0, PPTX_SLIDE_WIDTH, PPTX_SLIDE_HEIGHT], "elements": []}
+        exercises.append(
+            {
+                "id": int(row["id"]),
+                "title": str(row["title"] or "").strip(),
+                "category": str(row["category"] or "").strip(),
+                "duration": str(row["duration"] or "").strip(),
+                "trainingExercise": str(row["training_exercise"] or "").strip(),
+                "description": str(row["description"] or "").strip(),
+                "coaching": str(row["coaching"] or "").strip(),
+                "variationEasier": str(row["variation_easier"] or "").strip(),
+                "variationHarder": str(row["variation_harder"] or "").strip(),
+                "dimensions": str(row["dimensions"] or "").strip(),
+                "materials": str(row["materials"] or "").strip(),
+                "field": field,
+                "sourceSlide": row["source_slide"],
+                "updatedAt": str(row["updated_at"] or "").strip(),
+            }
+        )
+    return exercises
+
+
+def replace_exercises(exercises: List[Dict[str, Any]]) -> None:
+    now = utcnow_iso()
+    with get_db_connection() as connection:
+        exercise_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(exercises)").fetchall()
+        }
+        has_legacy_name = "name" in exercise_columns
+        insert_columns = [
+            "title",
+            "category",
+            "duration",
+            "training_exercise",
+            "description",
+            "coaching",
+            "variation_easier",
+            "variation_harder",
+            "dimensions",
+            "materials",
+            "field_json",
+            "source_slide",
+            "updated_at",
+        ]
+        if has_legacy_name:
+            insert_columns.insert(0, "name")
+        has_legacy_created_at = "created_at" in exercise_columns
+        if has_legacy_created_at:
+            insert_columns.append("created_at")
+
+        placeholders = ", ".join("?" for _ in insert_columns)
+        column_sql = ", ".join(insert_columns)
+        connection.execute("DELETE FROM exercises")
+        connection.executemany(
+            f"INSERT INTO exercises ({column_sql}) VALUES ({placeholders})",
+            [
+                tuple(
+                    [normalize_exercise_text(item.get("title"))] if has_legacy_name else []
+                )
+                + (
+                    normalize_exercise_text(item.get("title")),
+                    normalize_exercise_text(item.get("category")),
+                    normalize_exercise_text(item.get("duration")),
+                    normalize_exercise_text(item.get("trainingExercise")),
+                    normalize_exercise_text(item.get("description")),
+                    normalize_exercise_text(item.get("coaching")),
+                    normalize_exercise_text(item.get("variationEasier")),
+                    normalize_exercise_text(item.get("variationHarder")),
+                    normalize_exercise_text(item.get("dimensions")),
+                    normalize_exercise_text(item.get("materials")),
+                    json.dumps(item.get("field") or {}, ensure_ascii=True),
+                    item.get("sourceSlide"),
+                    now,
+                )
+                + ((now,) if has_legacy_created_at else ())
+                for item in exercises
+                if normalize_exercise_text(item.get("title"))
             ],
         )
 
@@ -3947,14 +4321,24 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "revenue",
             "trainer-fees",
             "voorstellen-maker",
+            "oefeningen-bibliotheek",
             "social-media",
             "content",
             "trainers",
             "profile",
         }
     if is_social_media_manager(user):
-        return {"dashboard", "orders", "leads", "voorstellen-maker", "social-media", "content", "profile"}
-    return {"orders", "leads", "profile"}
+        return {
+            "dashboard",
+            "orders",
+            "leads",
+            "voorstellen-maker",
+            "oefeningen-bibliotheek",
+            "social-media",
+            "content",
+            "profile",
+        }
+    return {"orders", "leads", "oefeningen-bibliotheek", "profile"}
 
 
 def user_can_access_page(user: Optional[Dict[str, Any]], page_key: str) -> bool:
@@ -7056,6 +7440,59 @@ def agenda_page() -> str:
         agenda_school_region=AGENDA_SCHOOL_REGION,
         success=request.args.get("success", "").strip(),
         error=request.args.get("error", "").strip(),
+    )
+
+
+@app.route("/oefeningen-bibliotheek", methods=["GET", "POST"])
+def oefeningen_bibliotheek_page() -> str:
+    access_redirect = require_page_access("oefeningen-bibliotheek")
+    if access_redirect is not None:
+        return access_redirect
+
+    success = request.args.get("success", "").strip()
+    error = request.args.get("error", "").strip()
+
+    if request.method == "POST":
+        upload = request.files.get("pptx_file")
+        if upload is None or not upload.filename:
+            return redirect(url_for("oefeningen_bibliotheek_page", error="Kies eerst een PowerPoint-bestand."))
+        if not upload.filename.lower().endswith(".pptx"):
+            return redirect(url_for("oefeningen_bibliotheek_page", error="Upload een .pptx-bestand."))
+
+        try:
+            file_bytes = upload.read()
+            exercises = parse_exercises_from_pptx(file_bytes)
+        except (zipfile.BadZipFile, XmlElementTree.ParseError, KeyError, ValueError):
+            return redirect(url_for("oefeningen_bibliotheek_page", error="Deze PowerPoint kon niet worden gelezen."))
+
+        if not exercises:
+            return redirect(url_for("oefeningen_bibliotheek_page", error="Geen oefeningen gevonden in deze PowerPoint."))
+
+        replace_exercises(exercises)
+        return redirect(
+            url_for(
+                "oefeningen_bibliotheek_page",
+                success=f"{len(exercises)} oefeningen geimporteerd.",
+            )
+        )
+
+    exercises = load_exercises()
+    categories = []
+    seen_categories = set()
+    for exercise in exercises:
+        category = exercise.get("category") or "Zonder categorie"
+        if category in seen_categories:
+            continue
+        seen_categories.add(category)
+        categories.append(category)
+
+    return render_template(
+        "oefeningen_bibliotheek.html",
+        active_page="oefeningen-bibliotheek",
+        exercises=exercises,
+        categories=categories,
+        success=success,
+        error=error,
     )
 
 

@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}Oefeningen Bibliotheek | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div class="exercise-library-header">
+      <div>
+        <h1>Oefeningen Bibliotheek</h1>
+        <p class="welcome-line">Bekijk oefeningen als tegels en open de volledige trainingskaart.</p>
+      </div>
+      <form method="post" action="/oefeningen-bibliotheek" enctype="multipart/form-data" class="exercise-import-form">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <label class="subtle-button exercise-file-button">
+          <input type="file" name="pptx_file" accept=".pptx" required>
+          PowerPoint kiezen
+        </label>
+        <button type="submit" class="refresh-button">Importeren</button>
+      </form>
+    </div>
+  </header>
+
+  {% if success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+  {% endif %}
+
+  {% if error %}
+    <section class="notice trainers-notice trainers-notice-error">{{ error }}</section>
+  {% endif %}
+
+  {% if exercises %}
+    <section class="exercise-library-shell">
+      {% for category in categories %}
+        <div class="exercise-category-section">
+          <div class="section-head">
+            <h2>{{ category }}</h2>
+          </div>
+          <div class="exercise-tile-grid">
+            {% for exercise in exercises if (exercise.category or "Zonder categorie") == category %}
+              <button type="button" class="exercise-tile" data-exercise-id="{{ exercise.id }}">
+                <span class="exercise-tile-category">{{ exercise.category or "Zonder categorie" }}</span>
+                <span class="exercise-tile-title">{{ exercise.title }}</span>
+                <span class="exercise-tile-meta">
+                  {% if exercise.duration %}{{ exercise.duration }}{% else %}Oefening{% endif %}
+                  {% if exercise.sourceSlide %} · slide {{ exercise.sourceSlide }}{% endif %}
+                </span>
+              </button>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    </section>
+  {% else %}
+    <section class="summary-card exercise-empty-state">
+      <p class="panel-title">Nog geen oefeningen</p>
+      <p class="feature-list-subtitle">Importeer de PowerPoint om de bibliotheek te vullen.</p>
+    </section>
+  {% endif %}
+
+  <div class="agenda-modal exercise-modal" id="exerciseModal" hidden>
+    <div class="agenda-modal-backdrop" data-close-exercise-modal></div>
+    <section class="agenda-modal-dialog exercise-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="exerciseModalTitle">
+      <div class="agenda-modal-header">
+        <div>
+          <p class="exercise-modal-category" id="exerciseModalCategory"></p>
+          <h2 id="exerciseModalTitle"></h2>
+        </div>
+        <button type="button" class="team-modal-close" id="closeExerciseModal" aria-label="Sluiten">×</button>
+      </div>
+
+      <div class="exercise-detail-layout">
+        <div class="exercise-detail-column">
+          <article class="exercise-detail-panel">
+            <h3>Omschrijving oefening</h3>
+            <p id="exerciseDescription"></p>
+          </article>
+          <article class="exercise-detail-panel">
+            <h3>Coaching</h3>
+            <p id="exerciseCoaching"></p>
+          </article>
+        </div>
+
+        <div class="exercise-field-panel">
+          <div class="exercise-field" id="exerciseField"></div>
+        </div>
+
+        <div class="exercise-detail-column">
+          <article class="exercise-detail-panel">
+            <h3>Variatie makkelijker maken</h3>
+            <p id="exerciseVariationEasier"></p>
+          </article>
+          <article class="exercise-detail-panel">
+            <h3>Variatie moeilijker maken</h3>
+            <p id="exerciseVariationHarder"></p>
+          </article>
+          <article class="exercise-detail-panel">
+            <h3>Afmetingen</h3>
+            <p id="exerciseDimensions"></p>
+          </article>
+          <article class="exercise-detail-panel">
+            <h3>Materialen</h3>
+            <p id="exerciseMaterials"></p>
+          </article>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script type="application/json" id="exerciseData">{{ exercises|tojson }}</script>
+  <script nonce="{{ csp_nonce }}" src="../static/oefeningen-bibliotheek.js?v={{ asset_version }}" defer></script>
+{% endblock %}

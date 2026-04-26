@@ -64,6 +64,18 @@
             <span>Voorstellen Maker</span>
           </a>
           {% endif %}
+          {% if 'oefeningen-bibliotheek' in visible_pages %}
+          <a class="nav-item {% if active_page == 'oefeningen-bibliotheek' %}nav-item-active{% endif %}" href="/oefeningen-bibliotheek">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect x="4" y="5" width="16" height="14" rx="2"></rect>
+                <path d="M4 12h16M12 5v14"></path>
+                <circle cx="12" cy="12" r="2.5"></circle>
+              </svg>
+            </span>
+            <span>Oefeningen Bibliotheek</span>
+          </a>
+          {% endif %}
           {% if 'orders' in visible_pages %}
           <a class="nav-item {% if active_page == 'registrations' %}nav-item-active{% endif %}" href="/aanmeldingen">
             <span class="nav-icon" aria-hidden="true">

@@ -50,16 +50,17 @@ class LegacyResponseHeadersMiddleware:
 
         vary = response.get("Vary")
         response["Vary"] = "Cookie, Accept-Encoding" if not vary else f"{vary}, Cookie, Accept-Encoding"
-        response.setdefault(
-            "Content-Security-Policy",
+        csp = (
             "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; "
             "img-src 'self' data: https:; "
             f"script-src 'self' 'nonce-{request.csp_nonce}'; "
             "style-src 'self' 'unsafe-inline'; "
             "font-src 'self' data:; "
-            "connect-src 'self' https://opendata.rijksoverheid.nl https://date.nager.at; "
-            "upgrade-insecure-requests",
+            "connect-src 'self' https://opendata.rijksoverheid.nl https://date.nager.at"
         )
+        if request.is_secure():
+            csp = f"{csp}; upgrade-insecure-requests"
+        response.setdefault("Content-Security-Policy", csp)
         response.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.setdefault("X-Content-Type-Options", "nosniff")
         response.setdefault("X-Frame-Options", "DENY")
