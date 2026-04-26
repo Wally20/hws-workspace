@@ -9,6 +9,7 @@ import time
 import secrets
 import hashlib
 import hmac
+import html
 import mimetypes
 import unicodedata
 import zipfile
@@ -2589,6 +2590,90 @@ def load_exercises() -> List[Dict[str, Any]]:
             }
         )
     return exercises
+
+
+def safe_svg_number(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def safe_svg_color(value: Any, default: str = "#111111") -> str:
+    normalized = str(value or "").strip()
+    if re.fullmatch(r"#[0-9A-Fa-f]{6}", normalized):
+        return normalized.upper()
+    return default
+
+
+def render_exercise_field_svg(field: Any, label: str = "Veldtekening") -> str:
+    if not isinstance(field, dict):
+        return ""
+    raw_viewbox = field.get("viewBox")
+    raw_elements = field.get("elements")
+    if not isinstance(raw_viewbox, list) or len(raw_viewbox) != 4 or not isinstance(raw_elements, list) or not raw_elements:
+        return ""
+
+    viewbox = [safe_svg_number(value) for value in raw_viewbox]
+    if viewbox[2] <= 0 or viewbox[3] <= 0:
+        return ""
+
+    label_text = html.escape(str(label or "Veldtekening"), quote=True)
+    parts = [
+        (
+            f'<svg viewBox="{viewbox[0]} {viewbox[1]} {viewbox[2]} {viewbox[3]}" '
+            f'role="img" aria-label="{label_text}" preserveAspectRatio="xMidYMid meet">'
+        ),
+        f'<rect x="{viewbox[0]}" y="{viewbox[1]}" width="{viewbox[2]}" height="{viewbox[3]}" fill="#159447"></rect>',
+    ]
+
+    for element in raw_elements[:140]:
+        if not isinstance(element, dict):
+            continue
+        x = safe_svg_number(element.get("x"))
+        y = safe_svg_number(element.get("y"))
+        width = max(1.0, safe_svg_number(element.get("width"), 1.0))
+        height = max(1.0, safe_svg_number(element.get("height"), 1.0))
+        fill = safe_svg_color(element.get("fill"))
+        element_type = str(element.get("type") or "").strip()
+
+        if element_type == "ellipse":
+            stroke = "#ffffff" if fill == "#000000" else "#111111"
+            parts.append(
+                f'<ellipse cx="{x + width / 2}" cy="{y + height / 2}" rx="{width / 2}" ry="{height / 2}" '
+                f'fill="{fill}" stroke="{stroke}" stroke-width="9000"></ellipse>'
+            )
+        elif element_type == "cone":
+            points = (
+                f"{x + width * 0.18},{y + height} "
+                f"{x + width * 0.82},{y + height} "
+                f"{x + width * 0.62},{y} "
+                f"{x + width * 0.38},{y}"
+            )
+            parts.append(f'<polygon points="{points}" fill="{fill}" stroke="#111111" stroke-width="9000"></polygon>')
+        elif element_type == "line":
+            parts.append(
+                f'<line x1="{x}" y1="{y}" x2="{x + width}" y2="{y + height}" '
+                f'stroke="{fill}" stroke-width="22000" stroke-linecap="round"></line>'
+            )
+        else:
+            stroke = "#ffffff" if fill == "#00B050" else "#111111"
+            parts.append(
+                f'<rect x="{x}" y="{y}" width="{width}" height="{height}" '
+                f'fill="{fill}" stroke="{stroke}" stroke-width="9000"></rect>'
+            )
+
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def add_exercise_field_svgs(exercises: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    enriched = []
+    for exercise in exercises:
+        item = dict(exercise)
+        item["fieldSvg"] = render_exercise_field_svg(item.get("field"), f"Veldtekening {item.get('title') or ''}".strip())
+        enriched.append(item)
+    return enriched
 
 
 def replace_exercises(exercises: List[Dict[str, Any]]) -> None:
@@ -7753,9 +7838,9 @@ def oefeningen_bibliotheek_page() -> str:
             return render_template(
                 "oefeningen_bibliotheek.html",
                 active_page="oefeningen-bibliotheek",
-                exercises=exercises,
+                exercises=add_exercise_field_svgs(exercises),
                 categories=list(EXERCISE_CATEGORY_OPTIONS),
-                import_preview=preview_exercises,
+                import_preview=add_exercise_field_svgs(preview_exercises),
                 import_preview_id=preview_id,
                 success=f"{len(preview_exercises)} oefeningen gevonden. Controleer de preview en upload daarna wat je wilt bewaren.",
                 error="",
@@ -7797,9 +7882,9 @@ def oefeningen_bibliotheek_page() -> str:
             return render_template(
                 "oefeningen_bibliotheek.html",
                 active_page="oefeningen-bibliotheek",
-                exercises=exercises,
+                exercises=add_exercise_field_svgs(exercises),
                 categories=list(EXERCISE_CATEGORY_OPTIONS),
-                import_preview=remaining_preview,
+                import_preview=add_exercise_field_svgs(remaining_preview),
                 import_preview_id=preview_id if remaining_preview else "",
                 success="Oefening geupload." if imported_count else "Geen oefening geupload.",
                 error="",
@@ -7811,7 +7896,7 @@ def oefeningen_bibliotheek_page() -> str:
     return render_template(
         "oefeningen_bibliotheek.html",
         active_page="oefeningen-bibliotheek",
-        exercises=exercises,
+        exercises=add_exercise_field_svgs(exercises),
         categories=list(EXERCISE_CATEGORY_OPTIONS),
         import_preview=[],
         import_preview_id="",

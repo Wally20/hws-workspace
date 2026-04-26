@@ -52,7 +52,13 @@
           <article class="exercise-import-preview-card">
             <div class="exercise-import-preview-card-head">
               <div class="exercise-import-preview-title-block">
-                <span class="exercise-import-preview-image" data-import-preview-image="{{ loop.index0 }}"></span>
+                <span class="exercise-import-preview-image" data-import-preview-image="{{ loop.index0 }}">
+                  {% if exercise.fieldSvg %}
+                    {{ exercise.fieldSvg|safe }}
+                  {% else %}
+                    <span class="exercise-tile-preview-empty">Geen veldtekening</span>
+                  {% endif %}
+                </span>
                 <div>
                   <p class="exercise-tile-category">{{ exercise.category or "Geen categorie" }}</p>
                   <h2>{{ exercise.title }}</h2>
@@ -127,7 +133,13 @@
             data-exercise-id="{{ exercise.id }}"
             data-exercise-category="{{ exercise.category }}"
           >
-            <span class="exercise-tile-preview" data-exercise-preview="{{ exercise.id }}"></span>
+            <span class="exercise-tile-preview" data-exercise-preview="{{ exercise.id }}">
+              {% if exercise.fieldSvg %}
+                {{ exercise.fieldSvg|safe }}
+              {% else %}
+                <span class="exercise-tile-preview-empty">Geen veldtekening</span>
+              {% endif %}
+            </span>
             <span class="exercise-tile-copy">
               <span class="exercise-tile-title">{{ exercise.title }}</span>
               <span class="exercise-tile-category">{{ exercise.category or "Geen categorie" }}</span>
