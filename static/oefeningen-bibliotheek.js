@@ -4,10 +4,17 @@ const closeExerciseModal = document.querySelector("#closeExerciseModal");
 const exerciseField = document.querySelector("#exerciseField");
 const exerciseCategorySelect = document.querySelector("#exerciseCategorySelect");
 const saveExerciseCategory = document.querySelector("#saveExerciseCategory");
+const editExercise = document.querySelector("#editExercise");
+const deleteExercise = document.querySelector("#deleteExercise");
+const exerciseEditForm = document.querySelector("#exerciseEditForm");
+const cancelExerciseEdit = document.querySelector("#cancelExerciseEdit");
+const saveExerciseEdit = document.querySelector("#saveExerciseEdit");
+const exerciseDetailLayout = document.querySelector("#exerciseDetailLayout");
 const exerciseFilterEmpty = document.querySelector("#exerciseFilterEmpty");
 const exerciseById = new Map();
 let activeExercise = null;
 let activeFilter = "all";
+const canEditExercises = exerciseModal?.dataset.canEdit === "true";
 
 function parseExerciseData() {
   if (!exerciseDataNode) {
@@ -29,6 +36,13 @@ function setText(selector, value) {
   }
 }
 
+function setValue(selector, value) {
+  const node = document.querySelector(selector);
+  if (node) {
+    node.value = String(value || "").trim();
+  }
+}
+
 function getCsrfToken() {
   return document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
 }
@@ -37,17 +51,24 @@ function getExerciseTile(exerciseId) {
   return document.querySelector(`[data-exercise-id="${exerciseId}"]`);
 }
 
+function normalizeFilterValue(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 function applyExerciseFilter(category) {
   activeFilter = category || "all";
+  const normalizedActiveFilter = normalizeFilterValue(activeFilter);
   let visibleCount = 0;
 
   document.querySelectorAll("[data-exercise-filter]").forEach((button) => {
     button.classList.toggle("exercise-filter-button-active", button.dataset.exerciseFilter === activeFilter);
+    button.setAttribute("aria-pressed", button.dataset.exerciseFilter === activeFilter ? "true" : "false");
   });
 
-  document.querySelectorAll("[data-exercise-id]").forEach((tile) => {
-    const matches = activeFilter === "all" || tile.dataset.exerciseCategory === activeFilter;
+  document.querySelectorAll("#exerciseTileGrid .exercise-tile").forEach((tile) => {
+    const matches = activeFilter === "all" || normalizeFilterValue(tile.dataset.exerciseCategory) === normalizedActiveFilter;
     tile.hidden = !matches;
+    tile.classList.toggle("exercise-tile-hidden", !matches);
     if (matches) {
       visibleCount += 1;
     }
@@ -69,6 +90,29 @@ function syncExerciseCategory(exercise, category) {
     }
   }
   setText("#exerciseModalCategory", category || "Geen categorie");
+  applyExerciseFilter(activeFilter);
+}
+
+function syncExerciseTile(exercise) {
+  const tile = getExerciseTile(exercise.id);
+  if (!tile) {
+    return;
+  }
+  tile.dataset.exerciseCategory = exercise.category || "";
+  const categoryNode = tile.querySelector(".exercise-tile-category");
+  const titleNode = tile.querySelector(".exercise-tile-title");
+  const metaNode = tile.querySelector(".exercise-tile-meta");
+  if (categoryNode) {
+    categoryNode.textContent = exercise.category || "Geen categorie";
+  }
+  if (titleNode) {
+    titleNode.textContent = exercise.title || "Oefening";
+  }
+  if (metaNode) {
+    const duration = exercise.duration || "Oefening";
+    const slide = exercise.sourceSlide ? ` · slide ${exercise.sourceSlide}` : "";
+    metaNode.textContent = `${duration}${slide}`;
+  }
   applyExerciseFilter(activeFilter);
 }
 
@@ -171,11 +215,31 @@ function setModalOpen(isOpen) {
   document.body.style.overflow = isOpen ? "hidden" : "";
 }
 
-function openExercise(exercise) {
-  if (!exercise) {
+function setEditMode(isEditing) {
+  if (!canEditExercises) {
     return;
   }
-  activeExercise = exercise;
+  if (exerciseEditForm) {
+    exerciseEditForm.hidden = !isEditing;
+  }
+  if (exerciseDetailLayout) {
+    exerciseDetailLayout.hidden = isEditing;
+  }
+}
+
+function fillExerciseEditForm(exercise) {
+  setValue("#exerciseEditTitle", exercise.title);
+  setValue("#exerciseEditCategory", exercise.category);
+  setValue("#exerciseEditDuration", exercise.duration);
+  setValue("#exerciseEditDescription", exercise.description);
+  setValue("#exerciseEditCoaching", exercise.coaching);
+  setValue("#exerciseEditVariationEasier", exercise.variationEasier);
+  setValue("#exerciseEditVariationHarder", exercise.variationHarder);
+  setValue("#exerciseEditDimensions", exercise.dimensions);
+  setValue("#exerciseEditMaterials", exercise.materials);
+}
+
+function renderExercise(exercise) {
   setText("#exerciseModalCategory", exercise.category || "Zonder categorie");
   setText("#exerciseModalTitle", exercise.title);
   if (exerciseCategorySelect) {
@@ -188,6 +252,18 @@ function openExercise(exercise) {
   setText("#exerciseDimensions", exercise.dimensions);
   setText("#exerciseMaterials", exercise.materials);
   drawField(exercise.field);
+  if (canEditExercises) {
+    fillExerciseEditForm(exercise);
+  }
+}
+
+function openExercise(exercise) {
+  if (!exercise) {
+    return;
+  }
+  activeExercise = exercise;
+  setEditMode(false);
+  renderExercise(exercise);
   setModalOpen(true);
 }
 
@@ -233,6 +309,106 @@ async function saveActiveExerciseCategory() {
   }
 }
 
+function readExerciseEditPayload() {
+  return {
+    id: activeExercise?.id,
+    title: document.querySelector("#exerciseEditTitle")?.value || "",
+    category: document.querySelector("#exerciseEditCategory")?.value || "",
+    duration: document.querySelector("#exerciseEditDuration")?.value || "",
+    description: document.querySelector("#exerciseEditDescription")?.value || "",
+    coaching: document.querySelector("#exerciseEditCoaching")?.value || "",
+    variationEasier: document.querySelector("#exerciseEditVariationEasier")?.value || "",
+    variationHarder: document.querySelector("#exerciseEditVariationHarder")?.value || "",
+    dimensions: document.querySelector("#exerciseEditDimensions")?.value || "",
+    materials: document.querySelector("#exerciseEditMaterials")?.value || "",
+  };
+}
+
+async function saveActiveExerciseEdit(event) {
+  event?.preventDefault();
+  if (!canEditExercises || !activeExercise || !saveExerciseEdit) {
+    return;
+  }
+
+  saveExerciseEdit.disabled = true;
+  saveExerciseEdit.textContent = "Opslaan...";
+
+  try {
+    const response = await fetch("/api/oefeningen-bibliotheek/update", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-CSRF-Token": getCsrfToken(),
+      },
+      body: JSON.stringify(readExerciseEditPayload()),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || "Oefening opslaan mislukt.");
+    }
+    Object.assign(activeExercise, payload.exercise);
+    renderExercise(activeExercise);
+    syncExerciseTile(activeExercise);
+    setEditMode(false);
+  } catch (error) {
+    console.error(error);
+    saveExerciseEdit.textContent = "Mislukt";
+    window.setTimeout(() => {
+      saveExerciseEdit.textContent = "Wijzigingen opslaan";
+    }, 1600);
+  } finally {
+    saveExerciseEdit.disabled = false;
+    if (saveExerciseEdit.textContent !== "Mislukt") {
+      saveExerciseEdit.textContent = "Wijzigingen opslaan";
+    }
+  }
+}
+
+async function deleteActiveExercise() {
+  if (!canEditExercises || !activeExercise || !deleteExercise) {
+    return;
+  }
+  if (!window.confirm(`Weet je zeker dat je "${activeExercise.title}" wilt verwijderen?`)) {
+    return;
+  }
+
+  deleteExercise.disabled = true;
+  deleteExercise.textContent = "Verwijderen...";
+
+  try {
+    const response = await fetch("/api/oefeningen-bibliotheek/delete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-CSRF-Token": getCsrfToken(),
+      },
+      body: JSON.stringify({ id: activeExercise.id }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || "Oefening verwijderen mislukt.");
+    }
+    getExerciseTile(activeExercise.id)?.remove();
+    exerciseById.delete(String(activeExercise.id));
+    activeExercise = null;
+    setModalOpen(false);
+    applyExerciseFilter(activeFilter);
+  } catch (error) {
+    console.error(error);
+    deleteExercise.textContent = "Mislukt";
+    window.setTimeout(() => {
+      deleteExercise.textContent = "Verwijderen";
+    }, 1600);
+  } finally {
+    deleteExercise.disabled = false;
+    if (deleteExercise.textContent !== "Mislukt") {
+      deleteExercise.textContent = "Verwijderen";
+    }
+  }
+}
+
 parseExerciseData().forEach((exercise) => {
   exerciseById.set(String(exercise.id), exercise);
 });
@@ -250,6 +426,15 @@ document.querySelectorAll("[data-exercise-id]").forEach((button) => {
 });
 
 saveExerciseCategory?.addEventListener("click", saveActiveExerciseCategory);
+editExercise?.addEventListener("click", () => {
+  if (activeExercise) {
+    fillExerciseEditForm(activeExercise);
+    setEditMode(true);
+  }
+});
+cancelExerciseEdit?.addEventListener("click", () => setEditMode(false));
+exerciseEditForm?.addEventListener("submit", saveActiveExerciseEdit);
+deleteExercise?.addEventListener("click", deleteActiveExercise);
 closeExerciseModal?.addEventListener("click", () => setModalOpen(false));
 document.querySelectorAll("[data-close-exercise-modal]").forEach((node) => {
   node.addEventListener("click", () => setModalOpen(false));

@@ -38,6 +38,8 @@ ENDPOINTS = {
     "agenda_page": "agenda_page",
     "oefeningen_bibliotheek_page": "oefeningen_bibliotheek_page",
     "api_update_exercise_category": "api_update_exercise_category",
+    "api_update_exercise": "api_update_exercise",
+    "api_delete_exercise": "api_delete_exercise",
     "tasks_page": "tasks_page",
     "voorstellen_maker_page": "voorstellen_maker_page",
     "voorstellen_maker_detail_page": "voorstellen_maker_detail_page",

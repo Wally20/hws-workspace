@@ -2720,6 +2720,75 @@ def update_exercise_category(exercise_id: Any, category: Any) -> bool:
     return cursor.rowcount > 0
 
 
+def update_exercise(exercise_id: Any, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    try:
+        normalized_id = int(exercise_id)
+    except (TypeError, ValueError):
+        return None
+
+    title = normalize_exercise_text(payload.get("title"))[:180]
+    category = normalize_exercise_category(payload.get("category"))
+    if not title or category not in EXERCISE_CATEGORY_OPTIONS:
+        return None
+
+    cleaned = {
+        "title": title,
+        "category": category,
+        "duration": normalize_exercise_text(payload.get("duration"))[:80],
+        "description": normalize_exercise_text(payload.get("description")),
+        "coaching": normalize_exercise_text(payload.get("coaching")),
+        "variationEasier": normalize_exercise_text(payload.get("variationEasier")),
+        "variationHarder": normalize_exercise_text(payload.get("variationHarder")),
+        "dimensions": normalize_exercise_text(payload.get("dimensions")),
+        "materials": normalize_exercise_text(payload.get("materials")),
+    }
+
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE exercises
+            SET title = ?,
+                category = ?,
+                duration = ?,
+                description = ?,
+                coaching = ?,
+                variation_easier = ?,
+                variation_harder = ?,
+                dimensions = ?,
+                materials = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                cleaned["title"],
+                cleaned["category"],
+                cleaned["duration"],
+                cleaned["description"],
+                cleaned["coaching"],
+                cleaned["variationEasier"],
+                cleaned["variationHarder"],
+                cleaned["dimensions"],
+                cleaned["materials"],
+                utcnow_iso(),
+                normalized_id,
+            ),
+        )
+    if cursor.rowcount <= 0:
+        return None
+    cleaned["id"] = normalized_id
+    return cleaned
+
+
+def delete_exercise(exercise_id: Any) -> bool:
+    try:
+        normalized_id = int(exercise_id)
+    except (TypeError, ValueError):
+        return False
+    with get_db_connection() as connection:
+        cursor = connection.execute("DELETE FROM exercises WHERE id = ?", (normalized_id,))
+    return cursor.rowcount > 0
+
+
 def load_agenda_trainings(start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[Dict[str, Any]]:
     query = """
         SELECT id, title, date, time, end_time, location, notes
@@ -7710,6 +7779,9 @@ def api_update_exercise_category():
     access_redirect = require_page_access("oefeningen-bibliotheek")
     if access_redirect is not None:
         return access_redirect
+    user = get_current_user()
+    if not user or not user.get("isAdmin"):
+        return jsonify({"error": "Alleen Admins mogen oefeningen bewerken."}), 403
 
     payload = request.get_json(silent=True) or {}
     exercise_id = payload.get("id")
@@ -7720,6 +7792,37 @@ def api_update_exercise_category():
     if not update_exercise_category(exercise_id, normalized_category):
         return jsonify({"error": "Oefening niet gevonden."}), 404
     return jsonify({"ok": True, "category": normalized_category})
+
+
+@app.post("/api/oefeningen-bibliotheek/update")
+def api_update_exercise():
+    access_redirect = require_page_access("oefeningen-bibliotheek")
+    if access_redirect is not None:
+        return access_redirect
+    user = get_current_user()
+    if not user or not user.get("isAdmin"):
+        return jsonify({"error": "Alleen Admins mogen oefeningen bewerken."}), 403
+
+    payload = request.get_json(silent=True) or {}
+    updated_exercise = update_exercise(payload.get("id"), payload)
+    if updated_exercise is None:
+        return jsonify({"error": "Controleer titel en categorie."}), 400
+    return jsonify({"ok": True, "exercise": updated_exercise})
+
+
+@app.post("/api/oefeningen-bibliotheek/delete")
+def api_delete_exercise():
+    access_redirect = require_page_access("oefeningen-bibliotheek")
+    if access_redirect is not None:
+        return access_redirect
+    user = get_current_user()
+    if not user or not user.get("isAdmin"):
+        return jsonify({"error": "Alleen Admins mogen oefeningen verwijderen."}), 403
+
+    payload = request.get_json(silent=True) or {}
+    if not delete_exercise(payload.get("id")):
+        return jsonify({"error": "Oefening niet gevonden."}), 404
+    return jsonify({"ok": True})
 
 
 @app.route("/taken", methods=["GET", "POST"])

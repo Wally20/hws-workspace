@@ -3283,6 +3283,11 @@ textarea:focus {
   cursor: pointer;
 }
 
+.exercise-tile[hidden],
+.exercise-tile-hidden {
+  display: none !important;
+}
+
 .exercise-tile:hover {
   border-color: #b8b8b8;
   transform: translateY(-1px);
@@ -3331,11 +3336,13 @@ textarea:focus {
   flex: 1 1 auto;
 }
 
-.exercise-category-editor {
+.exercise-admin-actions {
   display: flex;
   align-items: flex-end;
   gap: 8px;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .exercise-category-field {
@@ -3344,6 +3351,29 @@ textarea:focus {
 
 .exercise-category-field select {
   min-height: 36px;
+}
+
+.exercise-edit-form {
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfbfb;
+  padding: 16px;
+}
+
+.exercise-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.exercise-edit-wide {
+  grid-column: span 3;
+}
+
+.exercise-edit-form textarea {
+  min-height: 110px;
+  resize: vertical;
 }
 
 .exercise-detail-layout {
@@ -3435,9 +3465,17 @@ textarea:focus {
   }
 
   .exercise-modal-header,
-  .exercise-category-editor {
+  .exercise-admin-actions {
     display: grid;
     width: 100%;
+  }
+
+  .exercise-edit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .exercise-edit-wide {
+    grid-column: auto;
   }
 
   .exercise-category-field {

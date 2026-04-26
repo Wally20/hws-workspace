@@ -30,6 +30,16 @@ urlpatterns = [
         views.api_update_exercise_category,
         name="api_update_exercise_category",
     ),
+    path(
+        "api/oefeningen-bibliotheek/update",
+        views.api_update_exercise,
+        name="api_update_exercise",
+    ),
+    path(
+        "api/oefeningen-bibliotheek/delete",
+        views.api_delete_exercise,
+        name="api_delete_exercise",
+    ),
     path("taken", views.tasks_page, name="tasks_page"),
     path("voorstellen-maker", views.voorstellen_maker_page, name="voorstellen_maker_page"),
     path("voorstellen-maker/<int:proposal_id>", views.voorstellen_maker_detail_page, name="voorstellen_maker_detail_page"),

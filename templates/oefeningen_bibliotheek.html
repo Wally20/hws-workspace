@@ -143,7 +143,7 @@
     </section>
   {% endif %}
 
-  <div class="agenda-modal exercise-modal" id="exerciseModal" hidden>
+  <div class="agenda-modal exercise-modal" id="exerciseModal" data-can-edit="{% if current_user and current_user.isAdmin %}true{% else %}false{% endif %}" hidden>
     <div class="agenda-modal-backdrop" data-close-exercise-modal></div>
     <section class="agenda-modal-dialog exercise-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="exerciseModalTitle">
       <div class="agenda-modal-header exercise-modal-header">
@@ -151,7 +151,8 @@
           <p class="exercise-modal-category" id="exerciseModalCategory"></p>
           <h2 id="exerciseModalTitle"></h2>
         </div>
-        <div class="exercise-category-editor">
+        {% if current_user and current_user.isAdmin %}
+        <div class="exercise-admin-actions">
           <label class="field exercise-category-field">
             <span>Categorie</span>
             <select id="exerciseCategorySelect">
@@ -161,11 +162,65 @@
             </select>
           </label>
           <button type="button" class="subtle-button subtle-button-strong" id="saveExerciseCategory">Opslaan</button>
+          <button type="button" class="subtle-button" id="editExercise">Bewerken</button>
+          <button type="button" class="subtle-button action-danger" id="deleteExercise">Verwijderen</button>
         </div>
+        {% endif %}
         <button type="button" class="team-modal-close" id="closeExerciseModal" aria-label="Sluiten">×</button>
       </div>
 
-      <div class="exercise-detail-layout">
+      {% if current_user and current_user.isAdmin %}
+      <form class="exercise-edit-form" id="exerciseEditForm" hidden>
+        <div class="exercise-edit-grid">
+          <label class="field">
+            <span>Titel</span>
+            <input type="text" id="exerciseEditTitle" required>
+          </label>
+          <label class="field">
+            <span>Categorie</span>
+            <select id="exerciseEditCategory" required>
+              {% for category in categories %}
+                <option value="{{ category }}">{{ category }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="field">
+            <span>Duur</span>
+            <input type="text" id="exerciseEditDuration">
+          </label>
+          <label class="field exercise-edit-wide">
+            <span>Omschrijving oefening</span>
+            <textarea id="exerciseEditDescription"></textarea>
+          </label>
+          <label class="field exercise-edit-wide">
+            <span>Coaching</span>
+            <textarea id="exerciseEditCoaching"></textarea>
+          </label>
+          <label class="field">
+            <span>Variatie makkelijker maken</span>
+            <textarea id="exerciseEditVariationEasier"></textarea>
+          </label>
+          <label class="field">
+            <span>Variatie moeilijker maken</span>
+            <textarea id="exerciseEditVariationHarder"></textarea>
+          </label>
+          <label class="field">
+            <span>Afmetingen</span>
+            <textarea id="exerciseEditDimensions"></textarea>
+          </label>
+          <label class="field">
+            <span>Materialen</span>
+            <textarea id="exerciseEditMaterials"></textarea>
+          </label>
+        </div>
+        <div class="agenda-form-actions">
+          <button type="button" class="subtle-button" id="cancelExerciseEdit">Annuleren</button>
+          <button type="submit" class="subtle-button subtle-button-strong" id="saveExerciseEdit">Wijzigingen opslaan</button>
+        </div>
+      </form>
+      {% endif %}
+
+      <div class="exercise-detail-layout" id="exerciseDetailLayout">
         <div class="exercise-detail-column">
           <article class="exercise-detail-panel">
             <h3>Omschrijving oefening</h3>
