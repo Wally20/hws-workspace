@@ -51,13 +51,16 @@
         {% for exercise in import_preview %}
           <article class="exercise-import-preview-card">
             <div class="exercise-import-preview-card-head">
-              <div>
-                <p class="exercise-tile-category">{{ exercise.category or "Geen categorie" }}</p>
-                <h2>{{ exercise.title }}</h2>
-                <p class="exercise-tile-meta">
-                  {% if exercise.duration %}{{ exercise.duration }}{% else %}Oefening{% endif %}
-                  {% if exercise.sourceSlide %} · slide {{ exercise.sourceSlide }}{% endif %}
-                </p>
+              <div class="exercise-import-preview-title-block">
+                <span class="exercise-import-preview-image" data-import-preview-image="{{ loop.index0 }}"></span>
+                <div>
+                  <p class="exercise-tile-category">{{ exercise.category or "Geen categorie" }}</p>
+                  <h2>{{ exercise.title }}</h2>
+                  <p class="exercise-tile-meta">
+                    {% if exercise.duration %}{{ exercise.duration }}{% else %}Oefening{% endif %}
+                    {% if exercise.sourceSlide %} · slide {{ exercise.sourceSlide }}{% endif %}
+                  </p>
+                </div>
               </div>
               <form method="post" action="/oefeningen-bibliotheek" class="exercise-preview-upload-form">
                 <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
@@ -259,5 +262,6 @@
 
   <script type="application/json" id="exerciseData">{{ exercises|tojson }}</script>
   <script type="application/json" id="exerciseCategories">{{ categories|tojson }}</script>
+  <script type="application/json" id="exerciseImportPreviewData">{{ import_preview|tojson }}</script>
   <script nonce="{{ csp_nonce }}" src="../static/oefeningen-bibliotheek.js?v={{ asset_version }}" defer></script>
 {% endblock %}

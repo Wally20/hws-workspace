@@ -1,4 +1,5 @@
 const exerciseDataNode = document.querySelector("#exerciseData");
+const exerciseImportPreviewDataNode = document.querySelector("#exerciseImportPreviewData");
 const exerciseModal = document.querySelector("#exerciseModal");
 const closeExerciseModal = document.querySelector("#closeExerciseModal");
 const exerciseField = document.querySelector("#exerciseField");
@@ -25,6 +26,19 @@ function parseExerciseData() {
     return Array.isArray(exercises) ? exercises : [];
   } catch (error) {
     console.error("Oefeningen konden niet worden gelezen.", error);
+    return [];
+  }
+}
+
+function parseImportPreviewData() {
+  if (!exerciseImportPreviewDataNode) {
+    return [];
+  }
+  try {
+    const exercises = JSON.parse(exerciseImportPreviewDataNode.textContent || "[]");
+    return Array.isArray(exercises) ? exercises : [];
+  } catch (error) {
+    console.error("Importvoorbeeld kon niet worden gelezen.", error);
     return [];
   }
 }
@@ -214,6 +228,19 @@ function renderTilePreview(exercise) {
     return;
   }
   const svg = createFieldSvg(exercise.field, `Veldtekening ${exercise.title || ""}`.trim());
+  if (!svg) {
+    preview.innerHTML = '<span class="exercise-tile-preview-empty">Geen veldtekening</span>';
+    return;
+  }
+  preview.replaceChildren(svg);
+}
+
+function renderImportPreviewImage(exercise, index) {
+  const preview = document.querySelector(`[data-import-preview-image="${index}"]`);
+  if (!preview) {
+    return;
+  }
+  const svg = createFieldSvg(exercise.field, `Importvoorbeeld ${exercise.title || ""}`.trim());
   if (!svg) {
     preview.innerHTML = '<span class="exercise-tile-preview-empty">Geen veldtekening</span>';
     return;
@@ -426,6 +453,10 @@ async function deleteActiveExercise() {
 parseExerciseData().forEach((exercise) => {
   exerciseById.set(String(exercise.id), exercise);
   renderTilePreview(exercise);
+});
+
+parseImportPreviewData().forEach((exercise, index) => {
+  renderImportPreviewImage(exercise, index);
 });
 
 document.querySelectorAll("[data-exercise-filter]").forEach((button) => {

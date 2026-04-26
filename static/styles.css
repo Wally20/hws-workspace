@@ -3227,6 +3227,31 @@ textarea:focus {
   font-size: 1.15rem;
 }
 
+.exercise-import-preview-title-block {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+}
+
+.exercise-import-preview-image {
+  display: block;
+  width: 100%;
+  height: 128px;
+  border: 1px solid #17803a;
+  border-radius: 8px;
+  background: #159447;
+  overflow: hidden;
+}
+
+.exercise-import-preview-image svg {
+  display: block;
+  width: 100%;
+  height: 128px;
+  background: #159447;
+}
+
 .exercise-preview-upload-form {
   display: flex;
   align-items: flex-end;
@@ -3493,6 +3518,10 @@ textarea:focus {
   }
 
   .exercise-import-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .exercise-import-preview-title-block {
     grid-template-columns: 1fr;
   }
 

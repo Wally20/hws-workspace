@@ -2399,14 +2399,60 @@ def is_exercise_field_shape(bounds: Dict[str, float]) -> bool:
     )
 
 
+def bounds_center(bounds: Dict[str, float]) -> Tuple[float, float]:
+    return bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] / 2
+
+
+def bounds_contains(bounds: Dict[str, float], container: Dict[str, float], padding: float = 260000) -> bool:
+    center_x, center_y = bounds_center(bounds)
+    return (
+        container["x"] - padding <= center_x <= container["x"] + container["width"] + padding
+        and container["y"] - padding <= center_y <= container["y"] + container["height"] + padding
+    )
+
+
+def find_pptx_field_bounds(slide_root: XmlElementTree.Element) -> List[Dict[str, float]]:
+    field_bounds: List[Dict[str, float]] = []
+    for shape in slide_root.findall(".//p:sp", PPTX_XML_NAMESPACES):
+        bounds = pptx_shape_bounds(shape)
+        if bounds is None:
+            continue
+        if pptx_shape_fill(shape) != "#00B050":
+            continue
+        if bounds["width"] < 1800000 or bounds["height"] < 1200000:
+            continue
+        if bounds["width"] > 5000000 or bounds["height"] > 3600000:
+            continue
+        if pptx_shape_text(shape):
+            continue
+        field_bounds.append(bounds)
+
+    if field_bounds:
+        return field_bounds
+
+    return [
+        {
+            "x": EXERCISE_FIELD_MIN_X,
+            "y": EXERCISE_FIELD_MIN_Y,
+            "width": EXERCISE_FIELD_MAX_X - EXERCISE_FIELD_MIN_X,
+            "height": EXERCISE_FIELD_MAX_Y - EXERCISE_FIELD_MIN_Y,
+        }
+    ]
+
+
+def is_shape_in_exercise_fields(bounds: Dict[str, float], field_bounds: List[Dict[str, float]]) -> bool:
+    return any(bounds_contains(bounds, field_bound) for field_bound in field_bounds)
+
+
 def extract_pptx_field_json(slide_root: XmlElementTree.Element) -> Dict[str, Any]:
     elements: List[Dict[str, Any]] = []
+    field_bounds = find_pptx_field_bounds(slide_root)
 
     for shape in slide_root.findall(".//p:sp", PPTX_XML_NAMESPACES):
         bounds = pptx_shape_bounds(shape)
-        if bounds is None or not is_exercise_field_shape(bounds) or pptx_shape_text(shape):
+        if bounds is None or not is_shape_in_exercise_fields(bounds, field_bounds) or pptx_shape_text(shape):
             continue
-        if bounds["width"] > 4300000 or bounds["height"] > 3900000:
+        if bounds["width"] > 5000000 or bounds["height"] > 3900000:
             continue
         preset = ""
         geometry = shape.find(".//a:prstGeom", PPTX_XML_NAMESPACES)
@@ -2430,7 +2476,7 @@ def extract_pptx_field_json(slide_root: XmlElementTree.Element) -> Dict[str, Any
 
     for connector in slide_root.findall(".//p:cxnSp", PPTX_XML_NAMESPACES):
         bounds = pptx_shape_bounds(connector)
-        if bounds is None or not is_exercise_field_shape(bounds):
+        if bounds is None or not is_shape_in_exercise_fields(bounds, field_bounds):
             continue
         elements.append(
             {
