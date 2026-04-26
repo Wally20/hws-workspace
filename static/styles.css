@@ -3212,6 +3212,11 @@ textarea:focus {
   max-width: 520px;
 }
 
+.exercise-modal {
+  left: 240px;
+  width: calc(100% - 240px);
+}
+
 .exercise-modal-dialog {
   width: min(1280px, calc(100% - 32px));
 }
@@ -3282,6 +3287,11 @@ textarea:focus {
 }
 
 @media (max-width: 980px) {
+  .exercise-modal {
+    left: 0;
+    width: 100%;
+  }
+
   .exercise-library-header,
   .exercise-detail-layout {
     grid-template-columns: 1fr;
