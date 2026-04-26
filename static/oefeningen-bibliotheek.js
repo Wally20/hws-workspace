@@ -2,7 +2,12 @@ const exerciseDataNode = document.querySelector("#exerciseData");
 const exerciseModal = document.querySelector("#exerciseModal");
 const closeExerciseModal = document.querySelector("#closeExerciseModal");
 const exerciseField = document.querySelector("#exerciseField");
+const exerciseCategorySelect = document.querySelector("#exerciseCategorySelect");
+const saveExerciseCategory = document.querySelector("#saveExerciseCategory");
+const exerciseFilterEmpty = document.querySelector("#exerciseFilterEmpty");
 const exerciseById = new Map();
+let activeExercise = null;
+let activeFilter = "all";
 
 function parseExerciseData() {
   if (!exerciseDataNode) {
@@ -22,6 +27,49 @@ function setText(selector, value) {
   if (node) {
     node.textContent = String(value || "").trim() || "-";
   }
+}
+
+function getCsrfToken() {
+  return document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
+}
+
+function getExerciseTile(exerciseId) {
+  return document.querySelector(`[data-exercise-id="${exerciseId}"]`);
+}
+
+function applyExerciseFilter(category) {
+  activeFilter = category || "all";
+  let visibleCount = 0;
+
+  document.querySelectorAll("[data-exercise-filter]").forEach((button) => {
+    button.classList.toggle("exercise-filter-button-active", button.dataset.exerciseFilter === activeFilter);
+  });
+
+  document.querySelectorAll("[data-exercise-id]").forEach((tile) => {
+    const matches = activeFilter === "all" || tile.dataset.exerciseCategory === activeFilter;
+    tile.hidden = !matches;
+    if (matches) {
+      visibleCount += 1;
+    }
+  });
+
+  if (exerciseFilterEmpty) {
+    exerciseFilterEmpty.hidden = visibleCount > 0;
+  }
+}
+
+function syncExerciseCategory(exercise, category) {
+  exercise.category = category;
+  const tile = getExerciseTile(exercise.id);
+  if (tile) {
+    tile.dataset.exerciseCategory = category;
+    const categoryNode = tile.querySelector(".exercise-tile-category");
+    if (categoryNode) {
+      categoryNode.textContent = category || "Geen categorie";
+    }
+  }
+  setText("#exerciseModalCategory", category || "Geen categorie");
+  applyExerciseFilter(activeFilter);
 }
 
 function createSvgNode(tagName, attributes = {}) {
@@ -127,8 +175,12 @@ function openExercise(exercise) {
   if (!exercise) {
     return;
   }
+  activeExercise = exercise;
   setText("#exerciseModalCategory", exercise.category || "Zonder categorie");
   setText("#exerciseModalTitle", exercise.title);
+  if (exerciseCategorySelect) {
+    exerciseCategorySelect.value = exercise.category || "";
+  }
   setText("#exerciseDescription", exercise.description);
   setText("#exerciseCoaching", exercise.coaching);
   setText("#exerciseVariationEasier", exercise.variationEasier);
@@ -139,8 +191,56 @@ function openExercise(exercise) {
   setModalOpen(true);
 }
 
+async function saveActiveExerciseCategory() {
+  if (!activeExercise || !exerciseCategorySelect || !saveExerciseCategory) {
+    return;
+  }
+
+  const nextCategory = exerciseCategorySelect.value;
+  saveExerciseCategory.disabled = true;
+  saveExerciseCategory.textContent = "Opslaan...";
+
+  try {
+    const response = await fetch("/api/oefeningen-bibliotheek/category", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-CSRF-Token": getCsrfToken(),
+      },
+      body: JSON.stringify({
+        id: activeExercise.id,
+        category: nextCategory,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || "Categorie opslaan mislukt.");
+    }
+    syncExerciseCategory(activeExercise, payload.category || nextCategory);
+    saveExerciseCategory.textContent = "Opgeslagen";
+    window.setTimeout(() => {
+      saveExerciseCategory.textContent = "Opslaan";
+    }, 1200);
+  } catch (error) {
+    console.error(error);
+    saveExerciseCategory.textContent = "Mislukt";
+    window.setTimeout(() => {
+      saveExerciseCategory.textContent = "Opslaan";
+    }, 1600);
+  } finally {
+    saveExerciseCategory.disabled = false;
+  }
+}
+
 parseExerciseData().forEach((exercise) => {
   exerciseById.set(String(exercise.id), exercise);
+});
+
+document.querySelectorAll("[data-exercise-filter]").forEach((button) => {
+  button.addEventListener("click", () => {
+    applyExerciseFilter(button.dataset.exerciseFilter || "all");
+  });
 });
 
 document.querySelectorAll("[data-exercise-id]").forEach((button) => {
@@ -149,6 +249,7 @@ document.querySelectorAll("[data-exercise-id]").forEach((button) => {
   });
 });
 
+saveExerciseCategory?.addEventListener("click", saveActiveExerciseCategory);
 closeExerciseModal?.addEventListener("click", () => setModalOpen(false));
 document.querySelectorAll("[data-close-exercise-modal]").forEach((node) => {
   node.addEventListener("click", () => setModalOpen(false));

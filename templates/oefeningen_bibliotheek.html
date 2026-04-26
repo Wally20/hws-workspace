@@ -11,6 +11,7 @@
       </div>
       <form method="post" action="/oefeningen-bibliotheek" enctype="multipart/form-data" class="exercise-import-form">
         <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <input type="hidden" name="action" value="preview">
         <label class="subtle-button exercise-file-button">
           <input type="file" name="pptx_file" accept=".pptx" required>
           PowerPoint kiezen
@@ -28,27 +29,112 @@
     <section class="notice trainers-notice trainers-notice-error">{{ error }}</section>
   {% endif %}
 
-  {% if exercises %}
-    <section class="exercise-library-shell">
-      {% for category in categories %}
-        <div class="exercise-category-section">
-          <div class="section-head">
-            <h2>{{ category }}</h2>
-          </div>
-          <div class="exercise-tile-grid">
-            {% for exercise in exercises if (exercise.category or "Zonder categorie") == category %}
-              <button type="button" class="exercise-tile" data-exercise-id="{{ exercise.id }}">
-                <span class="exercise-tile-category">{{ exercise.category or "Zonder categorie" }}</span>
-                <span class="exercise-tile-title">{{ exercise.title }}</span>
-                <span class="exercise-tile-meta">
+  {% if import_preview %}
+    <section class="summary-card exercise-import-preview">
+      <div class="exercise-import-preview-head">
+        <div>
+          <p class="panel-title">Importvoorbeeld</p>
+          <p class="feature-list-subtitle">Controleer hoe de oefeningen worden toegevoegd.</p>
+        </div>
+        <form method="post" action="/oefeningen-bibliotheek">
+          <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+          <input type="hidden" name="action" value="import_all">
+          <input type="hidden" name="preview_id" value="{{ import_preview_id }}">
+          {% for exercise in import_preview %}
+            <input type="hidden" name="category_{{ loop.index0 }}" value="{{ exercise.category }}">
+          {% endfor %}
+          <button type="submit" class="refresh-button">Upload alles</button>
+        </form>
+      </div>
+
+      <div class="exercise-import-preview-list">
+        {% for exercise in import_preview %}
+          <article class="exercise-import-preview-card">
+            <div class="exercise-import-preview-card-head">
+              <div>
+                <p class="exercise-tile-category">{{ exercise.category or "Geen categorie" }}</p>
+                <h2>{{ exercise.title }}</h2>
+                <p class="exercise-tile-meta">
                   {% if exercise.duration %}{{ exercise.duration }}{% else %}Oefening{% endif %}
                   {% if exercise.sourceSlide %} · slide {{ exercise.sourceSlide }}{% endif %}
-                </span>
-              </button>
-            {% endfor %}
-          </div>
-        </div>
-      {% endfor %}
+                </p>
+              </div>
+              <form method="post" action="/oefeningen-bibliotheek" class="exercise-preview-upload-form">
+                <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+                <input type="hidden" name="action" value="import_one">
+                <input type="hidden" name="preview_id" value="{{ import_preview_id }}">
+                <input type="hidden" name="exercise_index" value="{{ loop.index0 }}">
+                <label class="field exercise-category-field">
+                  <span>Categorie</span>
+                  <select name="category_{{ loop.index0 }}">
+                    {% for category in categories %}
+                      <option value="{{ category }}"{% if exercise.category == category %} selected{% endif %}>{{ category }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <button type="submit" class="subtle-button subtle-button-strong">Upload oefening</button>
+              </form>
+            </div>
+            <div class="exercise-import-preview-grid">
+              <div>
+                <h3>Omschrijving oefening</h3>
+                <p>{{ exercise.description or "-" }}</p>
+              </div>
+              <div>
+                <h3>Coaching</h3>
+                <p>{{ exercise.coaching or "-" }}</p>
+              </div>
+              <div>
+                <h3>Variatie makkelijker maken</h3>
+                <p>{{ exercise.variationEasier or "-" }}</p>
+              </div>
+              <div>
+                <h3>Variatie moeilijker maken</h3>
+                <p>{{ exercise.variationHarder or "-" }}</p>
+              </div>
+              <div>
+                <h3>Afmetingen</h3>
+                <p>{{ exercise.dimensions or "-" }}</p>
+              </div>
+              <div>
+                <h3>Materialen</h3>
+                <p>{{ exercise.materials or "-" }}</p>
+              </div>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if exercises %}
+    <section class="exercise-library-shell">
+      <div class="exercise-filter-bar" aria-label="Filter oefeningen">
+        <button type="button" class="exercise-filter-button exercise-filter-button-active" data-exercise-filter="all">Alles</button>
+        {% for category in categories %}
+          <button type="button" class="exercise-filter-button" data-exercise-filter="{{ category }}">{{ category }}</button>
+        {% endfor %}
+      </div>
+
+      <div class="exercise-tile-grid" id="exerciseTileGrid">
+        {% for exercise in exercises %}
+          <button
+            type="button"
+            class="exercise-tile"
+            data-exercise-id="{{ exercise.id }}"
+            data-exercise-category="{{ exercise.category }}"
+          >
+            <span class="exercise-tile-category">{{ exercise.category or "Geen categorie" }}</span>
+            <span class="exercise-tile-title">{{ exercise.title }}</span>
+            <span class="exercise-tile-meta">
+              {% if exercise.duration %}{{ exercise.duration }}{% else %}Oefening{% endif %}
+              {% if exercise.sourceSlide %} · slide {{ exercise.sourceSlide }}{% endif %}
+            </span>
+          </button>
+        {% endfor %}
+      </div>
+
+      <p class="exercise-filter-empty" id="exerciseFilterEmpty" hidden>Geen oefeningen in deze categorie.</p>
     </section>
   {% else %}
     <section class="summary-card exercise-empty-state">
@@ -60,10 +146,21 @@
   <div class="agenda-modal exercise-modal" id="exerciseModal" hidden>
     <div class="agenda-modal-backdrop" data-close-exercise-modal></div>
     <section class="agenda-modal-dialog exercise-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="exerciseModalTitle">
-      <div class="agenda-modal-header">
-        <div>
+      <div class="agenda-modal-header exercise-modal-header">
+        <div class="exercise-modal-title-wrap">
           <p class="exercise-modal-category" id="exerciseModalCategory"></p>
           <h2 id="exerciseModalTitle"></h2>
+        </div>
+        <div class="exercise-category-editor">
+          <label class="field exercise-category-field">
+            <span>Categorie</span>
+            <select id="exerciseCategorySelect">
+              {% for category in categories %}
+                <option value="{{ category }}">{{ category }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <button type="button" class="subtle-button subtle-button-strong" id="saveExerciseCategory">Opslaan</button>
         </div>
         <button type="button" class="team-modal-close" id="closeExerciseModal" aria-label="Sluiten">×</button>
       </div>
@@ -107,5 +204,6 @@
   </div>
 
   <script type="application/json" id="exerciseData">{{ exercises|tojson }}</script>
+  <script type="application/json" id="exerciseCategories">{{ categories|tojson }}</script>
   <script nonce="{{ csp_nonce }}" src="../static/oefeningen-bibliotheek.js?v={{ asset_version }}" defer></script>
 {% endblock %}

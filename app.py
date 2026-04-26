@@ -59,6 +59,30 @@ EXERCISE_TEXT_LABELS = (
     "VARIATIE MAKKELIJKER MAKEN:",
     "VARIATIE MOEILIJKER MAKEN:",
 )
+EXERCISE_CATEGORY_OPTIONS = (
+    "Dribbelvormen",
+    "Pass-trapvormen",
+    "Omschakelvormen",
+    "1v1 vormen",
+    "Afwerkvormen",
+    "Partijvormen",
+    "Fungames",
+)
+EXERCISE_CATEGORY_ALIASES = {
+    "DRIBBELVORMEN": "Dribbelvormen",
+    "PASS-TRAPVORMEN": "Pass-trapvormen",
+    "PASSTRAPVORMEN": "Pass-trapvormen",
+    "PASS TRAPVORMEN": "Pass-trapvormen",
+    "OMSCHAKELVORMEN": "Omschakelvormen",
+    "1V1 VORMEN": "1v1 vormen",
+    "1V1VORMEN": "1v1 vormen",
+    "1 TEGEN 1 VORMEN": "1v1 vormen",
+    "AFWERKVORMEN": "Afwerkvormen",
+    "PARTIJVORMEN": "Partijvormen",
+    "SPELVORMEN": "Fungames",
+    "FUNGAMES": "Fungames",
+}
+EXERCISE_IMPORT_PREVIEW_DIR = os.path.join(DATA_DIR, "exercise_import_previews")
 AGENDA_DAY_PLAN_OPTIONS = (
     "Geen activiteit",
     "Voetbaldag",
@@ -160,7 +184,8 @@ agenda_public_holidays_cache: Dict[str, Any] = {}
 agenda_public_holidays_cache_lock = threading.Lock()
 content_album_lock = threading.Lock()
 
-PASSWORD_HASH_METHOD = os.getenv("PASSWORD_HASH_METHOD", "").strip() or "scrypt"
+DEFAULT_PASSWORD_HASH_METHOD = "scrypt" if hasattr(hashlib, "scrypt") else "pbkdf2:sha256"
+PASSWORD_HASH_METHOD = os.getenv("PASSWORD_HASH_METHOD", "").strip() or DEFAULT_PASSWORD_HASH_METHOD
 SESSION_PERSISTENT_SECONDS = max(86400, int(os.getenv("SESSION_PERSISTENT_SECONDS", "34560000") or "34560000"))
 SESSION_IDLE_TIMEOUT_SECONDS = max(300, int(os.getenv("SESSION_IDLE_TIMEOUT_SECONDS", "3600") or "3600"))
 SESSION_ABSOLUTE_TIMEOUT_SECONDS = max(
@@ -2269,6 +2294,27 @@ def normalize_exercise_text(value: Any) -> str:
     return normalized.strip(" \n\t-")
 
 
+def normalize_exercise_category(value: Any) -> str:
+    normalized = normalize_exercise_text(value)
+    if not normalized:
+        return ""
+    compact = re.sub(r"\s+", " ", normalized).strip().upper()
+    compact_key = re.sub(r"[^A-Z0-9]+", "", compact)
+    if compact in EXERCISE_CATEGORY_ALIASES:
+        return EXERCISE_CATEGORY_ALIASES[compact]
+    for alias, category in EXERCISE_CATEGORY_ALIASES.items():
+        if re.sub(r"[^A-Z0-9]+", "", alias) == compact_key:
+            return category
+    for category in EXERCISE_CATEGORY_OPTIONS:
+        if normalized.lower() == category.lower():
+            return category
+    return ""
+
+
+def is_allowed_exercise_category(value: Any) -> bool:
+    return normalize_exercise_category(value) in EXERCISE_CATEGORY_OPTIONS
+
+
 def extract_pptx_slide_text(slide_root: XmlElementTree.Element) -> List[str]:
     lines: List[str] = []
     for text_node in slide_root.findall(".//a:t", PPTX_XML_NAMESPACES):
@@ -2443,7 +2489,7 @@ def parse_exercises_from_pptx(file_bytes: bytes) -> List[Dict[str, Any]]:
             exercises.append(
                 {
                     "title": title,
-                    "category": current_category,
+                    "category": normalize_exercise_category(current_category),
                     "duration": parsed.get("duration", ""),
                     "trainingExercise": parsed.get("trainingExercise", ""),
                     "description": parsed.get("description", ""),
@@ -2482,7 +2528,7 @@ def load_exercises() -> List[Dict[str, Any]]:
             {
                 "id": int(row["id"]),
                 "title": str(row["title"] or "").strip(),
-                "category": str(row["category"] or "").strip(),
+                "category": normalize_exercise_category(row["category"]),
                 "duration": str(row["duration"] or "").strip(),
                 "trainingExercise": str(row["training_exercise"] or "").strip(),
                 "description": str(row["description"] or "").strip(),
@@ -2539,7 +2585,7 @@ def replace_exercises(exercises: List[Dict[str, Any]]) -> None:
                 )
                 + (
                     normalize_exercise_text(item.get("title")),
-                    normalize_exercise_text(item.get("category")),
+                    normalize_exercise_category(item.get("category")),
                     normalize_exercise_text(item.get("duration")),
                     normalize_exercise_text(item.get("trainingExercise")),
                     normalize_exercise_text(item.get("description")),
@@ -2557,6 +2603,121 @@ def replace_exercises(exercises: List[Dict[str, Any]]) -> None:
                 if normalize_exercise_text(item.get("title"))
             ],
         )
+
+
+def insert_exercises(exercises: List[Dict[str, Any]]) -> int:
+    now = utcnow_iso()
+    with get_db_connection() as connection:
+        exercise_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(exercises)").fetchall()
+        }
+        has_legacy_name = "name" in exercise_columns
+        has_legacy_created_at = "created_at" in exercise_columns
+        insert_columns = [
+            "title",
+            "category",
+            "duration",
+            "training_exercise",
+            "description",
+            "coaching",
+            "variation_easier",
+            "variation_harder",
+            "dimensions",
+            "materials",
+            "field_json",
+            "source_slide",
+            "updated_at",
+        ]
+        if has_legacy_name:
+            insert_columns.insert(0, "name")
+        if has_legacy_created_at:
+            insert_columns.append("created_at")
+
+        placeholders = ", ".join("?" for _ in insert_columns)
+        column_sql = ", ".join(insert_columns)
+        rows = [
+            tuple([normalize_exercise_text(item.get("title"))] if has_legacy_name else [])
+            + (
+                normalize_exercise_text(item.get("title")),
+                normalize_exercise_category(item.get("category")),
+                normalize_exercise_text(item.get("duration")),
+                normalize_exercise_text(item.get("trainingExercise")),
+                normalize_exercise_text(item.get("description")),
+                normalize_exercise_text(item.get("coaching")),
+                normalize_exercise_text(item.get("variationEasier")),
+                normalize_exercise_text(item.get("variationHarder")),
+                normalize_exercise_text(item.get("dimensions")),
+                normalize_exercise_text(item.get("materials")),
+                json.dumps(item.get("field") or {}, ensure_ascii=True),
+                item.get("sourceSlide"),
+                now,
+            )
+            + ((now,) if has_legacy_created_at else ())
+            for item in exercises
+            if normalize_exercise_text(item.get("title"))
+        ]
+        if not rows:
+            return 0
+        connection.executemany(f"INSERT INTO exercises ({column_sql}) VALUES ({placeholders})", rows)
+    return len(rows)
+
+
+def get_exercise_import_preview_path(preview_id: str) -> str:
+    safe_id = re.sub(r"[^a-zA-Z0-9_-]", "", str(preview_id or ""))[:80]
+    if not safe_id:
+        raise ValueError("Ongeldige preview.")
+    return os.path.join(EXERCISE_IMPORT_PREVIEW_DIR, f"{safe_id}.json")
+
+
+def save_exercise_import_preview(exercises: List[Dict[str, Any]]) -> str:
+    os.makedirs(EXERCISE_IMPORT_PREVIEW_DIR, exist_ok=True)
+    preview_id = secrets.token_urlsafe(18)
+    with open(get_exercise_import_preview_path(preview_id), "w", encoding="utf-8") as preview_file:
+        json.dump(exercises, preview_file, ensure_ascii=True)
+    return preview_id
+
+
+def load_exercise_import_preview(preview_id: str) -> List[Dict[str, Any]]:
+    path = get_exercise_import_preview_path(preview_id)
+    with open(path, "r", encoding="utf-8") as preview_file:
+        data = json.load(preview_file)
+    if not isinstance(data, list):
+        raise ValueError("Ongeldige preview.")
+    return [item for item in data if isinstance(item, dict)]
+
+
+def save_existing_exercise_import_preview(preview_id: str, exercises: List[Dict[str, Any]]) -> None:
+    with open(get_exercise_import_preview_path(preview_id), "w", encoding="utf-8") as preview_file:
+        json.dump(exercises, preview_file, ensure_ascii=True)
+
+
+def clear_exercise_import_preview(preview_id: str) -> None:
+    try:
+        os.remove(get_exercise_import_preview_path(preview_id))
+    except OSError:
+        pass
+
+
+def update_exercise_category(exercise_id: Any, category: Any) -> bool:
+    try:
+        normalized_id = int(exercise_id)
+    except (TypeError, ValueError):
+        return False
+    normalized_category = normalize_exercise_category(category)
+    if normalized_category not in EXERCISE_CATEGORY_OPTIONS:
+        return False
+
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE exercises
+            SET category = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (normalized_category, utcnow_iso(), normalized_id),
+        )
+    return cursor.rowcount > 0
 
 
 def load_agenda_trainings(start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -7453,47 +7614,112 @@ def oefeningen_bibliotheek_page() -> str:
     error = request.args.get("error", "").strip()
 
     if request.method == "POST":
-        upload = request.files.get("pptx_file")
-        if upload is None or not upload.filename:
-            return redirect(url_for("oefeningen_bibliotheek_page", error="Kies eerst een PowerPoint-bestand."))
-        if not upload.filename.lower().endswith(".pptx"):
-            return redirect(url_for("oefeningen_bibliotheek_page", error="Upload een .pptx-bestand."))
+        action = request.form.get("action", "preview").strip() or "preview"
+        if action == "preview":
+            upload = request.files.get("pptx_file")
+            if upload is None or not upload.filename:
+                return redirect(url_for("oefeningen_bibliotheek_page", error="Kies eerst een PowerPoint-bestand."))
+            if not upload.filename.lower().endswith(".pptx"):
+                return redirect(url_for("oefeningen_bibliotheek_page", error="Upload een .pptx-bestand."))
 
-        try:
-            file_bytes = upload.read()
-            exercises = parse_exercises_from_pptx(file_bytes)
-        except (zipfile.BadZipFile, XmlElementTree.ParseError, KeyError, ValueError):
-            return redirect(url_for("oefeningen_bibliotheek_page", error="Deze PowerPoint kon niet worden gelezen."))
+            try:
+                file_bytes = upload.read()
+                preview_exercises = parse_exercises_from_pptx(file_bytes)
+                preview_id = save_exercise_import_preview(preview_exercises)
+            except (zipfile.BadZipFile, XmlElementTree.ParseError, KeyError, ValueError, OSError):
+                app.logger.exception("PowerPoint importpreview kon niet worden gemaakt")
+                return redirect(url_for("oefeningen_bibliotheek_page", error="Deze PowerPoint kon niet worden gelezen."))
 
-        if not exercises:
-            return redirect(url_for("oefeningen_bibliotheek_page", error="Geen oefeningen gevonden in deze PowerPoint."))
+            if not preview_exercises:
+                clear_exercise_import_preview(preview_id)
+                return redirect(url_for("oefeningen_bibliotheek_page", error="Geen oefeningen gevonden in deze PowerPoint."))
 
-        replace_exercises(exercises)
-        return redirect(
-            url_for(
-                "oefeningen_bibliotheek_page",
-                success=f"{len(exercises)} oefeningen geimporteerd.",
+            exercises = load_exercises()
+            return render_template(
+                "oefeningen_bibliotheek.html",
+                active_page="oefeningen-bibliotheek",
+                exercises=exercises,
+                categories=list(EXERCISE_CATEGORY_OPTIONS),
+                import_preview=preview_exercises,
+                import_preview_id=preview_id,
+                success=f"{len(preview_exercises)} oefeningen gevonden. Controleer de preview en upload daarna wat je wilt bewaren.",
+                error="",
             )
-        )
+
+        preview_id = request.form.get("preview_id", "").strip()
+        try:
+            preview_exercises = load_exercise_import_preview(preview_id)
+        except (OSError, ValueError, json.JSONDecodeError):
+            return redirect(url_for("oefeningen_bibliotheek_page", error="De importpreview is verlopen. Upload de PowerPoint opnieuw."))
+
+        if action == "import_all":
+            for index, preview_exercise in enumerate(preview_exercises):
+                submitted_category = request.form.get(f"category_{index}", "").strip()
+                if submitted_category:
+                    preview_exercise["category"] = normalize_exercise_category(submitted_category)
+            imported_count = insert_exercises(preview_exercises)
+            clear_exercise_import_preview(preview_id)
+            return redirect(url_for("oefeningen_bibliotheek_page", success=f"{imported_count} oefeningen geupload."))
+
+        if action == "import_one":
+            exercise_index = request.form.get("exercise_index", type=int)
+            if exercise_index is None or exercise_index < 0 or exercise_index >= len(preview_exercises):
+                return redirect(url_for("oefeningen_bibliotheek_page", error="Deze oefening kon niet worden gevonden in de preview."))
+            submitted_category = request.form.get(f"category_{exercise_index}", "").strip()
+            if submitted_category:
+                preview_exercises[exercise_index]["category"] = normalize_exercise_category(submitted_category)
+            imported_count = insert_exercises([preview_exercises[exercise_index]])
+            remaining_preview = [
+                item
+                for index, item in enumerate(preview_exercises)
+                if index != exercise_index
+            ]
+            if remaining_preview:
+                save_existing_exercise_import_preview(preview_id, remaining_preview)
+            else:
+                clear_exercise_import_preview(preview_id)
+            exercises = load_exercises()
+            return render_template(
+                "oefeningen_bibliotheek.html",
+                active_page="oefeningen-bibliotheek",
+                exercises=exercises,
+                categories=list(EXERCISE_CATEGORY_OPTIONS),
+                import_preview=remaining_preview,
+                import_preview_id=preview_id if remaining_preview else "",
+                success="Oefening geupload." if imported_count else "Geen oefening geupload.",
+                error="",
+            )
+
+        return redirect(url_for("oefeningen_bibliotheek_page", error="Onbekende importactie."))
 
     exercises = load_exercises()
-    categories = []
-    seen_categories = set()
-    for exercise in exercises:
-        category = exercise.get("category") or "Zonder categorie"
-        if category in seen_categories:
-            continue
-        seen_categories.add(category)
-        categories.append(category)
-
     return render_template(
         "oefeningen_bibliotheek.html",
         active_page="oefeningen-bibliotheek",
         exercises=exercises,
-        categories=categories,
+        categories=list(EXERCISE_CATEGORY_OPTIONS),
+        import_preview=[],
+        import_preview_id="",
         success=success,
         error=error,
     )
+
+
+@app.post("/api/oefeningen-bibliotheek/category")
+def api_update_exercise_category():
+    access_redirect = require_page_access("oefeningen-bibliotheek")
+    if access_redirect is not None:
+        return access_redirect
+
+    payload = request.get_json(silent=True) or {}
+    exercise_id = payload.get("id")
+    category = payload.get("category")
+    normalized_category = normalize_exercise_category(category)
+    if normalized_category not in EXERCISE_CATEGORY_OPTIONS:
+        return jsonify({"error": "Kies een geldige categorie."}), 400
+    if not update_exercise_category(exercise_id, normalized_category):
+        return jsonify({"error": "Oefening niet gevonden."}), 404
+    return jsonify({"ok": True, "category": normalized_category})
 
 
 @app.route("/taken", methods=["GET", "POST"])
