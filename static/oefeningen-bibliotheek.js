@@ -101,17 +101,11 @@ function syncExerciseTile(exercise) {
   tile.dataset.exerciseCategory = exercise.category || "";
   const categoryNode = tile.querySelector(".exercise-tile-category");
   const titleNode = tile.querySelector(".exercise-tile-title");
-  const metaNode = tile.querySelector(".exercise-tile-meta");
   if (categoryNode) {
     categoryNode.textContent = exercise.category || "Geen categorie";
   }
   if (titleNode) {
     titleNode.textContent = exercise.title || "Oefening";
-  }
-  if (metaNode) {
-    const duration = exercise.duration || "Oefening";
-    const slide = exercise.sourceSlide ? ` · slide ${exercise.sourceSlide}` : "";
-    metaNode.textContent = `${duration}${slide}`;
   }
   applyExerciseFilter(activeFilter);
 }
@@ -124,26 +118,20 @@ function createSvgNode(tagName, attributes = {}) {
   return node;
 }
 
-function drawField(field) {
-  if (!exerciseField) {
-    return;
-  }
-
+function createFieldSvg(field, label = "Veldtekening") {
   const viewBox = Array.isArray(field?.viewBox) && field.viewBox.length === 4
     ? field.viewBox.map((value) => Number(value) || 0)
     : [0, 0, 100, 100];
   const elements = Array.isArray(field?.elements) ? field.elements : [];
 
   if (!elements.length) {
-    exerciseField.innerHTML = '<div class="exercise-field-empty">Geen veldtekening beschikbaar</div>';
-    return;
+    return null;
   }
 
-  exerciseField.replaceChildren();
   const svg = createSvgNode("svg", {
     viewBox: viewBox.join(" "),
     role: "img",
-    "aria-label": "Veldtekening",
+    "aria-label": label,
     preserveAspectRatio: "xMidYMid meet",
   });
   svg.appendChild(createSvgNode("rect", {
@@ -204,7 +192,33 @@ function drawField(field) {
     svg.appendChild(node);
   });
 
-  exerciseField.appendChild(svg);
+  return svg;
+}
+
+function drawField(field) {
+  if (!exerciseField) {
+    return;
+  }
+
+  const svg = createFieldSvg(field, "Veldtekening");
+  if (!svg) {
+    exerciseField.innerHTML = '<div class="exercise-field-empty">Geen veldtekening beschikbaar</div>';
+    return;
+  }
+  exerciseField.replaceChildren(svg);
+}
+
+function renderTilePreview(exercise) {
+  const preview = document.querySelector(`[data-exercise-preview="${exercise.id}"]`);
+  if (!preview) {
+    return;
+  }
+  const svg = createFieldSvg(exercise.field, `Veldtekening ${exercise.title || ""}`.trim());
+  if (!svg) {
+    preview.innerHTML = '<span class="exercise-tile-preview-empty">Geen veldtekening</span>';
+    return;
+  }
+  preview.replaceChildren(svg);
 }
 
 function setModalOpen(isOpen) {
@@ -411,6 +425,7 @@ async function deleteActiveExercise() {
 
 parseExerciseData().forEach((exercise) => {
   exerciseById.set(String(exercise.id), exercise);
+  renderTilePreview(exercise);
 });
 
 document.querySelectorAll("[data-exercise-filter]").forEach((button) => {

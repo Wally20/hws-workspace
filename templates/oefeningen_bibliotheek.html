@@ -124,11 +124,10 @@
             data-exercise-id="{{ exercise.id }}"
             data-exercise-category="{{ exercise.category }}"
           >
-            <span class="exercise-tile-category">{{ exercise.category or "Geen categorie" }}</span>
-            <span class="exercise-tile-title">{{ exercise.title }}</span>
-            <span class="exercise-tile-meta">
-              {% if exercise.duration %}{{ exercise.duration }}{% else %}Oefening{% endif %}
-              {% if exercise.sourceSlide %} · slide {{ exercise.sourceSlide }}{% endif %}
+            <span class="exercise-tile-preview" data-exercise-preview="{{ exercise.id }}"></span>
+            <span class="exercise-tile-copy">
+              <span class="exercise-tile-title">{{ exercise.title }}</span>
+              <span class="exercise-tile-category">{{ exercise.category or "Geen categorie" }}</span>
             </span>
           </button>
         {% endfor %}
