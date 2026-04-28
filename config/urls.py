@@ -58,6 +58,11 @@ urlpatterns = [
     path("api/dashboard-summary", views.api_dashboard_summary, name="api_dashboard_summary"),
     path("api/products/search", views.api_product_search, name="api_product_search"),
     path("api/products/registration-count", views.api_product_registration_count, name="api_product_registration_count"),
+    path(
+        "api/voetbaldagen/registration-counts",
+        views.api_football_days_registration_counts,
+        name="api_football_days_registration_counts",
+    ),
     path("api/dashboard-events", views.api_dashboard_events, name="api_dashboard_events"),
     path(
         "api/registrations/email-status",

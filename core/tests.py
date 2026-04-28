@@ -204,6 +204,10 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         content = response.content.decode("utf-8")
         self.assertIn("Nieuw draaiboek", content)
         self.assertIn('action="/voetbaldagen/nieuw"', content)
+        self.assertIn('id="footballProgramImageImport"', content)
+        self.assertIn("Importeer afbeelding", content)
+        self.assertIn('id="footballProgramImportModal"', content)
+        self.assertIn('id="confirmFootballProgramImport"', content)
 
     def test_football_days_new_page_saves_and_redirects_to_created_playbook(self):
         response = self.build_authenticated_client().post(
@@ -237,7 +241,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(created_playbook["contingencies"], "Regenplan klaarzetten.")
         self.assertEqual(
             created_playbook["staff"],
-            [{"name": "Test Trainer", "role": "Trainer", "dayTask": "", "setupTask": "Veld 1 uitzetten"}],
+            [{"name": "Test Trainer", "role": "Trainer", "setupTask": "Veld 1 uitzetten"}],
         )
         self.assertEqual(
             created_playbook["program"],
@@ -272,6 +276,60 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         content = response.content.decode("utf-8")
         self.assertIn('value="Meivakantie Camp"', content)
         self.assertIn('id="footballRegistrationCount">5</strong>', content)
+
+    def test_football_days_overview_defers_registration_count_fetch(self):
+        legacy.save_football_days_playbook(
+            {
+                "title": "Test draaiboek snel overzicht",
+                "eventDate": "2026-05-01",
+                "location": "Sportpark HWS",
+                "ecwidProductId": "101",
+                "ecwidProductName": "Meivakantie Camp",
+                "ecwidProductSku": "MVC-1",
+                "staff": [],
+                "program": [],
+                "contingencies": "",
+            }
+        )
+
+        with patch.object(legacy, "fetch_ecwid_orders") as mocked_fetch_orders:
+            response = self.build_authenticated_client().get("/voetbaldagen", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        mocked_fetch_orders.assert_not_called()
+        content = response.content.decode("utf-8")
+        self.assertIn("voetbaldagen-overview.js", content)
+        self.assertIn("data-football-registration-count", content)
+
+    def test_football_days_registration_counts_api_batches_products(self):
+        playbook_id = legacy.save_football_days_playbook(
+            {
+                "title": "Test draaiboek batch telling",
+                "eventDate": "2026-05-01",
+                "location": "Sportpark HWS",
+                "ecwidProductId": "101",
+                "ecwidProductName": "Meivakantie Camp",
+                "ecwidProductSku": "MVC-1",
+                "staff": [],
+                "program": [],
+                "contingencies": "",
+            }
+        )
+        orders_payload = {
+            "items": [
+                {"items": [{"productId": 101, "quantity": 2}]},
+                {"items": [{"productId": 101, "quantity": 3}]},
+            ]
+        }
+
+        with patch.object(legacy, "fetch_ecwid_orders", return_value=orders_payload):
+            response = self.build_authenticated_client().get(
+                f"/api/voetbaldagen/registration-counts?playbook_ids={playbook_id}",
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["counts"][str(playbook_id)], 5)
 
     def test_registrations_page_only_loads_products_for_overview(self):
         catalog_payload = {

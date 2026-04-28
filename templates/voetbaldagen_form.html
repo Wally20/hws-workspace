@@ -104,8 +104,15 @@
           <div>
             <p class="panel-title">Programma</p>
           </div>
-          <button type="button" class="subtle-button action-small" id="addFootballProgramRow">+ Activiteit</button>
+          <div class="football-program-actions">
+            <label class="subtle-button action-small football-image-import">
+              Importeer afbeelding
+              <input type="file" id="footballProgramImageImport" accept="image/*">
+            </label>
+            <button type="button" class="subtle-button action-small" id="addFootballProgramRow">+ Activiteit</button>
+          </div>
         </div>
+        <p class="football-import-feedback" id="footballProgramImportFeedback" hidden></p>
         <label class="field football-reuse-field">
           <span>Terughalen uit vorig draaiboek</span>
           <select data-reuse-playbook="program">
@@ -181,6 +188,26 @@
       <button type="button" class="subtle-button action-small football-row-remove" data-remove-football-row aria-label="Verwijder activiteit">Wis</button>
     </div>
   </template>
+
+  <div class="agenda-modal football-import-modal" id="footballProgramImportModal" hidden>
+    <div class="agenda-modal-backdrop" data-close-football-program-import></div>
+    <section class="agenda-modal-dialog football-import-dialog" role="dialog" aria-modal="true" aria-labelledby="footballProgramImportTitle">
+      <div class="agenda-modal-header">
+        <div>
+          <h2 id="footballProgramImportTitle">Programma preview</h2>
+        </div>
+        <button type="button" class="team-modal-close" data-close-football-program-import aria-label="Sluiten">×</button>
+      </div>
+      <div class="football-import-preview-list" id="footballProgramImportPreviewRows"></div>
+      <div class="football-import-preview-actions">
+        <button type="button" class="subtle-button action-small" id="addFootballImportPreviewRow">+ Regel</button>
+        <div class="football-import-preview-confirm">
+          <button type="button" class="subtle-button" data-close-football-program-import>Annuleren</button>
+          <button type="button" class="subtle-button subtle-button-strong" id="confirmFootballProgramImport">Importeer programma</button>
+        </div>
+      </div>
+    </section>
+  </div>
 
   <script type="application/json" id="footballPreviousPlaybooks">{{ previous_playbooks|tojson }}</script>
   <script nonce="{{ csp_nonce }}" src="../static/voetbaldagen.js?v={{ asset_version }}" defer></script>

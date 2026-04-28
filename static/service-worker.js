@@ -4,6 +4,7 @@ const APP_SHELL = [
   "/static/styles.css",
   "/static/base.js",
   "/static/voetbaldagen.js",
+  "/static/voetbaldagen-overview.js",
   "/static/oefeningen-bibliotheek.js",
   "/static/assets/hws-logo.png",
   "/static/manifest.webmanifest",

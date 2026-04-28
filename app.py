@@ -3718,10 +3718,9 @@ def normalize_football_days_playbook(row: Optional[sqlite3.Row]) -> Dict[str, An
             continue
         name = str(item.get("name") or "").strip()
         role = str(item.get("role") or "").strip()
-        day_task = str(item.get("dayTask") or item.get("task") or "").strip()
         setup_task = str(item.get("setupTask") or "").strip()
-        if name or role or day_task or setup_task:
-            normalized_staff.append({"name": name, "role": role, "dayTask": day_task, "setupTask": setup_task})
+        if name or role or setup_task:
+            normalized_staff.append({"name": name, "role": role, "setupTask": setup_task})
 
     return {
         "id": int(row["id"]),
@@ -3769,7 +3768,7 @@ def load_football_days_playbook(playbook_id: int) -> Optional[Dict[str, Any]]:
 
 def create_empty_football_days_playbook() -> Dict[str, Any]:
     playbook = normalize_football_days_playbook(None)
-    playbook["staff"] = [{"name": "", "role": "", "dayTask": "", "setupTask": ""}]
+    playbook["staff"] = [{"name": "", "role": "", "setupTask": ""}]
     playbook["program"] = [{"startTime": "", "endTime": "", "activity": "", "icon": "clock"}]
     return playbook
 
@@ -3810,7 +3809,44 @@ def count_ecwid_product_registrations(
     return registration_count
 
 
-def attach_football_days_registration_counts(playbooks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def get_cached_ecwid_orders_payload() -> Optional[Dict[str, Any]]:
+    config_fingerprint = get_external_cache_fingerprint()
+    with ecwid_orders_cache_lock:
+        cached_payload = ecwid_orders_cache.get("payload")
+        cached_at = float(ecwid_orders_cache.get("cached_at") or 0.0)
+        cached_fingerprint = ecwid_orders_cache.get("config_fingerprint")
+
+    if cached_payload is None or cached_fingerprint != config_fingerprint:
+        return None
+
+    payload = dict(cached_payload)
+    payload["cachedAt"] = cached_at
+    return payload
+
+
+def build_football_days_registration_counts(
+    playbooks: List[Dict[str, Any]],
+    orders: List[Dict[str, Any]],
+) -> Dict[int, int]:
+    counts: Dict[int, int] = {}
+    for playbook in playbooks:
+        playbook_id = int(playbook.get("id") or 0)
+        if not playbook_id:
+            continue
+        counts[playbook_id] = count_ecwid_product_registrations(
+            orders,
+            str(playbook.get("ecwidProductId") or "").strip(),
+            str(playbook.get("ecwidProductName") or "").strip(),
+            str(playbook.get("ecwidProductSku") or "").strip(),
+        )
+    return counts
+
+
+def attach_football_days_registration_counts(
+    playbooks: List[Dict[str, Any]],
+    *,
+    cached_only: bool = False,
+) -> List[Dict[str, Any]]:
     product_ids = {
         str(playbook.get("ecwidProductId") or "").strip()
         for playbook in playbooks
@@ -3820,28 +3856,16 @@ def attach_football_days_registration_counts(playbooks: List[Dict[str, Any]]) ->
         return playbooks
 
     try:
-        orders_payload = fetch_ecwid_orders()
+        orders_payload = get_cached_ecwid_orders_payload() if cached_only else fetch_ecwid_orders()
     except requests.RequestException:
         return playbooks
+    if orders_payload is None:
+        return playbooks
     orders = orders_payload.get("items", [])
-    playbooks_by_product_id = {
-        str(playbook.get("ecwidProductId") or "").strip(): playbook
-        for playbook in playbooks
-        if str(playbook.get("ecwidProductId") or "").strip()
-    }
-    counts = {
-        product_id: count_ecwid_product_registrations(
-            orders,
-            product_id,
-            playbooks_by_product_id.get(product_id, {}).get("ecwidProductName", ""),
-            playbooks_by_product_id.get(product_id, {}).get("ecwidProductSku", ""),
-        )
-        for product_id in product_ids
-    }
+    counts = build_football_days_registration_counts(playbooks, orders)
 
     for playbook in playbooks:
-        product_id = str(playbook.get("ecwidProductId") or "").strip()
-        playbook["registrationCount"] = counts.get(product_id, 0)
+        playbook["registrationCount"] = counts.get(int(playbook.get("id") or 0), 0)
     return playbooks
 
 
@@ -3895,7 +3919,6 @@ def save_football_days_playbook(playbook: Dict[str, Any], playbook_id: Optional[
 def build_football_days_playbook_from_form() -> Dict[str, Any]:
     staff_names = request.form.getlist("staff_name")
     staff_roles = request.form.getlist("staff_role")
-    staff_day_tasks = request.form.getlist("staff_day_task") or request.form.getlist("staff_task")
     staff_setup_tasks = request.form.getlist("staff_setup_task")
     program_starts = request.form.getlist("program_start")
     program_ends = request.form.getlist("program_end")
@@ -3904,15 +3927,13 @@ def build_football_days_playbook_from_form() -> Dict[str, Any]:
     staff = []
     for index, name in enumerate(staff_names):
         role = staff_roles[index] if index < len(staff_roles) else ""
-        day_task = staff_day_tasks[index] if index < len(staff_day_tasks) else ""
         setup_task = staff_setup_tasks[index] if index < len(staff_setup_tasks) else ""
         row = {
             "name": str(name or "").strip(),
             "role": str(role or "").strip(),
-            "dayTask": str(day_task or "").strip(),
             "setupTask": str(setup_task or "").strip(),
         }
-        if row["name"] or row["role"] or row["dayTask"] or row["setupTask"]:
+        if row["name"] or row["role"] or row["setupTask"]:
             staff.append(row)
 
     program = []
@@ -8765,7 +8786,7 @@ def football_days_page() -> str:
     return render_template(
         "voetbaldagen.html",
         active_page="voetbaldagen",
-        playbooks=attach_football_days_registration_counts(load_football_days_playbooks()),
+        playbooks=attach_football_days_registration_counts(load_football_days_playbooks(), cached_only=True),
         success=request.args.get("success", "").strip(),
     )
 
@@ -8786,7 +8807,7 @@ def football_days_new_page() -> str:
         "voetbaldagen_form.html",
         active_page="voetbaldagen",
         playbook=playbook,
-        previous_playbooks=attach_football_days_registration_counts(load_football_days_playbooks()),
+        previous_playbooks=attach_football_days_registration_counts(load_football_days_playbooks(), cached_only=True),
         form_action=url_for("football_days_new_page"),
         page_mode="new",
         success=request.args.get("success", "").strip(),
@@ -8808,7 +8829,7 @@ def football_days_edit_page(playbook_id: int) -> str:
         return redirect(url_for("football_days_edit_page", playbook_id=playbook_id, success="Draaiboek opgeslagen."))
 
     if not playbook["staff"]:
-        playbook["staff"] = [{"name": "", "role": "", "dayTask": "", "setupTask": ""}]
+        playbook["staff"] = [{"name": "", "role": "", "setupTask": ""}]
     if not playbook["program"]:
         playbook["program"] = [{"startTime": "", "endTime": "", "activity": "", "icon": "clock"}]
     attach_football_days_registration_counts([playbook])
@@ -8818,7 +8839,8 @@ def football_days_edit_page(playbook_id: int) -> str:
         active_page="voetbaldagen",
         playbook=playbook,
         previous_playbooks=attach_football_days_registration_counts(
-            [item for item in load_football_days_playbooks() if item["id"] != playbook_id]
+            [item for item in load_football_days_playbooks() if item["id"] != playbook_id],
+            cached_only=True,
         ),
         form_action=url_for("football_days_edit_page", playbook_id=playbook_id),
         page_mode="edit",
@@ -9291,6 +9313,36 @@ def api_product_registration_count():
                     product_name,
                     product_sku,
                 ),
+            }
+        )
+    except requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else 502
+        return jsonify({"error": "Aanmeldingen ophalen mislukt"}), status_code
+    except requests.RequestException:
+        return jsonify({"error": "Netwerkfout bij aanmeldingen"}), 502
+
+
+@app.get("/api/voetbaldagen/registration-counts")
+def api_football_days_registration_counts():
+    access_redirect = require_page_access("voetbaldagen")
+    if access_redirect is not None:
+        return access_redirect
+
+    requested_ids = {
+        int(item)
+        for item in re.split(r"[, ]+", request.args.get("playbook_ids", "").strip())
+        if item.isdigit()
+    }
+    playbooks = load_football_days_playbooks()
+    if requested_ids:
+        playbooks = [playbook for playbook in playbooks if int(playbook.get("id") or 0) in requested_ids]
+
+    try:
+        orders_payload = fetch_ecwid_orders()
+        return jsonify(
+            {
+                "counts": build_football_days_registration_counts(playbooks, orders_payload.get("items", [])),
+                "cachedAt": orders_payload.get("cachedAt", 0.0),
             }
         )
     except requests.HTTPError as exc:

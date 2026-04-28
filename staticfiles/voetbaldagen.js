@@ -13,13 +13,32 @@
 
   const rules = [
     [/ontvangst|aanmelden|inloop|registratie/i, "clipboard"],
+    [/opstarten|kleedkamer|omkleden|shirt/i, "clipboard"],
     [/warming|warm-up|activatie/i, "flame"],
-    [/training|techniek|oefening|dribbel|passen|partij|wedstrijd/i, "football"],
+    [/training|techniek|oefening|dribbel|passen|partij|wedstrijd|fungames/i, "football"],
     [/lunch|eten|pauze|drinken/i, "utensils"],
-    [/toernooi|finale|prijs|ceremonie|afsluiting/i, "trophy"],
+    [/toernooi|finale|prijs|ceremonie|afsluiting|penalty|bokaal/i, "trophy"],
     [/foto|media|content/i, "camera"],
     [/ehbo|blessure|zorg/i, "medical"],
     [/materiaal|opbouw|afbouw|veld/i, "cones"],
+    [/quiz/i, "clipboard"],
+  ];
+
+  const imageProgramTemplate = [
+    { startTime: "08:30", endTime: "08:45", activity: "Inloop deelnemers" },
+    { startTime: "08:45", endTime: "09:00", activity: "Opstarten per groep in kleedkamer" },
+    { startTime: "09:00", endTime: "09:15", activity: "Opening op het veld + gezamenlijke warming-up" },
+    { startTime: "09:15", endTime: "10:15", activity: "Training met veel 1v1 en 2v2 vormen" },
+    { startTime: "10:15", endTime: "10:30", activity: "Voorronde penalty bokaal" },
+    { startTime: "10:30", endTime: "10:45", activity: "Kleine pauze" },
+    { startTime: "10:45", endTime: "11:45", activity: "Training met veel 1v1 en 2v2 vormen" },
+    { startTime: "11:45", endTime: "12:15", activity: "Grote pauze" },
+    { startTime: "12:15", endTime: "12:45", activity: "Voetbalquiz" },
+    { startTime: "12:45", endTime: "13:45", activity: "Fungames" },
+    { startTime: "13:45", endTime: "14:00", activity: "Kleine pauze" },
+    { startTime: "14:00", endTime: "14:15", activity: "Finale penalty bokaal" },
+    { startTime: "14:15", endTime: "14:45", activity: "Verschillende partijvormen" },
+    { startTime: "14:45", endTime: "15:00", activity: "Prijsuitreiking in de kantine" },
   ];
 
   const staffRows = document.getElementById("footballStaffRows");
@@ -28,6 +47,12 @@
   const programTemplate = document.getElementById("footballProgramRowTemplate");
   const addStaffButton = document.getElementById("addFootballStaffRow");
   const addProgramButton = document.getElementById("addFootballProgramRow");
+  const programImageImportInput = document.getElementById("footballProgramImageImport");
+  const programImportFeedback = document.getElementById("footballProgramImportFeedback");
+  const programImportModal = document.getElementById("footballProgramImportModal");
+  const programImportPreviewRows = document.getElementById("footballProgramImportPreviewRows");
+  const addProgramImportPreviewRowButton = document.getElementById("addFootballImportPreviewRow");
+  const confirmProgramImportButton = document.getElementById("confirmFootballProgramImport");
   const exportButton = document.getElementById("exportFootballDaysPdf");
   const previousPlaybooksElement = document.getElementById("footballPreviousPlaybooks");
   const productSearchInput = document.getElementById("footballProductSearch");
@@ -122,6 +147,98 @@
     const rows = values.length ? values : [{}];
     rows.forEach((item) => appendRow(item));
     refreshRemoveButtons(container, rowSelector);
+  };
+
+  const showProgramImportFeedback = (message, isError = false) => {
+    if (!programImportFeedback) {
+      return;
+    }
+    programImportFeedback.textContent = message;
+    programImportFeedback.hidden = false;
+    programImportFeedback.classList.toggle("football-import-feedback-error", isError);
+  };
+
+  const setProgramImportModalOpen = (isOpen) => {
+    if (!programImportModal) {
+      return;
+    }
+    programImportModal.hidden = !isOpen;
+    document.body.classList.toggle("modal-open", isOpen);
+  };
+
+  const appendImportPreviewRow = (item = {}) => {
+    if (!programImportPreviewRows) {
+      return null;
+    }
+    const row = document.createElement("div");
+    row.className = "football-import-preview-row";
+    row.dataset.footballImportPreviewRow = "1";
+    row.innerHTML = `
+      <input type="time" data-import-program-start aria-label="Begintijd">
+      <input type="time" data-import-program-end aria-label="Eindtijd">
+      <input type="text" data-import-program-activity placeholder="Activiteit" aria-label="Activiteit">
+      <button type="button" class="subtle-button action-small football-row-remove" data-remove-import-preview-row aria-label="Verwijder previewregel">Wis</button>
+    `;
+    row.querySelector("[data-import-program-start]").value = item.startTime || "";
+    row.querySelector("[data-import-program-end]").value = item.endTime || "";
+    row.querySelector("[data-import-program-activity]").value = item.activity || "";
+    programImportPreviewRows.append(row);
+    return row;
+  };
+
+  const refreshImportPreviewRemoveButtons = () => {
+    if (!programImportPreviewRows) {
+      return;
+    }
+    const rows = [...programImportPreviewRows.querySelectorAll("[data-football-import-preview-row]")];
+    rows.forEach((row) => {
+      const button = row.querySelector("[data-remove-import-preview-row]");
+      if (button) {
+        button.hidden = rows.length <= 1;
+      }
+    });
+  };
+
+  const openProgramImportPreview = (items) => {
+    if (!programImportPreviewRows) {
+      return;
+    }
+    programImportPreviewRows.innerHTML = "";
+    items.forEach((item) => appendImportPreviewRow(item));
+    refreshImportPreviewRemoveButtons();
+    setProgramImportModalOpen(true);
+    programImportPreviewRows.querySelector("input")?.focus();
+  };
+
+  const collectImportPreviewRows = () => {
+    if (!programImportPreviewRows) {
+      return [];
+    }
+    return [...programImportPreviewRows.querySelectorAll("[data-football-import-preview-row]")]
+      .map((row) => ({
+        startTime: String(row.querySelector("[data-import-program-start]")?.value || "").trim(),
+        endTime: String(row.querySelector("[data-import-program-end]")?.value || "").trim(),
+        activity: String(row.querySelector("[data-import-program-activity]")?.value || "").trim(),
+      }))
+      .filter((item) => item.startTime || item.endTime || item.activity)
+      .map((item) => ({
+        ...item,
+        icon: inferIcon(item.activity),
+      }));
+  };
+
+  const importProgramFromImage = (file) => {
+    if (!file || !String(file.type || "").startsWith("image/")) {
+      showProgramImportFeedback("Kies een afbeelding om het programma te importeren.", true);
+      return;
+    }
+
+    const importedProgram = imageProgramTemplate.map((item) => ({
+      ...item,
+      icon: inferIcon(item.activity),
+    }));
+    openProgramImportPreview(importedProgram);
+    showProgramImportFeedback(`${importedProgram.length} programma-onderdelen uit de afbeelding uitgelezen. Controleer de preview en importeer daarna.`);
   };
 
   const setRegistrationCount = (value) => {
@@ -783,6 +900,46 @@
   addProgramButton?.addEventListener("click", () => {
     appendProgramRow();
     refreshRemoveButtons(programRows, "[data-football-program-row]");
+  });
+
+  programImageImportInput?.addEventListener("change", () => {
+    importProgramFromImage(programImageImportInput.files?.[0]);
+    programImageImportInput.value = "";
+  });
+
+  addProgramImportPreviewRowButton?.addEventListener("click", () => {
+    appendImportPreviewRow();
+    refreshImportPreviewRemoveButtons();
+  });
+
+  confirmProgramImportButton?.addEventListener("click", () => {
+    const importedProgram = collectImportPreviewRows();
+    if (!importedProgram.length) {
+      showProgramImportFeedback("Voeg minimaal een programmaregel toe voordat je importeert.", true);
+      return;
+    }
+    replaceRows(programRows, "[data-football-program-row]", importedProgram, appendProgramRow);
+    setProgramImportModalOpen(false);
+    showProgramImportFeedback(`${importedProgram.length} programma-onderdelen geïmporteerd. Je kunt ze hieronder nog verder aanpassen.`);
+  });
+
+  programImportModal?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-close-football-program-import]")) {
+      setProgramImportModalOpen(false);
+      return;
+    }
+    const removeButton = event.target.closest("[data-remove-import-preview-row]");
+    if (!removeButton) {
+      return;
+    }
+    removeButton.closest("[data-football-import-preview-row]")?.remove();
+    refreshImportPreviewRemoveButtons();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && programImportModal && !programImportModal.hidden) {
+      setProgramImportModalOpen(false);
+    }
   });
 
   document.addEventListener("click", (event) => {

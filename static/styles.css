@@ -1393,6 +1393,81 @@ textarea:focus {
   padding: 0 10px;
 }
 
+.football-program-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.football-image-import {
+  position: relative;
+  cursor: pointer;
+}
+
+.football-image-import input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.football-import-feedback {
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.football-import-feedback-error {
+  color: #9f2f2f;
+}
+
+.football-import-dialog {
+  width: min(920px, calc(100vw - 32px));
+}
+
+.football-import-preview-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(58vh, 560px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.football-import-preview-row {
+  display: grid;
+  grid-template-columns: 112px 112px minmax(220px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.football-import-preview-row input {
+  min-height: 38px;
+  border-radius: 10px;
+}
+
+.football-import-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 14px;
+}
+
+.football-import-preview-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .football-contingency-field textarea {
   min-height: 180px;
   line-height: 1.55;
@@ -2639,25 +2714,25 @@ textarea:focus {
 }
 
 .login-background-slide-1 {
-  background-image: url("../static/assets/HWS20-03-2026-4.jpg"), url("../static/assets/HWS20-03-2026-4.jpg");
+  background-image: url("../static/assets/login/HWS20-03-2026-4.jpg"), url("../static/assets/login/HWS20-03-2026-4.jpg");
   background-position: center 42%;
   animation-delay: 0s;
 }
 
 .login-background-slide-2 {
-  background-image: url("../static/assets/HWS20-03-2026-13.jpg"), url("../static/assets/HWS20-03-2026-13.jpg");
+  background-image: url("../static/assets/login/HWS20-03-2026-13.jpg"), url("../static/assets/login/HWS20-03-2026-13.jpg");
   background-position: center 32%;
   animation-delay: 5s;
 }
 
 .login-background-slide-3 {
-  background-image: url("../static/assets/HWS20-03-2026-27.jpg"), url("../static/assets/HWS20-03-2026-27.jpg");
+  background-image: url("../static/assets/login/HWS20-03-2026-27.jpg"), url("../static/assets/login/HWS20-03-2026-27.jpg");
   background-position: center 44%;
   animation-delay: 10s;
 }
 
 .login-background-slide-4 {
-  background-image: url("../static/assets/HWS20-03-2026-31.jpg"), url("../static/assets/HWS20-03-2026-31.jpg");
+  background-image: url("../static/assets/login/HWS20-03-2026-31.jpg"), url("../static/assets/login/HWS20-03-2026-31.jpg");
   background-position: center 36%;
   animation-delay: 15s;
 }
@@ -2974,6 +3049,15 @@ textarea:focus {
     min-width: 430px;
   }
 
+  .football-import-preview-row {
+    grid-template-columns: 82px 82px minmax(150px, 1fr) 50px;
+    min-width: 430px;
+  }
+
+  .football-import-preview-list {
+    overflow-x: auto;
+  }
+
   .football-days-header,
   .football-days-actions,
   .football-days-save {
@@ -2981,7 +3065,8 @@ textarea:focus {
   }
 
   .football-days-actions,
-  .football-days-save {
+  .football-days-save,
+  .football-program-actions {
     justify-content: flex-start;
   }
 
