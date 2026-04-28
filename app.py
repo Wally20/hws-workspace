@@ -11,6 +11,7 @@ import secrets
 import hashlib
 import hmac
 import html
+import base64
 import mimetypes
 import unicodedata
 import zipfile
@@ -45,6 +46,9 @@ PPTX_XML_NAMESPACES = {
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
 }
 DOCX_XML_NAMESPACES = {
+    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
     "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
 }
 PPTX_SLIDE_WIDTH = 12192000
@@ -2551,12 +2555,63 @@ def extract_docx_table_lines(table: XmlElementTree.Element) -> List[str]:
     return lines
 
 
+def extract_docx_relationship_targets(archive: zipfile.ZipFile) -> Dict[str, str]:
+    try:
+        relationships_root = XmlElementTree.fromstring(archive.read("word/_rels/document.xml.rels"))
+    except KeyError:
+        return {}
+
+    targets: Dict[str, str] = {}
+    for relationship in relationships_root.findall("rel:Relationship", DOCX_XML_NAMESPACES):
+        relationship_id = str(relationship.get("Id") or "").strip()
+        relationship_type = str(relationship.get("Type") or "")
+        target = str(relationship.get("Target") or "").strip()
+        if not relationship_id or "/image" not in relationship_type or not target:
+            continue
+        targets[relationship_id] = target if target.startswith("word/") else f"word/{target}"
+    return targets
+
+
+def extract_docx_table_image_data_url(
+    archive: zipfile.ZipFile,
+    table: XmlElementTree.Element,
+    relationship_targets: Dict[str, str],
+) -> str:
+    image_names: List[str] = []
+    for blip in table.findall(".//a:blip", DOCX_XML_NAMESPACES):
+        relationship_id = str(blip.get(f"{{{DOCX_XML_NAMESPACES['r']}}}embed") or "").strip()
+        target = relationship_targets.get(relationship_id, "")
+        if target:
+            image_names.append(target)
+    if not image_names:
+        return ""
+
+    best_name = ""
+    best_size = -1
+    for image_name in image_names:
+        try:
+            size = archive.getinfo(image_name).file_size
+        except KeyError:
+            continue
+        if size > best_size:
+            best_name = image_name
+            best_size = size
+    if not best_name:
+        return ""
+
+    image_bytes = archive.read(best_name)
+    content_type = mimetypes.guess_type(best_name)[0] or "image/png"
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+    return f"data:{content_type};base64,{encoded}"
+
+
 def parse_exercises_from_docx(file_bytes: bytes) -> List[Dict[str, Any]]:
     exercises: List[Dict[str, Any]] = []
     current_category = ""
     pending_title = ""
 
     with zipfile.ZipFile(BytesIO(file_bytes)) as archive:
+        relationship_targets = extract_docx_relationship_targets(archive)
         document_root = XmlElementTree.fromstring(archive.read("word/document.xml"))
         body = document_root.find("w:body", DOCX_XML_NAMESPACES)
         if body is None:
@@ -2584,6 +2639,7 @@ def parse_exercises_from_docx(file_bytes: bytes) -> List[Dict[str, Any]]:
             if not title:
                 continue
 
+            image_data_url = extract_docx_table_image_data_url(archive, child, relationship_targets)
             description = parsed.get("description", "")
             special_rules = parsed.get("specialRules", "")
             if special_rules:
@@ -2597,7 +2653,6 @@ def parse_exercises_from_docx(file_bytes: bytes) -> List[Dict[str, Any]]:
                 {
                     "title": title,
                     "category": normalize_exercise_category(current_category),
-                    "duration": parsed.get("duration", ""),
                     "trainingExercise": parsed.get("trainingExercise", ""),
                     "description": description,
                     "coaching": parsed.get("coaching", ""),
@@ -2605,7 +2660,11 @@ def parse_exercises_from_docx(file_bytes: bytes) -> List[Dict[str, Any]]:
                     "variationHarder": parsed.get("variationHarder", ""),
                     "dimensions": parsed.get("dimensions", ""),
                     "materials": parsed.get("materials", ""),
-                    "field": {"viewBox": [0, 0, PPTX_SLIDE_WIDTH, PPTX_SLIDE_HEIGHT], "elements": []},
+                    "field": (
+                        {"imageDataUrl": image_data_url}
+                        if image_data_url
+                        else {"viewBox": [0, 0, PPTX_SLIDE_WIDTH, PPTX_SLIDE_HEIGHT], "elements": []}
+                    ),
                     "sourceSlide": None,
                     "sourceLabel": f"Word #{len(exercises) + 1}",
                 }
@@ -2794,7 +2853,6 @@ def parse_exercises_from_pptx(file_bytes: bytes) -> List[Dict[str, Any]]:
                 {
                     "title": title,
                     "category": normalize_exercise_category(current_category),
-                    "duration": parsed.get("duration", ""),
                     "trainingExercise": parsed.get("trainingExercise", ""),
                     "description": parsed.get("description", ""),
                     "coaching": parsed.get("coaching", ""),
@@ -2815,7 +2873,7 @@ def load_exercises() -> List[Dict[str, Any]]:
         with get_db_connection() as connection:
             rows = connection.execute(
                 """
-                SELECT id, title, category, duration, training_exercise, description, coaching,
+                SELECT id, title, category, training_exercise, description, coaching,
                        variation_easier, variation_harder, dimensions, materials, field_json,
                        source_slide, updated_at
                 FROM exercises
@@ -2834,7 +2892,6 @@ def load_exercises() -> List[Dict[str, Any]]:
                     "id": int(row["id"]),
                     "title": str(row["title"] or "").strip(),
                     "category": normalize_exercise_category(row["category"]),
-                    "duration": str(row["duration"] or "").strip(),
                     "trainingExercise": str(row["training_exercise"] or "").strip(),
                     "description": str(row["description"] or "").strip(),
                     "coaching": str(row["coaching"] or "").strip(),
@@ -2869,6 +2926,12 @@ def safe_svg_color(value: Any, default: str = "#111111") -> str:
 def render_exercise_field_svg(field: Any, label: str = "Veldtekening") -> str:
     if not isinstance(field, dict):
         return ""
+    image_data_url = str(field.get("imageDataUrl") or "").strip()
+    if image_data_url.startswith("data:image/"):
+        label_text = html.escape(str(label or "Veldtekening"), quote=True)
+        image_src = html.escape(image_data_url, quote=True)
+        return f'<img src="{image_src}" alt="{label_text}" loading="lazy">'
+
     raw_viewbox = field.get("viewBox")
     raw_elements = field.get("elements")
     if not isinstance(raw_viewbox, list) or len(raw_viewbox) != 4 or not isinstance(raw_elements, list) or not raw_elements:
@@ -2977,7 +3040,7 @@ def replace_exercises(exercises: List[Dict[str, Any]]) -> None:
                 + (
                     normalize_exercise_text(item.get("title")),
                     normalize_exercise_category(item.get("category")),
-                    normalize_exercise_text(item.get("duration")),
+                    "",
                     normalize_exercise_text(item.get("trainingExercise")),
                     normalize_exercise_text(item.get("description")),
                     normalize_exercise_text(item.get("coaching")),
@@ -3046,7 +3109,7 @@ def insert_exercises(exercises: List[Dict[str, Any]]) -> int:
                 + (
                     title,
                     normalize_exercise_category(item.get("category")),
-                    normalize_exercise_text(item.get("duration")),
+                    "",
                     normalize_exercise_text(item.get("trainingExercise")),
                     normalize_exercise_text(item.get("description")),
                     normalize_exercise_text(item.get("coaching")),
@@ -3127,7 +3190,6 @@ def clear_exercise_import_preview(preview_id: str) -> None:
 def apply_submitted_exercise_import_edits(preview_exercises: List[Dict[str, Any]]) -> None:
     text_fields = {
         "title": "title",
-        "duration": "duration",
         "training_exercise": "trainingExercise",
         "description": "description",
         "coaching": "coaching",
@@ -3182,7 +3244,6 @@ def update_exercise(exercise_id: Any, payload: Dict[str, Any]) -> Optional[Dict[
     cleaned = {
         "title": title,
         "category": category,
-        "duration": normalize_exercise_text(payload.get("duration"))[:80],
         "description": normalize_exercise_text(payload.get("description")),
         "coaching": normalize_exercise_text(payload.get("coaching")),
         "variationEasier": normalize_exercise_text(payload.get("variationEasier")),
@@ -3197,7 +3258,6 @@ def update_exercise(exercise_id: Any, payload: Dict[str, Any]) -> Optional[Dict[
             UPDATE exercises
             SET title = ?,
                 category = ?,
-                duration = ?,
                 description = ?,
                 coaching = ?,
                 variation_easier = ?,
@@ -3210,7 +3270,6 @@ def update_exercise(exercise_id: Any, payload: Dict[str, Any]) -> Optional[Dict[
             (
                 cleaned["title"],
                 cleaned["category"],
-                cleaned["duration"],
                 cleaned["description"],
                 cleaned["coaching"],
                 cleaned["variationEasier"],

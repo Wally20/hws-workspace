@@ -59,21 +59,15 @@
                       <span>Titel</span>
                       <input type="text" name="title_{{ loop.index0 }}" value="{{ exercise.title }}">
                     </label>
-                    <div class="exercise-import-preview-meta-row">
-                      <label class="field exercise-category-field">
-                        <span>Categorie</span>
-                        <select name="category_{{ loop.index0 }}">
-                          <option value="">Geen categorie</option>
-                          {% for category in categories %}
-                            <option value="{{ category }}"{% if exercise.category == category %} selected{% endif %}>{{ category }}</option>
-                          {% endfor %}
-                        </select>
-                      </label>
-                      <label class="field">
-                        <span>Duur</span>
-                        <input type="text" name="duration_{{ loop.index0 }}" value="{{ exercise.duration }}">
-                      </label>
-                    </div>
+                    <label class="field exercise-category-field">
+                      <span>Categorie</span>
+                      <select name="category_{{ loop.index0 }}">
+                        <option value="">Geen categorie</option>
+                        {% for category in categories %}
+                          <option value="{{ category }}"{% if exercise.category == category %} selected{% endif %}>{{ category }}</option>
+                        {% endfor %}
+                      </select>
+                    </label>
                     <p class="exercise-tile-meta">
                       {% if exercise.sourceLabel %}{{ exercise.sourceLabel }}{% elif exercise.sourceSlide %}slide {{ exercise.sourceSlide }}{% else %}Import{% endif %}
                     </p>
@@ -199,10 +193,6 @@
                 <option value="{{ category }}">{{ category }}</option>
               {% endfor %}
             </select>
-          </label>
-          <label class="field">
-            <span>Duur</span>
-            <input type="text" id="exerciseEditDuration">
           </label>
           <label class="field exercise-edit-wide">
             <span>Omschrijving oefening</span>

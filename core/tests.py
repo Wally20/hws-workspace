@@ -218,7 +218,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 "ecwid_product_sku": "MVC-1",
                 "staff_name": ["Test Trainer"],
                 "staff_role": ["Trainer"],
-                "staff_task": ["Veld 1"],
+                "staff_setup_task": ["Veld 1 uitzetten"],
                 "program_start": ["09:00"],
                 "program_end": ["10:00"],
                 "program_activity": ["Training"],
@@ -234,6 +234,15 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(created_playbook["title"], "Test draaiboek voetbaldag")
         self.assertEqual(created_playbook["ecwidProductId"], "101")
         self.assertEqual(created_playbook["ecwidProductName"], "Meivakantie Camp")
+        self.assertEqual(created_playbook["contingencies"], "Regenplan klaarzetten.")
+        self.assertEqual(
+            created_playbook["staff"],
+            [{"name": "Test Trainer", "role": "Trainer", "dayTask": "", "setupTask": "Veld 1 uitzetten"}],
+        )
+        self.assertEqual(
+            created_playbook["program"],
+            [{"startTime": "09:00", "endTime": "10:00", "activity": "Training", "icon": "football"}],
+        )
 
     def test_football_days_edit_page_shows_ecwid_registration_count(self):
         playbook_id = legacy.save_football_days_playbook(

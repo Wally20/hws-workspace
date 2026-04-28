@@ -56,7 +56,7 @@
         <strong id="footballRegistrationCount">{{ playbook.registrationCount or 0 }}</strong>
       </div>
       <div class="football-days-save">
-        <button type="submit" class="subtle-button subtle-button-strong">Draaiboek opslaan</button>
+        <button type="submit" class="subtle-button subtle-button-strong">Alles van de voetbaldag opslaan</button>
       </div>
     </section>
 
@@ -82,7 +82,6 @@
           <div class="football-table-head">
             <span>Naam</span>
             <span>Rol</span>
-            <span>Taak dag</span>
             <span>Taak uitzetten</span>
             <span></span>
           </div>
@@ -90,11 +89,13 @@
             <div class="football-table-row" data-football-staff-row>
               <input type="text" name="staff_name" value="{{ member.name }}" placeholder="Naam">
               <input type="text" name="staff_role" value="{{ member.role }}" placeholder="Trainer, EHBO, coordinator">
-              <input type="text" name="staff_day_task" value="{{ member.dayTask }}" placeholder="Bijvoorbeeld: veld 2 begeleiden">
               <input type="text" name="staff_setup_task" value="{{ member.setupTask }}" placeholder="Bijvoorbeeld: veld 2 uitzetten">
               <button type="button" class="subtle-button action-small football-row-remove" data-remove-football-row aria-label="Verwijder medewerker">Wis</button>
             </div>
           {% endfor %}
+        </div>
+        <div class="football-days-save">
+          <button type="submit" class="subtle-button subtle-button-strong">Trainers en medewerkers opslaan</button>
         </div>
       </article>
 
@@ -126,6 +127,9 @@
             </div>
           {% endfor %}
         </div>
+        <div class="football-days-save">
+          <button type="submit" class="subtle-button subtle-button-strong">Programma opslaan</button>
+        </div>
       </article>
     </section>
 
@@ -149,6 +153,13 @@
         <span>Scenario's en oplossingen</span>
         <textarea name="contingencies" placeholder="Bijvoorbeeld: Bij hevige regen verplaatsen naar kleedkamer 3 voor lunch en quiz. EHBO aanspreekpunt: ...">{{ playbook.contingencies }}</textarea>
       </label>
+      <div class="football-days-save">
+        <button type="submit" class="subtle-button subtle-button-strong">Onvoorziene omstandigheden opslaan</button>
+      </div>
+    </section>
+
+    <section class="football-days-save football-days-save-all">
+      <button type="submit" class="refresh-button">Alles van de voetbaldag opslaan</button>
     </section>
   </form>
 
@@ -156,7 +167,6 @@
     <div class="football-table-row" data-football-staff-row>
       <input type="text" name="staff_name" placeholder="Naam">
       <input type="text" name="staff_role" placeholder="Trainer, EHBO, coordinator">
-      <input type="text" name="staff_day_task" placeholder="Bijvoorbeeld: veld 2 begeleiden">
       <input type="text" name="staff_setup_task" placeholder="Bijvoorbeeld: veld 2 uitzetten">
       <button type="button" class="subtle-button action-small football-row-remove" data-remove-football-row aria-label="Verwijder medewerker">Wis</button>
     </div>
