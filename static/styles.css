@@ -1167,13 +1167,17 @@ textarea:focus {
 
 .football-days-meta {
   display: grid;
-  grid-template-columns: minmax(180px, 1.1fr) minmax(132px, 0.5fr) minmax(160px, 0.8fr) minmax(230px, 1.1fr) auto auto;
+  grid-template-columns: minmax(240px, 1.1fr) minmax(210px, 0.55fr) minmax(260px, 0.8fr) minmax(320px, 1fr) auto auto;
   gap: 12px;
   align-items: end;
   overflow: visible;
   padding: 22px 26px;
   position: relative;
   z-index: 10;
+}
+
+.football-days-meta > * {
+  min-width: 0;
 }
 
 .football-days-meta .field span {
@@ -1190,6 +1194,10 @@ textarea:focus {
 .football-days-meta input {
   padding: 0 14px;
   font-size: 0.92rem;
+}
+
+.football-days-meta input[type="date"] {
+  min-width: 190px;
 }
 
 .football-days-save {
@@ -3933,6 +3941,30 @@ textarea:focus {
 
   .registrations-order-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1500px) {
+  .football-days-meta {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .football-product-field {
+    grid-column: span 2;
+  }
+
+  .football-days-save {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 980px) {
+  .football-days-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .football-product-field {
+    grid-column: auto;
   }
 }
 
