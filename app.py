@@ -4957,6 +4957,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
     if is_social_media_manager(user):
         return {
             "dashboard",
+            "voetbaldagen",
             "orders",
             "leads",
             "voorstellen-maker",
@@ -4965,7 +4966,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "content",
             "profile",
         }
-    return {"orders", "leads", "oefeningen-bibliotheek", "profile"}
+    return {"orders", "leads", "voetbaldagen", "oefeningen-bibliotheek", "profile"}
 
 
 def user_can_access_page(user: Optional[Dict[str, Any]], page_key: str) -> bool:
