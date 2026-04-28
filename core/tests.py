@@ -213,6 +213,9 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 "title": "Test draaiboek voetbaldag",
                 "event_date": "2026-05-01",
                 "location": "Sportpark HWS",
+                "ecwid_product_id": "101",
+                "ecwid_product_name": "Meivakantie Camp",
+                "ecwid_product_sku": "MVC-1",
                 "staff_name": ["Test Trainer"],
                 "staff_role": ["Trainer"],
                 "staff_task": ["Veld 1"],
@@ -227,7 +230,39 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(response.status_code, 302)
         self.assertRegex(response["Location"], r"^/voetbaldagen/\d+\?success=")
         created_id = int(response["Location"].split("/voetbaldagen/", 1)[1].split("?", 1)[0])
-        self.assertEqual(legacy.load_football_days_playbook(created_id)["title"], "Test draaiboek voetbaldag")
+        created_playbook = legacy.load_football_days_playbook(created_id)
+        self.assertEqual(created_playbook["title"], "Test draaiboek voetbaldag")
+        self.assertEqual(created_playbook["ecwidProductId"], "101")
+        self.assertEqual(created_playbook["ecwidProductName"], "Meivakantie Camp")
+
+    def test_football_days_edit_page_shows_ecwid_registration_count(self):
+        playbook_id = legacy.save_football_days_playbook(
+            {
+                "title": "Test draaiboek met Ecwid",
+                "eventDate": "2026-05-01",
+                "location": "Sportpark HWS",
+                "ecwidProductId": "101",
+                "ecwidProductName": "Meivakantie Camp",
+                "ecwidProductSku": "MVC-1",
+                "staff": [],
+                "program": [],
+                "contingencies": "",
+            }
+        )
+        orders_payload = {
+            "items": [
+                {"items": [{"productId": 101, "quantity": 2}, {"productId": 102, "quantity": 1}]},
+                {"items": [{"productId": 101, "quantity": 3}]},
+            ]
+        }
+
+        with patch.object(legacy, "fetch_ecwid_orders", return_value=orders_payload):
+            response = self.build_authenticated_client().get(f"/voetbaldagen/{playbook_id}", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn('value="Meivakantie Camp"', content)
+        self.assertIn('id="footballRegistrationCount">5</strong>', content)
 
     def test_registrations_page_only_loads_products_for_overview(self):
         catalog_payload = {

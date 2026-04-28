@@ -1167,7 +1167,7 @@ textarea:focus {
 
 .football-days-meta {
   display: grid;
-  grid-template-columns: minmax(260px, 1.3fr) minmax(160px, 0.6fr) minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(220px, 1.1fr) minmax(140px, 0.55fr) minmax(180px, 0.9fr) minmax(240px, 1.15fr) auto auto;
   gap: 16px;
   align-items: end;
 }
@@ -1177,22 +1177,103 @@ textarea:focus {
   justify-content: flex-end;
 }
 
+.football-product-field {
+  position: relative;
+}
+
+.football-product-picker {
+  display: flex;
+  gap: 8px;
+}
+
+.football-product-picker input {
+  min-width: 0;
+}
+
+.football-product-results {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+.football-product-result {
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: #ffffff;
+  color: var(--text);
+  text-align: left;
+}
+
+.football-product-result:last-child {
+  border-bottom: 0;
+}
+
+.football-product-result:hover {
+  background: var(--surface-soft);
+}
+
+.football-product-result strong {
+  font-size: 0.9rem;
+}
+
+.football-product-result span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.football-registration-count {
+  min-height: 44px;
+  min-width: 112px;
+  display: grid;
+  align-content: center;
+  gap: 1px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+
+.football-registration-count span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.football-registration-count strong {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
 .football-days-grid {
   display: grid;
-  grid-template-columns: minmax(360px, 0.95fr) minmax(0, 1.3fr);
-  gap: 22px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
   align-items: start;
 }
 
 .football-days-panel {
   display: grid;
-  gap: 18px;
+  gap: 12px;
 }
 
 .football-staff-table,
 .football-program-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .football-table-head,
@@ -1204,7 +1285,7 @@ textarea:focus {
 }
 
 .football-table-head {
-  padding: 0 12px;
+  padding: 0 10px;
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 800;
@@ -1213,9 +1294,9 @@ textarea:focus {
 
 .football-table-row,
 .football-program-row {
-  padding: 12px;
+  padding: 10px;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 12px;
   background: linear-gradient(180deg, #ffffff 0%, #f8f8f8 100%);
 }
 
@@ -1267,7 +1348,7 @@ textarea:focus {
 }
 
 .football-reuse-field {
-  max-width: 360px;
+  max-width: 320px;
 }
 
 .football-program-row .football-row-remove,

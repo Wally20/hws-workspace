@@ -57,6 +57,7 @@ urlpatterns = [
     path("api/orders", views.api_orders, name="api_orders"),
     path("api/dashboard-summary", views.api_dashboard_summary, name="api_dashboard_summary"),
     path("api/products/search", views.api_product_search, name="api_product_search"),
+    path("api/products/registration-count", views.api_product_registration_count, name="api_product_registration_count"),
     path("api/dashboard-events", views.api_dashboard_events, name="api_dashboard_events"),
     path(
         "api/registrations/email-status",

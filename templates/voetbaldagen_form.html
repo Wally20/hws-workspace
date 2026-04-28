@@ -34,6 +34,27 @@
         <span>Locatie</span>
         <input type="text" name="location" value="{{ playbook.location }}" placeholder="Sportpark, veld of club">
       </label>
+      <div class="field football-product-field">
+        <span>Ecwid product</span>
+        <input type="hidden" name="ecwid_product_id" id="footballEcwidProductId" value="{{ playbook.ecwidProductId }}">
+        <input type="hidden" name="ecwid_product_name" id="footballEcwidProductName" value="{{ playbook.ecwidProductName }}">
+        <input type="hidden" name="ecwid_product_sku" id="footballEcwidProductSku" value="{{ playbook.ecwidProductSku }}">
+        <div class="football-product-picker" data-selected-product-id="{{ playbook.ecwidProductId }}">
+          <input
+            type="search"
+            id="footballProductSearch"
+            value="{{ playbook.ecwidProductName }}"
+            placeholder="Zoek Ecwid product"
+            autocomplete="off"
+          >
+          <button type="button" class="subtle-button action-small" id="clearFootballProduct" {% if not playbook.ecwidProductId %}hidden{% endif %}>Wis</button>
+        </div>
+        <div class="football-product-results" id="footballProductResults" hidden></div>
+      </div>
+      <div class="football-registration-count">
+        <span>Aanmeldingen</span>
+        <strong id="footballRegistrationCount">{{ playbook.registrationCount or 0 }}</strong>
+      </div>
       <div class="football-days-save">
         <button type="submit" class="subtle-button subtle-button-strong">Draaiboek opslaan</button>
       </div>
@@ -44,7 +65,6 @@
         <div class="feature-list-head">
           <div>
             <p class="panel-title">Trainers en medewerkers</p>
-            <p class="feature-list-subtitle">Verdeel rollen en taken per persoon.</p>
           </div>
           <button type="button" class="subtle-button action-small" id="addFootballStaffRow">+ Medewerker</button>
         </div>
@@ -80,7 +100,6 @@
         <div class="feature-list-head">
           <div>
             <p class="panel-title">Programma</p>
-            <p class="feature-list-subtitle">Compacte regels voor veel activiteiten.</p>
           </div>
           <button type="button" class="subtle-button action-small" id="addFootballProgramRow">+ Activiteit</button>
         </div>

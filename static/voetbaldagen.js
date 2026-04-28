@@ -30,7 +30,15 @@
   const addProgramButton = document.getElementById("addFootballProgramRow");
   const exportButton = document.getElementById("exportFootballDaysPdf");
   const previousPlaybooksElement = document.getElementById("footballPreviousPlaybooks");
+  const productSearchInput = document.getElementById("footballProductSearch");
+  const productResults = document.getElementById("footballProductResults");
+  const productIdInput = document.getElementById("footballEcwidProductId");
+  const productNameInput = document.getElementById("footballEcwidProductName");
+  const productSkuInput = document.getElementById("footballEcwidProductSku");
+  const clearProductButton = document.getElementById("clearFootballProduct");
+  const registrationCount = document.getElementById("footballRegistrationCount");
   let previousPlaybooks = [];
+  let productSearchTimer = null;
 
   if (previousPlaybooksElement) {
     try {
@@ -116,6 +124,111 @@
     refreshRemoveButtons(container, rowSelector);
   };
 
+  const setRegistrationCount = (value) => {
+    if (registrationCount) {
+      registrationCount.textContent = String(value || 0);
+    }
+  };
+
+  const loadRegistrationCount = async (productId) => {
+    if (!productId) {
+      setRegistrationCount(0);
+      return;
+    }
+    try {
+      const response = await fetch(`/api/products/registration-count?product_id=${encodeURIComponent(productId)}`);
+      const payload = await response.json();
+      if (response.ok) {
+        setRegistrationCount(payload.registrationCount || 0);
+      }
+    } catch (error) {
+      console.error("Aanmeldingen ophalen mislukt", error);
+    }
+  };
+
+  const hideProductResults = () => {
+    if (!productResults) {
+      return;
+    }
+    productResults.hidden = true;
+    productResults.innerHTML = "";
+  };
+
+  const renderProductResults = (items) => {
+    if (!productResults) {
+      return;
+    }
+    productResults.innerHTML = "";
+    productResults.hidden = false;
+
+    if (!items.length) {
+      const emptyRow = document.createElement("div");
+      emptyRow.className = "football-product-result";
+      emptyRow.textContent = "Geen producten gevonden";
+      productResults.append(emptyRow);
+      return;
+    }
+
+    items.forEach((item) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "football-product-result";
+      button.dataset.productId = item.id || "";
+      button.dataset.productName = item.name || "";
+      button.dataset.productSku = item.sku || "";
+
+      const name = document.createElement("strong");
+      name.textContent = item.name || "Naamloos product";
+      const meta = document.createElement("span");
+      meta.textContent = item.sku ? `SKU: ${item.sku}` : `Product ID: ${item.id || "-"}`;
+      button.append(name, meta);
+      productResults.append(button);
+    });
+  };
+
+  const searchProducts = async () => {
+    const query = String(productSearchInput?.value || "").trim();
+    if (!query) {
+      hideProductResults();
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/products/search?q=${encodeURIComponent(query)}`);
+      const payload = await response.json();
+      renderProductResults(payload.items || []);
+    } catch (error) {
+      hideProductResults();
+      console.error("Product zoeken mislukt", error);
+    }
+  };
+
+  const selectProduct = (product) => {
+    const productId = product.id || "";
+    if (productIdInput) {
+      productIdInput.value = productId;
+    }
+    if (productNameInput) {
+      productNameInput.value = product.name || "";
+    }
+    if (productSkuInput) {
+      productSkuInput.value = product.sku || "";
+    }
+    if (productSearchInput instanceof HTMLInputElement) {
+      productSearchInput.value = product.name || "";
+    }
+    if (clearProductButton instanceof HTMLButtonElement) {
+      clearProductButton.hidden = !productId;
+    }
+    hideProductResults();
+    loadRegistrationCount(productId);
+  };
+
+  const clearProduct = () => {
+    selectProduct({ id: "", name: "", sku: "" });
+    hideProductResults();
+  };
+
   addStaffButton?.addEventListener("click", () => {
     appendStaffRow();
     refreshRemoveButtons(staffRows, "[data-football-staff-row]");
@@ -141,6 +254,59 @@
   exportButton?.addEventListener("click", () => {
     window.print();
   });
+
+  productSearchInput?.addEventListener("input", () => {
+    if (productIdInput) {
+      productIdInput.value = "";
+    }
+    if (productNameInput) {
+      productNameInput.value = "";
+    }
+    if (productSkuInput) {
+      productSkuInput.value = "";
+    }
+    if (clearProductButton instanceof HTMLButtonElement) {
+      clearProductButton.hidden = true;
+    }
+    setRegistrationCount(0);
+    window.clearTimeout(productSearchTimer);
+    productSearchTimer = window.setTimeout(searchProducts, 180);
+  });
+
+  productSearchInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      searchProducts();
+    }
+    if (event.key === "Escape") {
+      hideProductResults();
+    }
+  });
+
+  productResults?.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target.closest("[data-product-id]") : null;
+    if (!target) {
+      return;
+    }
+    selectProduct({
+      id: target.dataset.productId || "",
+      name: target.dataset.productName || "",
+      sku: target.dataset.productSku || "",
+    });
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!productResults || !productSearchInput) {
+      return;
+    }
+    const target = event.target;
+    if (target instanceof Node && (productResults.contains(target) || productSearchInput.contains(target))) {
+      return;
+    }
+    hideProductResults();
+  });
+
+  clearProductButton?.addEventListener("click", clearProduct);
 
   document.querySelectorAll("[data-reuse-playbook]").forEach((select) => {
     select.addEventListener("change", () => {

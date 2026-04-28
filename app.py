@@ -1911,6 +1911,9 @@ def init_db() -> None:
                 title TEXT NOT NULL,
                 event_date TEXT,
                 location TEXT,
+                ecwid_product_id TEXT,
+                ecwid_product_name TEXT,
+                ecwid_product_sku TEXT,
                 staff_json TEXT NOT NULL DEFAULT '[]',
                 program_json TEXT NOT NULL DEFAULT '[]',
                 contingencies TEXT,
@@ -2031,6 +2034,23 @@ def init_db() -> None:
             connection.execute("ALTER TABLE trainer_profiles ADD COLUMN education TEXT")
         if "availability_days" not in existing_columns:
             connection.execute("ALTER TABLE trainer_profiles ADD COLUMN availability_days TEXT")
+
+        football_playbook_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(football_days_playbooks)").fetchall()
+        }
+        for column_name, column_definition in (
+            ("ecwid_product_id", "ecwid_product_id TEXT"),
+            ("ecwid_product_name", "ecwid_product_name TEXT"),
+            ("ecwid_product_sku", "ecwid_product_sku TEXT"),
+        ):
+            if column_name in football_playbook_columns:
+                continue
+            try:
+                connection.execute(f"ALTER TABLE football_days_playbooks ADD COLUMN {column_definition}")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
 
         social_ideas_columns = {
             row["name"]
@@ -3332,6 +3352,10 @@ def normalize_football_days_playbook(row: Optional[sqlite3.Row]) -> Dict[str, An
             "title": "Draaiboek Voetbaldagen",
             "eventDate": "",
             "location": "",
+            "ecwidProductId": "",
+            "ecwidProductName": "",
+            "ecwidProductSku": "",
+            "registrationCount": 0,
             "staff": [],
             "program": [],
             "contingencies": "",
@@ -3379,6 +3403,10 @@ def normalize_football_days_playbook(row: Optional[sqlite3.Row]) -> Dict[str, An
         "title": str(row["title"] or "Draaiboek Voetbaldagen").strip(),
         "eventDate": str(row["event_date"] or "").strip(),
         "location": str(row["location"] or "").strip(),
+        "ecwidProductId": str(row["ecwid_product_id"] or "").strip(),
+        "ecwidProductName": str(row["ecwid_product_name"] or "").strip(),
+        "ecwidProductSku": str(row["ecwid_product_sku"] or "").strip(),
+        "registrationCount": 0,
         "staff": normalized_staff,
         "program": normalized_program,
         "contingencies": str(row["contingencies"] or "").strip(),
@@ -3391,7 +3419,7 @@ def load_football_days_playbooks() -> List[Dict[str, Any]]:
     with get_db_connection() as connection:
         rows = connection.execute(
             """
-            SELECT id, title, event_date, location, staff_json, program_json, contingencies, created_at, updated_at
+            SELECT id, title, event_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, contingencies, created_at, updated_at
             FROM football_days_playbooks
             ORDER BY COALESCE(NULLIF(event_date, ''), updated_at) DESC, id DESC
             """
@@ -3403,7 +3431,7 @@ def load_football_days_playbook(playbook_id: int) -> Optional[Dict[str, Any]]:
     with get_db_connection() as connection:
         row = connection.execute(
             """
-            SELECT id, title, event_date, location, staff_json, program_json, contingencies, created_at, updated_at
+            SELECT id, title, event_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, contingencies, created_at, updated_at
             FROM football_days_playbooks
             WHERE id = ?
             """,
@@ -3421,12 +3449,53 @@ def create_empty_football_days_playbook() -> Dict[str, Any]:
     return playbook
 
 
+def count_ecwid_product_registrations(orders: List[Dict[str, Any]], product_id: str) -> int:
+    normalized_product_id = str(product_id or "").strip()
+    if not normalized_product_id:
+        return 0
+
+    registration_count = 0
+    for order in orders:
+        for item in order.get("items", []):
+            if str(item.get("productId") or "").strip() == normalized_product_id:
+                registration_count += max(int(item.get("quantity") or 0), 0)
+    return registration_count
+
+
+def attach_football_days_registration_counts(playbooks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    product_ids = {
+        str(playbook.get("ecwidProductId") or "").strip()
+        for playbook in playbooks
+        if str(playbook.get("ecwidProductId") or "").strip()
+    }
+    if not product_ids:
+        return playbooks
+
+    try:
+        orders_payload = fetch_ecwid_orders()
+    except requests.RequestException:
+        return playbooks
+    orders = orders_payload.get("items", [])
+    counts = {
+        product_id: count_ecwid_product_registrations(orders, product_id)
+        for product_id in product_ids
+    }
+
+    for playbook in playbooks:
+        product_id = str(playbook.get("ecwidProductId") or "").strip()
+        playbook["registrationCount"] = counts.get(product_id, 0)
+    return playbooks
+
+
 def save_football_days_playbook(playbook: Dict[str, Any], playbook_id: Optional[int] = None) -> int:
     now = utcnow_iso()
     payload = (
         str(playbook.get("title") or "Draaiboek Voetbaldagen").strip(),
         str(playbook.get("eventDate") or "").strip(),
         str(playbook.get("location") or "").strip(),
+        str(playbook.get("ecwidProductId") or "").strip(),
+        str(playbook.get("ecwidProductName") or "").strip(),
+        str(playbook.get("ecwidProductSku") or "").strip(),
         json.dumps(playbook.get("staff") or [], ensure_ascii=False),
         json.dumps(playbook.get("program") or [], ensure_ascii=False),
         str(playbook.get("contingencies") or "").strip(),
@@ -3440,6 +3509,9 @@ def save_football_days_playbook(playbook: Dict[str, Any], playbook_id: Optional[
                 SET title = ?,
                     event_date = ?,
                     location = ?,
+                    ecwid_product_id = ?,
+                    ecwid_product_name = ?,
+                    ecwid_product_sku = ?,
                     staff_json = ?,
                     program_json = ?,
                     contingencies = ?,
@@ -3453,9 +3525,9 @@ def save_football_days_playbook(playbook: Dict[str, Any], playbook_id: Optional[
         cursor = connection.execute(
             """
             INSERT INTO football_days_playbooks (
-                title, event_date, location, staff_json, program_json, contingencies, created_at, updated_at
+                title, event_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, contingencies, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (*payload, now, now),
         )
@@ -3502,6 +3574,9 @@ def build_football_days_playbook_from_form() -> Dict[str, Any]:
         "title": request.form.get("title", "Draaiboek Voetbaldagen").strip() or "Draaiboek Voetbaldagen",
         "eventDate": request.form.get("event_date", "").strip(),
         "location": request.form.get("location", "").strip(),
+        "ecwidProductId": request.form.get("ecwid_product_id", "").strip(),
+        "ecwidProductName": request.form.get("ecwid_product_name", "").strip(),
+        "ecwidProductSku": request.form.get("ecwid_product_sku", "").strip(),
         "staff": staff,
         "program": program,
         "contingencies": request.form.get("contingencies", "").strip(),
@@ -6042,9 +6117,17 @@ def search_catalog_products(keyword: str) -> List[Dict[str, Any]]:
 
     filtered_products = []
     for item in products:
-        normalized_name = normalize_match_text(item.get("name", ""))
-        item_tokens = {token for token in normalized_name.split() if token}
-        if query_tokens and not query_tokens.issubset(item_tokens):
+        normalized_search_text = normalize_match_text(
+            " ".join(
+                str(value or "")
+                for value in (item.get("name", ""), item.get("sku", ""), item.get("id", ""))
+            )
+        )
+        item_tokens = {token for token in normalized_search_text.split() if token}
+        if query_tokens and not all(
+            any(item_token.startswith(query_token) or query_token in item_token for item_token in item_tokens)
+            for query_token in query_tokens
+        ):
             continue
 
         filtered_products.append(
@@ -8273,7 +8356,7 @@ def football_days_page() -> str:
     return render_template(
         "voetbaldagen.html",
         active_page="voetbaldagen",
-        playbooks=load_football_days_playbooks(),
+        playbooks=attach_football_days_registration_counts(load_football_days_playbooks()),
         success=request.args.get("success", "").strip(),
     )
 
@@ -8288,11 +8371,13 @@ def football_days_new_page() -> str:
         playbook_id = save_football_days_playbook(build_football_days_playbook_from_form())
         return redirect(url_for("football_days_edit_page", playbook_id=playbook_id, success="Draaiboek opgeslagen."))
 
+    playbook = create_empty_football_days_playbook()
+
     return render_template(
         "voetbaldagen_form.html",
         active_page="voetbaldagen",
-        playbook=create_empty_football_days_playbook(),
-        previous_playbooks=load_football_days_playbooks(),
+        playbook=playbook,
+        previous_playbooks=attach_football_days_registration_counts(load_football_days_playbooks()),
         form_action=url_for("football_days_new_page"),
         page_mode="new",
         success=request.args.get("success", "").strip(),
@@ -8317,12 +8402,15 @@ def football_days_edit_page(playbook_id: int) -> str:
         playbook["staff"] = [{"name": "", "role": "", "task": ""}]
     if not playbook["program"]:
         playbook["program"] = [{"startTime": "", "endTime": "", "activity": "", "icon": "clock"}]
+    attach_football_days_registration_counts([playbook])
 
     return render_template(
         "voetbaldagen_form.html",
         active_page="voetbaldagen",
         playbook=playbook,
-        previous_playbooks=[item for item in load_football_days_playbooks() if item["id"] != playbook_id],
+        previous_playbooks=attach_football_days_registration_counts(
+            [item for item in load_football_days_playbooks() if item["id"] != playbook_id]
+        ),
         form_action=url_for("football_days_edit_page", playbook_id=playbook_id),
         page_mode="edit",
         success=request.args.get("success", "").strip(),
@@ -8755,9 +8843,11 @@ def api_dashboard_summary():
 
 @app.get("/api/products/search")
 def api_product_search():
-    access_redirect = require_page_access("dashboard")
-    if access_redirect is not None:
-        return access_redirect
+    user = get_current_user()
+    if user is None:
+        return redirect(url_for("login_page", next=request.path))
+    if not (user_can_access_page(user, "dashboard") or user_can_access_page(user, "voetbaldagen")):
+        return redirect(url_for("personal_profile_page"))
 
     query = request.args.get("q", "").strip()
     try:
@@ -8767,6 +8857,31 @@ def api_product_search():
         return jsonify({"error": "Productzoekopdracht mislukt"}), status_code
     except requests.RequestException:
         return jsonify({"error": "Netwerkfout bij productzoekopdracht"}), 502
+
+
+@app.get("/api/products/registration-count")
+def api_product_registration_count():
+    access_redirect = require_page_access("voetbaldagen")
+    if access_redirect is not None:
+        return access_redirect
+
+    product_id = request.args.get("product_id", "").strip()
+    if not product_id:
+        return jsonify({"productId": "", "registrationCount": 0})
+
+    try:
+        orders_payload = fetch_ecwid_orders()
+        return jsonify(
+            {
+                "productId": product_id,
+                "registrationCount": count_ecwid_product_registrations(orders_payload.get("items", []), product_id),
+            }
+        )
+    except requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else 502
+        return jsonify({"error": "Aanmeldingen ophalen mislukt"}), status_code
+    except requests.RequestException:
+        return jsonify({"error": "Netwerkfout bij aanmeldingen"}), 502
 
 
 @app.get("/api/dashboard-events")

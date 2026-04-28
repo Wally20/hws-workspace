@@ -36,6 +36,12 @@
               <span>Medewerkers</span>
               <span class="compact-stat-value">{{ playbook.staff|length }}</span>
             </div>
+            {% if playbook.ecwidProductId %}
+              <div class="compact-stat-row">
+                <span>Aanmeldingen</span>
+                <span class="compact-stat-value">{{ playbook.registrationCount or 0 }}</span>
+              </div>
+            {% endif %}
             <div class="compact-stat-row">
               <span>Onvoorzien plan</span>
               <span class="compact-stat-value">{{ "Ja" if playbook.contingencies else "Nee" }}</span>

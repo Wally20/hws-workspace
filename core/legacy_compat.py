@@ -52,6 +52,7 @@ ENDPOINTS = {
     "api_orders": "api_orders",
     "api_dashboard_summary": "api_dashboard_summary",
     "api_product_search": "api_product_search",
+    "api_product_registration_count": "api_product_registration_count",
     "api_dashboard_events": "api_dashboard_events",
     "api_save_dashboard_events": "api_dashboard_events",
     "api_dashboard_weather": "api_dashboard_weather",
