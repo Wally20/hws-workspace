@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+from django.conf import settings
+from django.http import FileResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import app as legacy
@@ -38,6 +42,9 @@ trainer_fees_per_month_page = legacy_view("trainer_fees_per_month_page")
 personal_profile_page = legacy_view("personal_profile_page")
 trainers_page = legacy_view("trainers_page")
 agenda_page = legacy_view("agenda_page")
+football_days_page = legacy_view("football_days_page")
+football_days_new_page = legacy_view("football_days_new_page")
+football_days_edit_page = legacy_view("football_days_edit_page")
 oefeningen_bibliotheek_page = legacy_view("oefeningen_bibliotheek_page")
 api_update_exercise_category = legacy_view("api_update_exercise_category")
 api_update_exercise = legacy_view("api_update_exercise")
@@ -58,6 +65,25 @@ api_agenda_public_holidays = legacy_view("api_agenda_public_holidays")
 api_update_registration_email_status = legacy_view("api_update_registration_email_status")
 api_sync_emailed_registration_orders = legacy_view("api_sync_emailed_registration_orders")
 api_save_leads_blocked_emails = legacy_view("api_save_leads_blocked_emails")
+
+
+def service_worker(request, *args, **kwargs):
+    response = FileResponse(
+        open(Path(settings.BASE_DIR) / "static" / "service-worker.js", "rb"),
+        content_type="text/javascript; charset=utf-8",
+    )
+    response["Service-Worker-Allowed"] = "/"
+    response["Cache-Control"] = "public, max-age=60"
+    return response
+
+
+def web_manifest(request, *args, **kwargs):
+    response = FileResponse(
+        open(Path(settings.BASE_DIR) / "static" / "manifest.webmanifest", "rb"),
+        content_type="application/manifest+json",
+    )
+    response["Cache-Control"] = "public, max-age=3600"
+    return response
 
 
 @csrf_exempt

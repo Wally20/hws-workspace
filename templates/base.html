@@ -4,8 +4,15 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ legacy_csrf_token }}">
+    <meta name="theme-color" content="#111111">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="HWS Workspace">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>{% block title %}HWS Voetbalschool Workspace{% endblock %}</title>
     <link rel="icon" type="image/png" href="../static/assets/hws-logo.png">
+    <link rel="apple-touch-icon" href="../static/assets/hws-logo.png">
+    <link rel="manifest" href="/manifest.webmanifest?v={{ asset_version }}">
     <link rel="stylesheet" href="../static/styles.css?v={{ asset_version }}">
   </head>
   <body>
@@ -50,6 +57,18 @@
               </svg>
             </span>
             <span>Taken</span>
+          </a>
+          {% endif %}
+          {% if 'voetbaldagen' in visible_pages %}
+          <a class="nav-item {% if active_page == 'voetbaldagen' %}nav-item-active{% endif %}" href="/voetbaldagen">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M4 6.5h16M6 4v5M18 4v5M6 11.5h12M6 16h8"></path>
+                <path d="M5 20h14a1 1 0 0 0 1-1V6.5H4V19a1 1 0 0 0 1 1Z"></path>
+                <circle cx="17" cy="16" r="2"></circle>
+              </svg>
+            </span>
+            <span>Voetbaldagen</span>
           </a>
           {% endif %}
           {% if 'voorstellen-maker' in visible_pages %}

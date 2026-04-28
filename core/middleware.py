@@ -39,7 +39,11 @@ class LegacyResponseHeadersMiddleware:
             request.csp_nonce = secrets.token_urlsafe(16)
         response = self.get_response(request)
 
-        if request.path.startswith("/static/"):
+        if request.path == "/service-worker.js":
+            response["Cache-Control"] = "public, max-age=60"
+        elif request.path == "/manifest.webmanifest":
+            response["Cache-Control"] = "public, max-age=3600"
+        elif request.path.startswith("/static/"):
             response["Cache-Control"] = "public, max-age=31536000, immutable"
         elif request.path.startswith("/api/dashboard-weather"):
             response["Cache-Control"] = "private, max-age=300, must-revalidate"
@@ -56,6 +60,7 @@ class LegacyResponseHeadersMiddleware:
             f"script-src 'self' 'nonce-{request.csp_nonce}'; "
             "style-src 'self' 'unsafe-inline'; "
             "font-src 'self' data:; "
+            "worker-src 'self'; manifest-src 'self'; "
             "connect-src 'self' https://opendata.rijksoverheid.nl https://date.nager.at"
         )
         if request.is_secure():

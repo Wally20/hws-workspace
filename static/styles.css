@@ -1130,6 +1130,160 @@ textarea:focus {
   min-height: 48px;
 }
 
+.football-days-header,
+.football-days-actions,
+.football-days-save {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.football-days-page {
+  display: grid;
+  gap: 22px;
+}
+
+.football-playbook-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.football-playbook-tile {
+  padding: 22px;
+}
+
+.football-playbook-link {
+  display: grid;
+  gap: 16px;
+}
+
+.football-playbook-link h2 {
+  margin: 0;
+  font-size: 1.12rem;
+}
+
+.football-days-meta {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.3fr) minmax(160px, 0.6fr) minmax(220px, 1fr) auto;
+  gap: 16px;
+  align-items: end;
+}
+
+.football-days-save {
+  align-items: end;
+  justify-content: flex-end;
+}
+
+.football-days-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(0, 1.3fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.football-days-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.football-staff-table,
+.football-program-list {
+  display: grid;
+  gap: 10px;
+}
+
+.football-table-head,
+.football-table-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.9fr) minmax(130px, 0.85fr) minmax(180px, 1.2fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.football-table-head {
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.football-table-row,
+.football-program-row {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8f8f8 100%);
+}
+
+.football-table-row input,
+.football-program-row input {
+  min-height: 44px;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.football-program-row {
+  display: grid;
+  grid-template-columns: 36px 92px 92px minmax(180px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+}
+
+.football-activity-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #111111;
+  background: var(--warm-accent-soft);
+  border: 1px solid rgba(214, 163, 79, 0.38);
+}
+
+.football-activity-icon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.football-activity-icon svg * {
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.football-activity-field {
+  min-width: 0;
+}
+
+.football-row-remove {
+  min-width: 54px;
+}
+
+.football-reuse-field {
+  max-width: 360px;
+}
+
+.football-program-row .football-row-remove,
+.football-program-row input {
+  min-height: 36px;
+}
+
+.football-program-row input {
+  padding: 0 10px;
+}
+
+.football-contingency-field textarea {
+  min-height: 180px;
+  line-height: 1.55;
+}
+
 .proposal-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -2611,8 +2765,57 @@ textarea:focus {
     position: sticky;
     top: 0;
     z-index: 50;
+    height: auto;
+    max-height: 46vh;
+    overflow: auto;
     border-right: 0;
     border-bottom: 1px solid var(--line);
+    grid-template-rows: auto auto auto;
+  }
+
+  .brand-panel {
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .brand-mark {
+    width: 58px;
+    margin: 0;
+  }
+
+  .brand-copy {
+    display: none;
+  }
+
+  .sidebar-nav {
+    display: flex;
+    gap: 8px;
+    padding: 8px 10px 10px;
+    overflow-x: auto;
+    align-content: initial;
+    scrollbar-width: none;
+  }
+
+  .sidebar-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-item {
+    flex: 0 0 auto;
+    min-height: 38px;
+    padding: 0 10px;
+    border-radius: 10px;
+    font-size: 0.82rem;
+  }
+
+  .sidebar-footer {
+    padding: 8px 10px 10px;
+  }
+
+  .sidebar-logout-button {
+    min-height: 36px;
   }
 
   .main-content {
@@ -2637,6 +2840,44 @@ textarea:focus {
 
   .proposal-line-grid {
     grid-template-columns: 1fr;
+  }
+
+  .football-days-header,
+  .football-days-meta,
+  .football-days-grid,
+  .football-table-head,
+  .football-table-row {
+    grid-template-columns: 1fr;
+  }
+
+  .football-program-list {
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .football-program-row {
+    grid-template-columns: 34px 82px 82px minmax(150px, 1fr) 50px;
+    min-width: 430px;
+  }
+
+  .football-days-header,
+  .football-days-actions,
+  .football-days-save {
+    align-items: stretch;
+  }
+
+  .football-days-actions,
+  .football-days-save {
+    justify-content: flex-start;
+  }
+
+  .football-table-head {
+    display: none;
+  }
+
+  .football-activity-icon {
+    width: 42px;
+    height: 42px;
   }
 
   .proposal-form-grid {
@@ -3574,5 +3815,54 @@ textarea:focus {
 
   .registrations-order-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff;
+  }
+
+  .sidebar,
+  .football-days-actions,
+  .football-days-save,
+  .football-row-remove,
+  .notice,
+  script {
+    display: none !important;
+  }
+
+  .app-layout,
+  .main-content,
+  .football-days-page,
+  .football-days-grid {
+    display: block;
+  }
+
+  .main-content {
+    padding: 0;
+  }
+
+  .page-header,
+  .summary-card,
+  .football-days-panel {
+    break-inside: avoid;
+    box-shadow: none;
+  }
+
+  .summary-card {
+    border-radius: 10px;
+    margin: 0 0 14px;
+    padding: 18px;
+  }
+
+  input,
+  textarea {
+    border-color: #cfcfcf;
+    background: #ffffff;
+  }
+
+  textarea {
+    min-height: 130px;
   }
 }

@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from xml.etree import ElementTree as XmlElementTree
 
 import requests
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from werkzeug.exceptions import HTTPException
@@ -212,6 +212,8 @@ SECURITY_HEADERS = {
         "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
         "font-src 'self' data:; "
+        "worker-src 'self'; "
+        "manifest-src 'self'; "
         "connect-src 'self' https://opendata.rijksoverheid.nl https://date.nager.at; "
         "upgrade-insecure-requests"
     ),
@@ -668,7 +670,7 @@ app.config["MAX_CONTENT_LENGTH"] = get_content_storage_config()["max_request_mb"
 
 
 def is_public_path(path: str) -> bool:
-    return path.startswith("/static/") or path in {"/login"} or path.startswith("/uitnodiging/")
+    return path.startswith("/static/") or path in {"/login", "/manifest.webmanifest", "/service-worker.js"} or path.startswith("/uitnodiging/")
 
 
 def get_current_user() -> Optional[Dict[str, Any]]:
@@ -1893,6 +1895,29 @@ def init_db() -> None:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS football_days_playbook (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                title TEXT NOT NULL,
+                event_date TEXT,
+                location TEXT,
+                staff_json TEXT NOT NULL DEFAULT '[]',
+                program_json TEXT NOT NULL DEFAULT '[]',
+                contingencies TEXT,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS football_days_playbooks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                event_date TEXT,
+                location TEXT,
+                staff_json TEXT NOT NULL DEFAULT '[]',
+                program_json TEXT NOT NULL DEFAULT '[]',
+                contingencies TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS proposals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 club_name TEXT NOT NULL,
@@ -2156,6 +2181,42 @@ def table_has_rows(table_name: str) -> bool:
     return row is not None
 
 
+def migrate_football_days_playbook_to_playbooks() -> None:
+    if table_has_rows("football_days_playbooks"):
+        return
+
+    with get_db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT title, event_date, location, staff_json, program_json, contingencies, updated_at
+            FROM football_days_playbook
+            WHERE id = 1
+            """
+        ).fetchone()
+        if row is None:
+            return
+
+        updated_at = str(row["updated_at"] or utcnow_iso()).strip()
+        connection.execute(
+            """
+            INSERT INTO football_days_playbooks (
+                title, event_date, location, staff_json, program_json, contingencies, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(row["title"] or "Draaiboek Voetbaldagen").strip(),
+                str(row["event_date"] or "").strip(),
+                str(row["location"] or "").strip(),
+                str(row["staff_json"] or "[]"),
+                str(row["program_json"] or "[]"),
+                str(row["contingencies"] or "").strip(),
+                updated_at,
+                updated_at,
+            ),
+        )
+
+
 def migrate_dashboard_events_json_to_db() -> None:
     if table_has_rows("dashboard_events"):
         return
@@ -2209,6 +2270,7 @@ def migrate_agenda_trainings_json_to_db() -> None:
 def run_storage_migrations() -> None:
     bootstrap_seed_data_files()
     init_db()
+    migrate_football_days_playbook_to_playbooks()
     migrate_dashboard_events_json_to_db()
     migrate_agenda_trainings_json_to_db()
     sync_seed_workspace_data()
@@ -3241,6 +3303,209 @@ def toggle_task(task_id: int) -> None:
 def delete_task(task_id: int) -> None:
     with get_db_connection() as connection:
         connection.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+
+
+FOOTBALL_ACTIVITY_ICON_RULES: Tuple[Tuple[str, str], ...] = (
+    ("ontvangst|aanmelden|inloop|registratie", "clipboard"),
+    ("warming|warm-up|activatie", "flame"),
+    ("training|techniek|oefening|dribbel|passen|partij|wedstrijd", "football"),
+    ("lunch|eten|pauze|drinken", "utensils"),
+    ("toernooi|finale|prijs|ceremonie|afsluiting", "trophy"),
+    ("foto|media|content", "camera"),
+    ("ehbo|blessure|zorg", "medical"),
+    ("materiaal|opbouw|afbouw|veld", "cones"),
+)
+
+
+def infer_football_activity_icon(activity_name: str) -> str:
+    normalized_name = activity_name.strip().lower()
+    for pattern, icon_key in FOOTBALL_ACTIVITY_ICON_RULES:
+        if re.search(pattern, normalized_name):
+            return icon_key
+    return "clock"
+
+
+def normalize_football_days_playbook(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
+    if row is None:
+        return {
+            "id": None,
+            "title": "Draaiboek Voetbaldagen",
+            "eventDate": "",
+            "location": "",
+            "staff": [],
+            "program": [],
+            "contingencies": "",
+            "createdAt": "",
+            "updatedAt": "",
+        }
+
+    try:
+        staff = json.loads(str(row["staff_json"] or "[]"))
+    except json.JSONDecodeError:
+        staff = []
+    try:
+        program = json.loads(str(row["program_json"] or "[]"))
+    except json.JSONDecodeError:
+        program = []
+
+    normalized_program = []
+    for item in program if isinstance(program, list) else []:
+        if not isinstance(item, dict):
+            continue
+        activity_name = str(item.get("activity") or "").strip()
+        if not activity_name:
+            continue
+        normalized_program.append(
+            {
+                "startTime": str(item.get("startTime") or "").strip(),
+                "endTime": str(item.get("endTime") or "").strip(),
+                "activity": activity_name,
+                "icon": infer_football_activity_icon(activity_name),
+            }
+        )
+
+    normalized_staff = []
+    for item in staff if isinstance(staff, list) else []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        role = str(item.get("role") or "").strip()
+        task = str(item.get("task") or "").strip()
+        if name or role or task:
+            normalized_staff.append({"name": name, "role": role, "task": task})
+
+    return {
+        "id": int(row["id"]),
+        "title": str(row["title"] or "Draaiboek Voetbaldagen").strip(),
+        "eventDate": str(row["event_date"] or "").strip(),
+        "location": str(row["location"] or "").strip(),
+        "staff": normalized_staff,
+        "program": normalized_program,
+        "contingencies": str(row["contingencies"] or "").strip(),
+        "createdAt": str(row["created_at"] or "").strip(),
+        "updatedAt": str(row["updated_at"] or "").strip(),
+    }
+
+
+def load_football_days_playbooks() -> List[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, title, event_date, location, staff_json, program_json, contingencies, created_at, updated_at
+            FROM football_days_playbooks
+            ORDER BY COALESCE(NULLIF(event_date, ''), updated_at) DESC, id DESC
+            """
+        ).fetchall()
+    return [normalize_football_days_playbook(row) for row in rows]
+
+
+def load_football_days_playbook(playbook_id: int) -> Optional[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT id, title, event_date, location, staff_json, program_json, contingencies, created_at, updated_at
+            FROM football_days_playbooks
+            WHERE id = ?
+            """,
+            (playbook_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return normalize_football_days_playbook(row)
+
+
+def create_empty_football_days_playbook() -> Dict[str, Any]:
+    playbook = normalize_football_days_playbook(None)
+    playbook["staff"] = [{"name": "", "role": "", "task": ""}]
+    playbook["program"] = [{"startTime": "", "endTime": "", "activity": "", "icon": "clock"}]
+    return playbook
+
+
+def save_football_days_playbook(playbook: Dict[str, Any], playbook_id: Optional[int] = None) -> int:
+    now = utcnow_iso()
+    payload = (
+        str(playbook.get("title") or "Draaiboek Voetbaldagen").strip(),
+        str(playbook.get("eventDate") or "").strip(),
+        str(playbook.get("location") or "").strip(),
+        json.dumps(playbook.get("staff") or [], ensure_ascii=False),
+        json.dumps(playbook.get("program") or [], ensure_ascii=False),
+        str(playbook.get("contingencies") or "").strip(),
+    )
+
+    with get_db_connection() as connection:
+        if playbook_id:
+            connection.execute(
+                """
+                UPDATE football_days_playbooks
+                SET title = ?,
+                    event_date = ?,
+                    location = ?,
+                    staff_json = ?,
+                    program_json = ?,
+                    contingencies = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (*payload, now, playbook_id),
+            )
+            return playbook_id
+
+        cursor = connection.execute(
+            """
+            INSERT INTO football_days_playbooks (
+                title, event_date, location, staff_json, program_json, contingencies, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (*payload, now, now),
+        )
+        return int(cursor.lastrowid)
+
+
+def build_football_days_playbook_from_form() -> Dict[str, Any]:
+    staff_names = request.form.getlist("staff_name")
+    staff_roles = request.form.getlist("staff_role")
+    staff_tasks = request.form.getlist("staff_task")
+    program_starts = request.form.getlist("program_start")
+    program_ends = request.form.getlist("program_end")
+    program_activities = request.form.getlist("program_activity")
+
+    staff = []
+    for index, name in enumerate(staff_names):
+        role = staff_roles[index] if index < len(staff_roles) else ""
+        task = staff_tasks[index] if index < len(staff_tasks) else ""
+        row = {
+            "name": str(name or "").strip(),
+            "role": str(role or "").strip(),
+            "task": str(task or "").strip(),
+        }
+        if row["name"] or row["role"] or row["task"]:
+            staff.append(row)
+
+    program = []
+    for index, activity in enumerate(program_activities):
+        activity_name = str(activity or "").strip()
+        if not activity_name:
+            continue
+        start_time = program_starts[index] if index < len(program_starts) else ""
+        end_time = program_ends[index] if index < len(program_ends) else ""
+        program.append(
+            {
+                "startTime": str(start_time or "").strip(),
+                "endTime": str(end_time or "").strip(),
+                "activity": activity_name,
+                "icon": infer_football_activity_icon(activity_name),
+            }
+        )
+
+    return {
+        "title": request.form.get("title", "Draaiboek Voetbaldagen").strip() or "Draaiboek Voetbaldagen",
+        "eventDate": request.form.get("event_date", "").strip(),
+        "location": request.form.get("location", "").strip(),
+        "staff": staff,
+        "program": program,
+        "contingencies": request.form.get("contingencies", "").strip(),
+    }
 
 
 def normalize_proposal_type(value: Any) -> str:
@@ -4676,6 +4941,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
         return {
             "dashboard",
             "agenda",
+            "voetbaldagen",
             "tasks",
             "orders",
             "leads",
@@ -7997,6 +8263,71 @@ def tasks_page() -> str:
     )
 
 
+@app.get("/voetbaldagen")
+def football_days_page() -> str:
+    access_redirect = require_page_access("voetbaldagen")
+    if access_redirect is not None:
+        return access_redirect
+
+    return render_template(
+        "voetbaldagen.html",
+        active_page="voetbaldagen",
+        playbooks=load_football_days_playbooks(),
+        success=request.args.get("success", "").strip(),
+    )
+
+
+@app.route("/voetbaldagen/nieuw", methods=["GET", "POST"])
+def football_days_new_page() -> str:
+    access_redirect = require_page_access("voetbaldagen")
+    if access_redirect is not None:
+        return access_redirect
+
+    if request.method == "POST":
+        playbook_id = save_football_days_playbook(build_football_days_playbook_from_form())
+        return redirect(url_for("football_days_edit_page", playbook_id=playbook_id, success="Draaiboek opgeslagen."))
+
+    return render_template(
+        "voetbaldagen_form.html",
+        active_page="voetbaldagen",
+        playbook=create_empty_football_days_playbook(),
+        previous_playbooks=load_football_days_playbooks(),
+        form_action=url_for("football_days_new_page"),
+        page_mode="new",
+        success=request.args.get("success", "").strip(),
+    )
+
+
+@app.route("/voetbaldagen/<int:playbook_id>", methods=["GET", "POST"])
+def football_days_edit_page(playbook_id: int) -> str:
+    access_redirect = require_page_access("voetbaldagen")
+    if access_redirect is not None:
+        return access_redirect
+
+    playbook = load_football_days_playbook(playbook_id)
+    if playbook is None:
+        return redirect(url_for("football_days_page"))
+
+    if request.method == "POST":
+        save_football_days_playbook(build_football_days_playbook_from_form(), playbook_id=playbook_id)
+        return redirect(url_for("football_days_edit_page", playbook_id=playbook_id, success="Draaiboek opgeslagen."))
+
+    if not playbook["staff"]:
+        playbook["staff"] = [{"name": "", "role": "", "task": ""}]
+    if not playbook["program"]:
+        playbook["program"] = [{"startTime": "", "endTime": "", "activity": "", "icon": "clock"}]
+
+    return render_template(
+        "voetbaldagen_form.html",
+        active_page="voetbaldagen",
+        playbook=playbook,
+        previous_playbooks=[item for item in load_football_days_playbooks() if item["id"] != playbook_id],
+        form_action=url_for("football_days_edit_page", playbook_id=playbook_id),
+        page_mode="edit",
+        success=request.args.get("success", "").strip(),
+    )
+
+
 @app.route("/voorstellen-maker", methods=["GET", "POST"])
 def voorstellen_maker_page() -> str:
     access_redirect = require_page_access("voorstellen-maker")
@@ -8616,13 +8947,34 @@ def api_agenda_public_holidays():
         return jsonify({"error": "Netwerkfout bij feestdagen"}), 502
 
 
+@app.get("/service-worker.js")
+def service_worker():
+    response = send_from_directory(os.path.join(os.path.dirname(__file__), "static"), "service-worker.js")
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.cache_control.public = True
+    response.cache_control.max_age = 60
+    return response
+
+
+@app.get("/manifest.webmanifest")
+def web_manifest():
+    response = send_from_directory(os.path.join(os.path.dirname(__file__), "static"), "manifest.webmanifest")
+    response.headers["Content-Type"] = "application/manifest+json"
+    response.cache_control.public = True
+    response.cache_control.max_age = 3600
+    return response
+
+
 @app.after_request
 def set_response_headers(response):
     if request.method == "GET" and response.status_code == 200:
         response.add_etag()
         response.make_conditional(request)
 
-    if request.path.startswith("/static/"):
+    if request.path in {"/manifest.webmanifest", "/service-worker.js"}:
+        response.cache_control.public = True
+        response.cache_control.max_age = 60 if request.path == "/service-worker.js" else 3600
+    elif request.path.startswith("/static/"):
         response.cache_control.public = True
         response.cache_control.max_age = 31536000
         response.cache_control.immutable = True

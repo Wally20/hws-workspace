@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Voetbaldagen | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header football-days-header">
+    <div>
+      <h1>Voetbaldagen</h1>
+      <p class="welcome-line">Open een opgeslagen draaiboek of maak een nieuwe voetbaldag aan.</p>
+    </div>
+    <div class="football-days-actions">
+      <a href="/voetbaldagen/nieuw" class="refresh-button">Nieuw</a>
+    </div>
+  </header>
+
+  {% if success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+  {% endif %}
+
+  <section class="football-playbook-grid">
+    {% for playbook in playbooks %}
+      <article class="summary-card old-function-tile football-playbook-tile">
+        <a href="/voetbaldagen/{{ playbook.id }}" class="football-playbook-link">
+          <div class="feature-record-head">
+            <div>
+              <h2>{{ playbook.title }}</h2>
+              <p class="feature-record-meta">
+                {{ playbook.eventDate if playbook.eventDate else "Geen datum" }}
+                {% if playbook.location %} · {{ playbook.location }}{% endif %}
+              </p>
+            </div>
+            <span class="pill">{{ playbook.program|length }} blokken</span>
+          </div>
+          <div class="compact-stat-list">
+            <div class="compact-stat-row">
+              <span>Medewerkers</span>
+              <span class="compact-stat-value">{{ playbook.staff|length }}</span>
+            </div>
+            <div class="compact-stat-row">
+              <span>Onvoorzien plan</span>
+              <span class="compact-stat-value">{{ "Ja" if playbook.contingencies else "Nee" }}</span>
+            </div>
+          </div>
+        </a>
+      </article>
+    {% else %}
+      <article class="summary-card old-function-tile">
+        <div class="empty-state">Er zijn nog geen draaiboeken opgeslagen.</div>
+      </article>
+    {% endfor %}
+  </section>
+{% endblock %}

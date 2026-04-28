@@ -1,0 +1,22 @@
+{
+  "name": "HWS Voetbalschool Workspace",
+  "short_name": "HWS Workspace",
+  "description": "Workspace voor HWS Voetbalschool met agenda, draaiboeken en administratie.",
+  "lang": "nl-NL",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f4f4",
+  "theme_color": "#111111",
+  "icons": [
+    {
+      "src": "/static/assets/hws-logo.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "sports", "business"]
+}

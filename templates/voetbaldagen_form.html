@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}Voetbaldagen | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header football-days-header">
+    <div>
+      <h1>{{ "Nieuw draaiboek" if page_mode == "new" else playbook.title }}</h1>
+      <p class="welcome-line">Bouw het draaiboek op uit gegevens, medewerkers, programma en onvoorziene omstandigheden.</p>
+    </div>
+    <div class="football-days-actions">
+      <a href="/voetbaldagen" class="subtle-button">Overzicht</a>
+      <button type="button" class="refresh-button" id="exportFootballDaysPdf">Export PDF</button>
+    </div>
+  </header>
+
+  {% if success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+  {% endif %}
+
+  <form method="post" action="{{ form_action }}" class="football-days-page" id="footballDaysForm">
+    <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+
+    <section class="summary-card old-function-tile football-days-meta">
+      <label class="field">
+        <span>Titel draaiboek</span>
+        <input type="text" name="title" value="{{ playbook.title }}" placeholder="Draaiboek Voetbaldag HWS">
+      </label>
+      <label class="field">
+        <span>Datum</span>
+        <input type="date" name="event_date" value="{{ playbook.eventDate }}">
+      </label>
+      <label class="field">
+        <span>Locatie</span>
+        <input type="text" name="location" value="{{ playbook.location }}" placeholder="Sportpark, veld of club">
+      </label>
+      <div class="football-days-save">
+        <button type="submit" class="subtle-button subtle-button-strong">Draaiboek opslaan</button>
+      </div>
+    </section>
+
+    <section class="football-days-grid">
+      <article class="summary-card old-function-tile football-days-panel">
+        <div class="feature-list-head">
+          <div>
+            <p class="panel-title">Trainers en medewerkers</p>
+            <p class="feature-list-subtitle">Verdeel rollen en taken per persoon.</p>
+          </div>
+          <button type="button" class="subtle-button action-small" id="addFootballStaffRow">+ Medewerker</button>
+        </div>
+        <label class="field football-reuse-field">
+          <span>Terughalen uit vorig draaiboek</span>
+          <select data-reuse-playbook="staff">
+            <option value="">Kies een draaiboek</option>
+            {% for previous in previous_playbooks %}
+              <option value="{{ previous.id }}">{{ previous.title }}{% if previous.eventDate %} - {{ previous.eventDate }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <div class="football-staff-table" id="footballStaffRows">
+          <div class="football-table-head">
+            <span>Naam</span>
+            <span>Rol</span>
+            <span>Taak</span>
+            <span></span>
+          </div>
+          {% for member in playbook.staff %}
+            <div class="football-table-row" data-football-staff-row>
+              <input type="text" name="staff_name" value="{{ member.name }}" placeholder="Naam">
+              <input type="text" name="staff_role" value="{{ member.role }}" placeholder="Trainer, EHBO, coordinator">
+              <input type="text" name="staff_task" value="{{ member.task }}" placeholder="Bijvoorbeeld: veld 2 begeleiden">
+              <button type="button" class="subtle-button action-small football-row-remove" data-remove-football-row aria-label="Verwijder medewerker">Wis</button>
+            </div>
+          {% endfor %}
+        </div>
+      </article>
+
+      <article class="summary-card old-function-tile football-days-panel football-program-panel">
+        <div class="feature-list-head">
+          <div>
+            <p class="panel-title">Programma</p>
+            <p class="feature-list-subtitle">Compacte regels voor veel activiteiten.</p>
+          </div>
+          <button type="button" class="subtle-button action-small" id="addFootballProgramRow">+ Activiteit</button>
+        </div>
+        <label class="field football-reuse-field">
+          <span>Terughalen uit vorig draaiboek</span>
+          <select data-reuse-playbook="program">
+            <option value="">Kies een draaiboek</option>
+            {% for previous in previous_playbooks %}
+              <option value="{{ previous.id }}">{{ previous.title }}{% if previous.eventDate %} - {{ previous.eventDate }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <div class="football-program-list" id="footballProgramRows">
+          {% for item in playbook.program %}
+            <div class="football-program-row" data-football-program-row>
+              <div class="football-activity-icon" data-activity-icon="{{ item.icon }}" aria-hidden="true"></div>
+              <input type="time" name="program_start" value="{{ item.startTime }}" aria-label="Begintijd">
+              <input type="time" name="program_end" value="{{ item.endTime }}" aria-label="Eindtijd">
+              <input type="text" name="program_activity" value="{{ item.activity }}" placeholder="Activiteit" data-activity-name aria-label="Activiteit">
+              <button type="button" class="subtle-button action-small football-row-remove" data-remove-football-row aria-label="Verwijder activiteit">Wis</button>
+            </div>
+          {% endfor %}
+        </div>
+      </article>
+    </section>
+
+    <section class="summary-card old-function-tile football-days-panel">
+      <div class="feature-list-head">
+        <div>
+          <p class="panel-title">Onvoorziene omstandigheden</p>
+          <p class="feature-list-subtitle">Leg alternatieven, noodnummers, regenplan of materiaalissues vast.</p>
+        </div>
+      </div>
+      <label class="field football-reuse-field">
+        <span>Terughalen uit vorig draaiboek</span>
+        <select data-reuse-playbook="contingencies">
+          <option value="">Kies een draaiboek</option>
+          {% for previous in previous_playbooks %}
+            <option value="{{ previous.id }}">{{ previous.title }}{% if previous.eventDate %} - {{ previous.eventDate }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field football-contingency-field">
+        <span>Scenario's en oplossingen</span>
+        <textarea name="contingencies" placeholder="Bijvoorbeeld: Bij hevige regen verplaatsen naar kleedkamer 3 voor lunch en quiz. EHBO aanspreekpunt: ...">{{ playbook.contingencies }}</textarea>
+      </label>
+    </section>
+  </form>
+
+  <template id="footballStaffRowTemplate">
+    <div class="football-table-row" data-football-staff-row>
+      <input type="text" name="staff_name" placeholder="Naam">
+      <input type="text" name="staff_role" placeholder="Trainer, EHBO, coordinator">
+      <input type="text" name="staff_task" placeholder="Bijvoorbeeld: veld 2 begeleiden">
+      <button type="button" class="subtle-button action-small football-row-remove" data-remove-football-row aria-label="Verwijder medewerker">Wis</button>
+    </div>
+  </template>
+
+  <template id="footballProgramRowTemplate">
+    <div class="football-program-row" data-football-program-row>
+      <div class="football-activity-icon" data-activity-icon="clock" aria-hidden="true"></div>
+      <input type="time" name="program_start" aria-label="Begintijd">
+      <input type="time" name="program_end" aria-label="Eindtijd">
+      <input type="text" name="program_activity" placeholder="Activiteit" data-activity-name aria-label="Activiteit">
+      <button type="button" class="subtle-button action-small football-row-remove" data-remove-football-row aria-label="Verwijder activiteit">Wis</button>
+    </div>
+  </template>
+
+  <script type="application/json" id="footballPreviousPlaybooks">{{ previous_playbooks|tojson }}</script>
+  <script nonce="{{ csp_nonce }}" src="../static/voetbaldagen.js?v={{ asset_version }}" defer></script>
+{% endblock %}

@@ -24,6 +24,9 @@ urlpatterns = [
     path("profiel", views.personal_profile_page, name="personal_profile_page"),
     path("trainers", views.trainers_page, name="trainers_page"),
     path("agenda", views.agenda_page, name="agenda_page"),
+    path("voetbaldagen", views.football_days_page, name="football_days_page"),
+    path("voetbaldagen/nieuw", views.football_days_new_page, name="football_days_new_page"),
+    path("voetbaldagen/<int:playbook_id>", views.football_days_edit_page, name="football_days_edit_page"),
     path("oefeningen-bibliotheek", views.oefeningen_bibliotheek_page, name="oefeningen_bibliotheek_page"),
     path(
         "api/oefeningen-bibliotheek/category",
@@ -73,6 +76,8 @@ urlpatterns = [
     path("api/dashboard-weather", views.api_dashboard_weather, name="api_dashboard_weather"),
     path("api/agenda-school-holidays", views.api_agenda_school_holidays, name="api_agenda_school_holidays"),
     path("api/agenda-public-holidays", views.api_agenda_public_holidays, name="api_agenda_public_holidays"),
+    path("manifest.webmanifest", views.web_manifest, name="web_manifest"),
+    path("service-worker.js", views.service_worker, name="service_worker"),
 ]
 
 if settings.DEBUG:

@@ -4,7 +4,15 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ legacy_csrf_token }}">
+    <meta name="theme-color" content="#111111">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="HWS Workspace">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Inloggen | HWS Voetbalschool Workspace</title>
+    <link rel="icon" type="image/png" href="../static/assets/hws-logo.png">
+    <link rel="apple-touch-icon" href="../static/assets/hws-logo.png">
+    <link rel="manifest" href="/manifest.webmanifest?v={{ asset_version }}">
     <link rel="stylesheet" href="../static/styles.css?v={{ asset_version }}">
   </head>
   <body class="login-body">
@@ -52,5 +60,6 @@
         </form>
       </section>
     </main>
+    <script nonce="{{ csp_nonce }}" src="../static/base.js?v={{ asset_version }}" defer></script>
   </body>
 </html>
