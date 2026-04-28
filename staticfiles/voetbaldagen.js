@@ -96,7 +96,8 @@
     const row = staffTemplate.content.firstElementChild.cloneNode(true);
     row.querySelector('input[name="staff_name"]').value = member.name || "";
     row.querySelector('input[name="staff_role"]').value = member.role || "";
-    row.querySelector('input[name="staff_task"]').value = member.task || "";
+    row.querySelector('input[name="staff_day_task"]').value = member.dayTask || member.task || "";
+    row.querySelector('input[name="staff_setup_task"]').value = member.setupTask || "";
     staffRows.appendChild(row);
     return row;
   };
@@ -130,13 +131,21 @@
     }
   };
 
-  const loadRegistrationCount = async (productId) => {
-    if (!productId) {
+  const loadRegistrationCount = async (product = {}) => {
+    const productId = String(product.id || "").trim();
+    const productName = String(product.name || "").trim();
+    const productSku = String(product.sku || "").trim();
+    if (!productId && !productName && !productSku) {
       setRegistrationCount(0);
       return;
     }
     try {
-      const response = await fetch(`/api/products/registration-count?product_id=${encodeURIComponent(productId)}`);
+      const params = new URLSearchParams({
+        product_id: productId,
+        product_name: productName,
+        product_sku: productSku,
+      });
+      const response = await fetch(`/api/products/registration-count?${params.toString()}`);
       const payload = await response.json();
       if (response.ok) {
         setRegistrationCount(payload.registrationCount || 0);
@@ -221,7 +230,7 @@
       clearProductButton.hidden = !productId;
     }
     hideProductResults();
-    loadRegistrationCount(productId);
+    loadRegistrationCount(product);
   };
 
   const clearProduct = () => {

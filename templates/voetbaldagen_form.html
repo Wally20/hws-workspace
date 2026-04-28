@@ -82,14 +82,16 @@
           <div class="football-table-head">
             <span>Naam</span>
             <span>Rol</span>
-            <span>Taak</span>
+            <span>Taak dag</span>
+            <span>Taak uitzetten</span>
             <span></span>
           </div>
           {% for member in playbook.staff %}
             <div class="football-table-row" data-football-staff-row>
               <input type="text" name="staff_name" value="{{ member.name }}" placeholder="Naam">
               <input type="text" name="staff_role" value="{{ member.role }}" placeholder="Trainer, EHBO, coordinator">
-              <input type="text" name="staff_task" value="{{ member.task }}" placeholder="Bijvoorbeeld: veld 2 begeleiden">
+              <input type="text" name="staff_day_task" value="{{ member.dayTask }}" placeholder="Bijvoorbeeld: veld 2 begeleiden">
+              <input type="text" name="staff_setup_task" value="{{ member.setupTask }}" placeholder="Bijvoorbeeld: veld 2 uitzetten">
               <button type="button" class="subtle-button action-small football-row-remove" data-remove-football-row aria-label="Verwijder medewerker">Wis</button>
             </div>
           {% endfor %}
@@ -154,7 +156,8 @@
     <div class="football-table-row" data-football-staff-row>
       <input type="text" name="staff_name" placeholder="Naam">
       <input type="text" name="staff_role" placeholder="Trainer, EHBO, coordinator">
-      <input type="text" name="staff_task" placeholder="Bijvoorbeeld: veld 2 begeleiden">
+      <input type="text" name="staff_day_task" placeholder="Bijvoorbeeld: veld 2 begeleiden">
+      <input type="text" name="staff_setup_task" placeholder="Bijvoorbeeld: veld 2 uitzetten">
       <button type="button" class="subtle-button action-small football-row-remove" data-remove-football-row aria-label="Verwijder medewerker">Wis</button>
     </div>
   </template>

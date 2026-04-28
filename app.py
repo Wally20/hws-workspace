@@ -3043,6 +3043,29 @@ def clear_exercise_import_preview(preview_id: str) -> None:
         pass
 
 
+def apply_submitted_exercise_import_edits(preview_exercises: List[Dict[str, Any]]) -> None:
+    text_fields = {
+        "title": "title",
+        "duration": "duration",
+        "training_exercise": "trainingExercise",
+        "description": "description",
+        "coaching": "coaching",
+        "variation_easier": "variationEasier",
+        "variation_harder": "variationHarder",
+        "dimensions": "dimensions",
+        "materials": "materials",
+    }
+    for index, preview_exercise in enumerate(preview_exercises):
+        submitted_category = request.form.get(f"category_{index}")
+        if submitted_category is not None:
+            preview_exercise["category"] = normalize_exercise_category(submitted_category)
+        for form_key, exercise_key in text_fields.items():
+            submitted_value = request.form.get(f"{form_key}_{index}")
+            if submitted_value is None:
+                continue
+            preview_exercise[exercise_key] = normalize_exercise_text(submitted_value)
+
+
 def update_exercise_category(exercise_id: Any, category: Any) -> bool:
     try:
         normalized_id = int(exercise_id)
@@ -3525,9 +3548,10 @@ def normalize_football_days_playbook(row: Optional[sqlite3.Row]) -> Dict[str, An
             continue
         name = str(item.get("name") or "").strip()
         role = str(item.get("role") or "").strip()
-        task = str(item.get("task") or "").strip()
-        if name or role or task:
-            normalized_staff.append({"name": name, "role": role, "task": task})
+        day_task = str(item.get("dayTask") or item.get("task") or "").strip()
+        setup_task = str(item.get("setupTask") or "").strip()
+        if name or role or day_task or setup_task:
+            normalized_staff.append({"name": name, "role": role, "dayTask": day_task, "setupTask": setup_task})
 
     return {
         "id": int(row["id"]),
@@ -3575,20 +3599,43 @@ def load_football_days_playbook(playbook_id: int) -> Optional[Dict[str, Any]]:
 
 def create_empty_football_days_playbook() -> Dict[str, Any]:
     playbook = normalize_football_days_playbook(None)
-    playbook["staff"] = [{"name": "", "role": "", "task": ""}]
+    playbook["staff"] = [{"name": "", "role": "", "dayTask": "", "setupTask": ""}]
     playbook["program"] = [{"startTime": "", "endTime": "", "activity": "", "icon": "clock"}]
     return playbook
 
 
-def count_ecwid_product_registrations(orders: List[Dict[str, Any]], product_id: str) -> int:
+def count_ecwid_product_registrations(
+    orders: List[Dict[str, Any]],
+    product_id: str,
+    product_name: str = "",
+    product_sku: str = "",
+) -> int:
     normalized_product_id = str(product_id or "").strip()
-    if not normalized_product_id:
+    normalized_product_name = normalize_match_text(product_name)
+    normalized_product_sku = normalize_match_text(product_sku)
+    if not normalized_product_id and not normalized_product_name and not normalized_product_sku:
         return 0
+
+    if normalized_product_id:
+        id_count = 0
+        for order in orders:
+            for item in order.get("items", []):
+                if str(item.get("productId") or "").strip() == normalized_product_id:
+                    id_count += max(int(item.get("quantity") or 0), 0)
+        if id_count:
+            return id_count
 
     registration_count = 0
     for order in orders:
         for item in order.get("items", []):
-            if str(item.get("productId") or "").strip() == normalized_product_id:
+            item_name = normalize_match_text(item.get("name", ""))
+            item_sku = normalize_match_text(item.get("sku", ""))
+            is_match = False
+            if normalized_product_sku:
+                is_match = item_sku == normalized_product_sku
+            if not is_match and normalized_product_name:
+                is_match = item_name == normalized_product_name
+            if is_match:
                 registration_count += max(int(item.get("quantity") or 0), 0)
     return registration_count
 
@@ -3607,8 +3654,18 @@ def attach_football_days_registration_counts(playbooks: List[Dict[str, Any]]) ->
     except requests.RequestException:
         return playbooks
     orders = orders_payload.get("items", [])
+    playbooks_by_product_id = {
+        str(playbook.get("ecwidProductId") or "").strip(): playbook
+        for playbook in playbooks
+        if str(playbook.get("ecwidProductId") or "").strip()
+    }
     counts = {
-        product_id: count_ecwid_product_registrations(orders, product_id)
+        product_id: count_ecwid_product_registrations(
+            orders,
+            product_id,
+            playbooks_by_product_id.get(product_id, {}).get("ecwidProductName", ""),
+            playbooks_by_product_id.get(product_id, {}).get("ecwidProductSku", ""),
+        )
         for product_id in product_ids
     }
 
@@ -3668,7 +3725,8 @@ def save_football_days_playbook(playbook: Dict[str, Any], playbook_id: Optional[
 def build_football_days_playbook_from_form() -> Dict[str, Any]:
     staff_names = request.form.getlist("staff_name")
     staff_roles = request.form.getlist("staff_role")
-    staff_tasks = request.form.getlist("staff_task")
+    staff_day_tasks = request.form.getlist("staff_day_task") or request.form.getlist("staff_task")
+    staff_setup_tasks = request.form.getlist("staff_setup_task")
     program_starts = request.form.getlist("program_start")
     program_ends = request.form.getlist("program_end")
     program_activities = request.form.getlist("program_activity")
@@ -3676,13 +3734,15 @@ def build_football_days_playbook_from_form() -> Dict[str, Any]:
     staff = []
     for index, name in enumerate(staff_names):
         role = staff_roles[index] if index < len(staff_roles) else ""
-        task = staff_tasks[index] if index < len(staff_tasks) else ""
+        day_task = staff_day_tasks[index] if index < len(staff_day_tasks) else ""
+        setup_task = staff_setup_tasks[index] if index < len(staff_setup_tasks) else ""
         row = {
             "name": str(name or "").strip(),
             "role": str(role or "").strip(),
-            "task": str(task or "").strip(),
+            "dayTask": str(day_task or "").strip(),
+            "setupTask": str(setup_task or "").strip(),
         }
-        if row["name"] or row["role"] or row["task"]:
+        if row["name"] or row["role"] or row["dayTask"] or row["setupTask"]:
             staff.append(row)
 
     program = []
@@ -8296,6 +8356,8 @@ def oefeningen_bibliotheek_page() -> str:
 
     if request.method == "POST":
         action = request.form.get("action", "preview").strip() or "preview"
+        if request.form.get("import_one_index") is not None:
+            action = "import_one"
         if action == "preview":
             upload = request.files.get("exercise_file") or request.files.get("pptx_file")
             if upload is None or not upload.filename:
@@ -8344,21 +8406,18 @@ def oefeningen_bibliotheek_page() -> str:
             return redirect(url_for("oefeningen_bibliotheek_page", error="De importpreview is verlopen. Upload het bestand opnieuw."))
 
         if action == "import_all":
-            for index, preview_exercise in enumerate(preview_exercises):
-                submitted_category = request.form.get(f"category_{index}", "").strip()
-                if submitted_category:
-                    preview_exercise["category"] = normalize_exercise_category(submitted_category)
+            apply_submitted_exercise_import_edits(preview_exercises)
             imported_count = insert_exercises(preview_exercises)
             clear_exercise_import_preview(preview_id)
             return redirect(url_for("oefeningen_bibliotheek_page", success=f"{imported_count} oefeningen geupload."))
 
         if action == "import_one":
-            exercise_index = request.form.get("exercise_index", type=int)
+            exercise_index = request.form.get("import_one_index", type=int)
+            if exercise_index is None:
+                exercise_index = request.form.get("exercise_index", type=int)
             if exercise_index is None or exercise_index < 0 or exercise_index >= len(preview_exercises):
                 return redirect(url_for("oefeningen_bibliotheek_page", error="Deze oefening kon niet worden gevonden in de preview."))
-            submitted_category = request.form.get(f"category_{exercise_index}", "").strip()
-            if submitted_category:
-                preview_exercises[exercise_index]["category"] = normalize_exercise_category(submitted_category)
+            apply_submitted_exercise_import_edits(preview_exercises)
             imported_count = insert_exercises([preview_exercises[exercise_index]])
             remaining_preview = [
                 item
@@ -8540,7 +8599,7 @@ def football_days_edit_page(playbook_id: int) -> str:
         return redirect(url_for("football_days_edit_page", playbook_id=playbook_id, success="Draaiboek opgeslagen."))
 
     if not playbook["staff"]:
-        playbook["staff"] = [{"name": "", "role": "", "task": ""}]
+        playbook["staff"] = [{"name": "", "role": "", "dayTask": "", "setupTask": ""}]
     if not playbook["program"]:
         playbook["program"] = [{"startTime": "", "endTime": "", "activity": "", "icon": "clock"}]
     attach_football_days_registration_counts([playbook])
@@ -9007,7 +9066,9 @@ def api_product_registration_count():
         return access_redirect
 
     product_id = request.args.get("product_id", "").strip()
-    if not product_id:
+    product_name = request.args.get("product_name", "").strip()
+    product_sku = request.args.get("product_sku", "").strip()
+    if not product_id and not product_name and not product_sku:
         return jsonify({"productId": "", "registrationCount": 0})
 
     try:
@@ -9015,7 +9076,12 @@ def api_product_registration_count():
         return jsonify(
             {
                 "productId": product_id,
-                "registrationCount": count_ecwid_product_registrations(orders_payload.get("items", []), product_id),
+                "registrationCount": count_ecwid_product_registrations(
+                    orders_payload.get("items", []),
+                    product_id,
+                    product_name,
+                    product_sku,
+                ),
             }
         )
     except requests.HTTPError as exc:

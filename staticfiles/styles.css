@@ -1167,9 +1167,29 @@ textarea:focus {
 
 .football-days-meta {
   display: grid;
-  grid-template-columns: minmax(220px, 1.1fr) minmax(140px, 0.55fr) minmax(180px, 0.9fr) minmax(240px, 1.15fr) auto auto;
-  gap: 16px;
+  grid-template-columns: minmax(180px, 1.1fr) minmax(132px, 0.5fr) minmax(160px, 0.8fr) minmax(230px, 1.1fr) auto auto;
+  gap: 12px;
   align-items: end;
+  overflow: visible;
+  padding: 22px 26px;
+  position: relative;
+  z-index: 10;
+}
+
+.football-days-meta .field span {
+  font-size: 0.8rem;
+}
+
+.football-days-meta input,
+.football-days-meta .subtle-button,
+.football-days-meta .football-registration-count {
+  min-height: 40px;
+  border-radius: 12px;
+}
+
+.football-days-meta input {
+  padding: 0 14px;
+  font-size: 0.92rem;
 }
 
 .football-days-save {
@@ -1192,12 +1212,13 @@ textarea:focus {
 
 .football-product-results {
   position: absolute;
-  z-index: 30;
+  z-index: 80;
   top: calc(100% + 6px);
   left: 0;
   right: 0;
   display: grid;
-  overflow: hidden;
+  max-height: min(360px, 56vh);
+  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #ffffff;
@@ -1235,12 +1256,11 @@ textarea:focus {
 }
 
 .football-registration-count {
-  min-height: 44px;
-  min-width: 112px;
+  min-width: 96px;
   display: grid;
   align-content: center;
   gap: 1px;
-  padding: 8px 12px;
+  padding: 7px 11px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface-soft);
@@ -1248,19 +1268,19 @@ textarea:focus {
 
 .football-registration-count span {
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 800;
   text-transform: uppercase;
 }
 
 .football-registration-count strong {
-  font-size: 1.1rem;
+  font-size: 1rem;
   line-height: 1;
 }
 
 .football-days-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 16px;
   align-items: start;
 }
@@ -1279,7 +1299,7 @@ textarea:focus {
 .football-table-head,
 .football-table-row {
   display: grid;
-  grid-template-columns: minmax(130px, 0.9fr) minmax(130px, 0.85fr) minmax(180px, 1.2fr) auto;
+  grid-template-columns: minmax(130px, 0.9fr) minmax(130px, 0.75fr) minmax(180px, 1fr) minmax(180px, 1fr) auto;
   gap: 10px;
   align-items: center;
 }
@@ -1309,7 +1329,7 @@ textarea:focus {
 
 .football-program-row {
   display: grid;
-  grid-template-columns: 36px 92px 92px minmax(180px, 1fr) auto;
+  grid-template-columns: 36px 108px 108px minmax(260px, 1fr) auto;
   gap: 8px;
   align-items: center;
   padding: 8px 10px;
@@ -1348,7 +1368,7 @@ textarea:focus {
 }
 
 .football-reuse-field {
-  max-width: 320px;
+  max-width: 360px;
 }
 
 .football-program-row .football-row-remove,
@@ -3519,6 +3539,11 @@ textarea:focus {
   gap: 18px;
 }
 
+.exercise-import-preview-form {
+  display: grid;
+  gap: 18px;
+}
+
 .exercise-import-preview-head,
 .exercise-import-preview-card-head {
   display: flex;
@@ -3557,6 +3582,23 @@ textarea:focus {
   min-width: 0;
 }
 
+.exercise-import-preview-edit {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.exercise-import-preview-edit .field span,
+.exercise-import-preview-grid .field span {
+  font-size: 0.74rem;
+}
+
+.exercise-import-preview-meta-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.9fr) minmax(110px, 0.55fr);
+  gap: 10px;
+}
+
 .exercise-import-preview-image {
   display: block;
   width: 100%;
@@ -3588,25 +3630,20 @@ textarea:focus {
   gap: 10px;
 }
 
-.exercise-import-preview-grid > div {
+.exercise-import-preview-grid .field {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
   padding: 12px;
 }
 
-.exercise-import-preview-grid h3 {
-  margin: 0 0 8px;
-  font-size: 0.78rem;
-  text-transform: uppercase;
-}
-
-.exercise-import-preview-grid p {
-  margin: 0;
-  color: #3e3e3e;
-  font-size: 0.86rem;
-  line-height: 1.42;
-  white-space: pre-line;
+.exercise-import-preview-grid textarea {
+  min-height: 108px;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  resize: vertical;
 }
 
 .exercise-tile-grid {
