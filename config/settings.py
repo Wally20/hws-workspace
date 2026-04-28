@@ -117,6 +117,7 @@ HAS_WHITENOISE = find_spec("whitenoise") is not None
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "django.middleware.gzip.GZipMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "core.middleware.LegacyRequestMiddleware",

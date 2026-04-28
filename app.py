@@ -1,6 +1,7 @@
 import os
 import json
 import calendar
+import copy
 import re
 import sqlite3
 import shutil
@@ -18,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal, InvalidOperation
 from datetime import date, datetime, time as dt_time, timedelta
 from math import ceil
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from xml.etree import ElementTree as XmlElementTree
 
 import requests
@@ -169,6 +170,7 @@ app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 31536000
 ASSET_VERSION = str(int(time.time()))
 
 CACHE_TTL_SECONDS = 300
+LOCAL_DATA_CACHE_TTL_SECONDS = max(1, int(os.getenv("LOCAL_DATA_CACHE_TTL_SECONDS", "30") or "30"))
 AGENDA_EXTERNAL_CACHE_TTL_SECONDS = 43200
 orders_cache: Dict[str, Any] = {
     "payload": None,
@@ -182,11 +184,55 @@ ecwid_orders_cache: Dict[str, Any] = {
 }
 ecwid_orders_cache_lock = threading.Lock()
 ecwid_refresh_in_progress = False
+catalog_products_cache: Dict[str, Any] = {
+    "payload": None,
+    "cached_at": 0.0,
+}
+catalog_products_cache_lock = threading.Lock()
 agenda_school_holidays_cache: Dict[str, Any] = {}
 agenda_school_holidays_cache_lock = threading.Lock()
 agenda_public_holidays_cache: Dict[str, Any] = {}
 agenda_public_holidays_cache_lock = threading.Lock()
+local_data_cache: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+local_data_cache_lock = threading.Lock()
 content_album_lock = threading.Lock()
+
+
+def get_file_cache_fingerprint(path: str) -> Tuple[int, int]:
+    try:
+        stat_result = os.stat(path)
+    except OSError:
+        return (0, 0)
+    return (stat_result.st_mtime_ns, stat_result.st_size)
+
+
+def get_cached_local_data(cache_name: str, cache_args: Tuple[Any, ...], loader: Callable[[], Any]) -> Any:
+    now = time.time()
+    fingerprint = get_file_cache_fingerprint(DATABASE_PATH)
+    cache_key = (cache_name, *cache_args)
+
+    with local_data_cache_lock:
+        cached_payload = local_data_cache.get(cache_key)
+        if (
+            cached_payload is not None
+            and cached_payload.get("fingerprint") == fingerprint
+            and now - float(cached_payload.get("cached_at") or 0.0) < LOCAL_DATA_CACHE_TTL_SECONDS
+        ):
+            return copy.deepcopy(cached_payload["payload"])
+
+    payload = loader()
+    with local_data_cache_lock:
+        local_data_cache[cache_key] = {
+            "payload": copy.deepcopy(payload),
+            "fingerprint": fingerprint,
+            "cached_at": now,
+        }
+    return payload
+
+
+def clear_local_data_cache() -> None:
+    with local_data_cache_lock:
+        local_data_cache.clear()
 
 DEFAULT_PASSWORD_HASH_METHOD = "scrypt" if hasattr(hashlib, "scrypt") else "pbkdf2:sha256"
 PASSWORD_HASH_METHOD = os.getenv("PASSWORD_HASH_METHOD", "").strip() or DEFAULT_PASSWORD_HASH_METHOD
@@ -453,6 +499,7 @@ def update_user_password_hash(profile_id: str, password: str) -> None:
             "UPDATE trainer_profiles SET password_hash = ? WHERE id = ?",
             (hash_password(password), profile_id.strip()),
         )
+    clear_local_data_cache()
 
 
 def ensure_csrf_token() -> str:
@@ -613,6 +660,14 @@ def get_config() -> Dict[str, str]:
             "" if is_placeholder_value(moneybird_administration_id) else moneybird_administration_id
         ),
     }
+
+
+def get_external_cache_fingerprint(include_moneybird: bool = False) -> Tuple[str, ...]:
+    config = get_config()
+    values = [config["store_id"], config["secret_token"]]
+    if include_moneybird:
+        values.extend([config["moneybird_token"], config["moneybird_administration_id"]])
+    return tuple(hashlib.sha256(value.encode("utf-8")).hexdigest() if value else "" for value in values)
 
 
 def get_content_storage_config() -> Dict[str, Any]:
@@ -1007,8 +1062,26 @@ def fetch_catalog_products_payload() -> Dict[str, Any]:
 
 
 def fetch_catalog_products() -> Dict[str, Any]:
+    now = time.time()
+    config_fingerprint = get_external_cache_fingerprint()
+    with catalog_products_cache_lock:
+        cached_payload = catalog_products_cache.get("payload")
+        cached_at = float(catalog_products_cache.get("cached_at") or 0.0)
+        cached_fingerprint = catalog_products_cache.get("config_fingerprint")
+
+    if cached_payload is not None and cached_fingerprint == config_fingerprint and now - cached_at < CACHE_TTL_SECONDS:
+        payload = copy.deepcopy(cached_payload)
+        payload["cachedAt"] = cached_at
+        return payload
+
     payload = fetch_catalog_products_payload()
     payload["items"] = sorted(payload.get("items", []), key=lambda product: str(product.get("name", "")).lower())
+    with catalog_products_cache_lock:
+        catalog_products_cache["payload"] = copy.deepcopy(payload)
+        catalog_products_cache["cached_at"] = now
+        catalog_products_cache["config_fingerprint"] = config_fingerprint
+
+    payload["cachedAt"] = now
     return payload
 
 
@@ -2302,33 +2375,36 @@ def run_storage_migrations() -> None:
 
 
 def load_dashboard_events_config() -> List[Dict[str, Any]]:
-    with get_db_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT product_id, label, match_terms
-            FROM dashboard_events
-            ORDER BY id ASC
-            """
-        ).fetchall()
+    def loader() -> List[Dict[str, Any]]:
+        with get_db_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT product_id, label, match_terms
+                FROM dashboard_events
+                ORDER BY id ASC
+                """
+            ).fetchall()
 
-    if not rows:
-        return get_default_dashboard_events()
+        if not rows:
+            return get_default_dashboard_events()
 
-    cleaned = []
-    for row in rows:
-        try:
-            match_terms = json.loads(row["match_terms"] or "[]")
-        except json.JSONDecodeError:
-            match_terms = []
-        cleaned.append(
-            {
-                "productId": row["product_id"],
-                "label": row["label"] or "Onbekend event",
-                "matchTerms": match_terms if isinstance(match_terms, list) else [],
-            }
-        )
+        cleaned = []
+        for row in rows:
+            try:
+                match_terms = json.loads(row["match_terms"] or "[]")
+            except json.JSONDecodeError:
+                match_terms = []
+            cleaned.append(
+                {
+                    "productId": row["product_id"],
+                    "label": row["label"] or "Onbekend event",
+                    "matchTerms": match_terms if isinstance(match_terms, list) else [],
+                }
+            )
 
-    return cleaned or get_default_dashboard_events()
+        return cleaned or get_default_dashboard_events()
+
+    return get_cached_local_data("dashboard_events_config", (), loader)
 
 
 def normalize_match_text(value: str) -> str:
@@ -2735,42 +2811,45 @@ def parse_exercises_from_pptx(file_bytes: bytes) -> List[Dict[str, Any]]:
 
 
 def load_exercises() -> List[Dict[str, Any]]:
-    with get_db_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT id, title, category, duration, training_exercise, description, coaching,
-                   variation_easier, variation_harder, dimensions, materials, field_json,
-                   source_slide, updated_at
-            FROM exercises
-            ORDER BY category COLLATE NOCASE, title COLLATE NOCASE
-            """
-        ).fetchall()
+    def loader() -> List[Dict[str, Any]]:
+        with get_db_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, title, category, duration, training_exercise, description, coaching,
+                       variation_easier, variation_harder, dimensions, materials, field_json,
+                       source_slide, updated_at
+                FROM exercises
+                ORDER BY category COLLATE NOCASE, title COLLATE NOCASE
+                """
+            ).fetchall()
 
-    exercises = []
-    for row in rows:
-        try:
-            field = json.loads(str(row["field_json"] or "{}"))
-        except json.JSONDecodeError:
-            field = {"viewBox": [0, 0, PPTX_SLIDE_WIDTH, PPTX_SLIDE_HEIGHT], "elements": []}
-        exercises.append(
-            {
-                "id": int(row["id"]),
-                "title": str(row["title"] or "").strip(),
-                "category": normalize_exercise_category(row["category"]),
-                "duration": str(row["duration"] or "").strip(),
-                "trainingExercise": str(row["training_exercise"] or "").strip(),
-                "description": str(row["description"] or "").strip(),
-                "coaching": str(row["coaching"] or "").strip(),
-                "variationEasier": str(row["variation_easier"] or "").strip(),
-                "variationHarder": str(row["variation_harder"] or "").strip(),
-                "dimensions": str(row["dimensions"] or "").strip(),
-                "materials": str(row["materials"] or "").strip(),
-                "field": field,
-                "sourceSlide": row["source_slide"],
-                "updatedAt": str(row["updated_at"] or "").strip(),
-            }
-        )
-    return exercises
+        exercises = []
+        for row in rows:
+            try:
+                field = json.loads(str(row["field_json"] or "{}"))
+            except json.JSONDecodeError:
+                field = {"viewBox": [0, 0, PPTX_SLIDE_WIDTH, PPTX_SLIDE_HEIGHT], "elements": []}
+            exercises.append(
+                {
+                    "id": int(row["id"]),
+                    "title": str(row["title"] or "").strip(),
+                    "category": normalize_exercise_category(row["category"]),
+                    "duration": str(row["duration"] or "").strip(),
+                    "trainingExercise": str(row["training_exercise"] or "").strip(),
+                    "description": str(row["description"] or "").strip(),
+                    "coaching": str(row["coaching"] or "").strip(),
+                    "variationEasier": str(row["variation_easier"] or "").strip(),
+                    "variationHarder": str(row["variation_harder"] or "").strip(),
+                    "dimensions": str(row["dimensions"] or "").strip(),
+                    "materials": str(row["materials"] or "").strip(),
+                    "field": field,
+                    "sourceSlide": row["source_slide"],
+                    "updatedAt": str(row["updated_at"] or "").strip(),
+                }
+            )
+        return exercises
+
+    return get_cached_local_data("exercises", (), loader)
 
 
 def safe_svg_number(value: Any, default: float = 0.0) -> float:
@@ -2915,6 +2994,7 @@ def replace_exercises(exercises: List[Dict[str, Any]]) -> None:
                 if normalize_exercise_text(item.get("title"))
             ],
         )
+    clear_local_data_cache()
 
 
 def insert_exercises(exercises: List[Dict[str, Any]]) -> int:
@@ -2983,6 +3063,7 @@ def insert_exercises(exercises: List[Dict[str, Any]]) -> int:
         if not rows:
             return 0
         connection.executemany(f"INSERT INTO exercises ({column_sql}) VALUES ({placeholders})", rows)
+    clear_local_data_cache()
     return len(rows)
 
 
@@ -3153,48 +3234,53 @@ def delete_exercise(exercise_id: Any) -> bool:
         return False
     with get_db_connection() as connection:
         cursor = connection.execute("DELETE FROM exercises WHERE id = ?", (normalized_id,))
+    if cursor.rowcount > 0:
+        clear_local_data_cache()
     return cursor.rowcount > 0
 
 
 def load_agenda_trainings(start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[Dict[str, Any]]:
-    query = """
-        SELECT id, title, date, time, end_time, location, notes
-        FROM agenda_trainings
-    """
-    params: List[str] = []
-    conditions: List[str] = []
-
     normalized_start_date = str(start_date or "").strip()
     normalized_end_date = str(end_date or "").strip()
 
-    if normalized_start_date:
-        conditions.append("date >= ?")
-        params.append(normalized_start_date)
-    if normalized_end_date:
-        conditions.append("date <= ?")
-        params.append(normalized_end_date)
-    if conditions:
-        query += "\n        WHERE " + " AND ".join(conditions)
-    query += "\n        ORDER BY date ASC, time ASC"
+    def loader() -> List[Dict[str, Any]]:
+        query = """
+            SELECT id, title, date, time, end_time, location, notes
+            FROM agenda_trainings
+        """
+        params: List[str] = []
+        conditions: List[str] = []
 
-    with get_db_connection() as connection:
-        rows = connection.execute(query, params).fetchall()
+        if normalized_start_date:
+            conditions.append("date >= ?")
+            params.append(normalized_start_date)
+        if normalized_end_date:
+            conditions.append("date <= ?")
+            params.append(normalized_end_date)
+        if conditions:
+            query += "\n        WHERE " + " AND ".join(conditions)
+        query += "\n        ORDER BY date ASC, time ASC"
 
-    trainings = []
-    for row in rows:
-        trainings.append(
-            {
-                "id": str(row["id"]),
-                "title": str(row["title"] or "").strip(),
-                "date": str(row["date"] or "").strip(),
-                "time": str(row["time"] or "").strip(),
-                "endTime": str(row["end_time"] or "").strip(),
-                "location": str(row["location"] or "").strip(),
-                "notes": str(row["notes"] or "").strip(),
-            }
-        )
+        with get_db_connection() as connection:
+            rows = connection.execute(query, params).fetchall()
 
-    return trainings
+        trainings = []
+        for row in rows:
+            trainings.append(
+                {
+                    "id": str(row["id"]),
+                    "title": str(row["title"] or "").strip(),
+                    "date": str(row["date"] or "").strip(),
+                    "time": str(row["time"] or "").strip(),
+                    "endTime": str(row["end_time"] or "").strip(),
+                    "location": str(row["location"] or "").strip(),
+                    "notes": str(row["notes"] or "").strip(),
+                }
+            )
+
+        return trainings
+
+    return get_cached_local_data("agenda_trainings", (normalized_start_date, normalized_end_date), loader)
 
 
 def save_agenda_trainings(trainings: List[Dict[str, Any]]) -> None:
@@ -3219,6 +3305,7 @@ def save_agenda_trainings(trainings: List[Dict[str, Any]]) -> None:
                 if str(item.get("id", "")).strip()
             ],
         )
+    clear_local_data_cache()
 
 
 def add_agenda_training(
@@ -3252,43 +3339,50 @@ def load_agenda_day_plans(date_values: List[str]) -> Dict[str, str]:
     normalized_dates = [str(value or "").strip() for value in date_values if str(value or "").strip()]
     if not normalized_dates:
         return {}
+    normalized_dates = sorted(set(normalized_dates))
 
-    placeholders = ",".join("?" for _ in normalized_dates)
-    with get_db_connection() as connection:
-        rows = connection.execute(
-            f"""
-            SELECT date, plan_type
-            FROM agenda_day_plans
-            WHERE date IN ({placeholders})
-            """,
-            normalized_dates,
-        ).fetchall()
+    def loader() -> Dict[str, str]:
+        placeholders = ",".join("?" for _ in normalized_dates)
+        with get_db_connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT date, plan_type
+                FROM agenda_day_plans
+                WHERE date IN ({placeholders})
+                """,
+                normalized_dates,
+            ).fetchall()
 
-    return {
-        str(row["date"] or "").strip(): str(row["plan_type"] or "").strip()
-        for row in rows
-        if str(row["date"] or "").strip() and str(row["plan_type"] or "").strip()
-    }
+        return {
+            str(row["date"] or "").strip(): str(row["plan_type"] or "").strip()
+            for row in rows
+            if str(row["date"] or "").strip() and str(row["plan_type"] or "").strip()
+        }
+
+    return get_cached_local_data("agenda_day_plans", tuple(normalized_dates), loader)
 
 
 def load_all_agenda_day_plans() -> List[Dict[str, str]]:
-    with get_db_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT date, plan_type
-            FROM agenda_day_plans
-            ORDER BY date
-            """
-        ).fetchall()
+    def loader() -> List[Dict[str, str]]:
+        with get_db_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT date, plan_type
+                FROM agenda_day_plans
+                ORDER BY date
+                """
+            ).fetchall()
 
-    return [
-        {
-            "date": str(row["date"] or "").strip(),
-            "planType": str(row["plan_type"] or "").strip(),
-        }
-        for row in rows
-        if str(row["date"] or "").strip() and str(row["plan_type"] or "").strip()
-    ]
+        return [
+            {
+                "date": str(row["date"] or "").strip(),
+                "planType": str(row["plan_type"] or "").strip(),
+            }
+            for row in rows
+            if str(row["date"] or "").strip() and str(row["plan_type"] or "").strip()
+        ]
+
+    return get_cached_local_data("all_agenda_day_plans", (), loader)
 
 
 def normalize_agenda_summary_filter(value: Any) -> str:
@@ -3363,6 +3457,7 @@ def save_agenda_day_plans(day_plans: Dict[str, str], replace_dates: Optional[Lis
             """,
             cleaned_rows,
         )
+    clear_local_data_cache()
 
 
 def utcnow_iso() -> str:
@@ -3379,18 +3474,24 @@ def save_dashboard_preference(key: str, value: str) -> None:
             """,
             (key, value),
         )
+    clear_local_data_cache()
 
 
 def load_dashboard_preference(key: str, default: str = "") -> str:
-    with get_db_connection() as connection:
-        row = connection.execute(
-            "SELECT value FROM dashboard_preferences WHERE key = ?",
-            (key,),
-        ).fetchone()
+    normalized_key = str(key or "").strip()
 
-    if row is None:
-        return default
-    return str(row["value"] or default)
+    def loader() -> str:
+        with get_db_connection() as connection:
+            row = connection.execute(
+                "SELECT value FROM dashboard_preferences WHERE key = ?",
+                (normalized_key,),
+            ).fetchone()
+
+        if row is None:
+            return default
+        return str(row["value"] or default)
+
+    return get_cached_local_data("dashboard_preference", (normalized_key, default), loader)
 
 
 def normalize_blocked_lead_emails(raw_value: Any) -> str:
@@ -3421,37 +3522,44 @@ def load_dashboard_weather_settings() -> Dict[str, str]:
         "weather_lat": "52.25",
         "weather_lon": "6.16",
     }
-    with get_db_connection() as connection:
-        rows = connection.execute(
-            "SELECT key, value FROM dashboard_preferences WHERE key IN ('weather_name', 'weather_lat', 'weather_lon')"
-        ).fetchall()
 
-    settings = dict(defaults)
-    for row in rows:
-        settings[str(row["key"])] = str(row["value"])
-    return settings
+    def loader() -> Dict[str, str]:
+        with get_db_connection() as connection:
+            rows = connection.execute(
+                "SELECT key, value FROM dashboard_preferences WHERE key IN ('weather_name', 'weather_lat', 'weather_lon')"
+            ).fetchall()
+
+        settings = dict(defaults)
+        for row in rows:
+            settings[str(row["key"])] = str(row["value"])
+        return settings
+
+    return get_cached_local_data("dashboard_weather_settings", (), loader)
 
 
 def load_tasks() -> List[Dict[str, Any]]:
-    with get_db_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT id, title, due_date, is_done, created_at
-            FROM tasks
-            ORDER BY is_done ASC, due_date ASC, created_at DESC
-            """
-        ).fetchall()
+    def loader() -> List[Dict[str, Any]]:
+        with get_db_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, title, due_date, is_done, created_at
+                FROM tasks
+                ORDER BY is_done ASC, due_date ASC, created_at DESC
+                """
+            ).fetchall()
 
-    return [
-        {
-            "id": int(row["id"]),
-            "title": str(row["title"] or "").strip(),
-            "dueDate": str(row["due_date"] or "").strip(),
-            "isDone": bool(row["is_done"]),
-            "createdAt": str(row["created_at"] or "").strip(),
-        }
-        for row in rows
-    ]
+        return [
+            {
+                "id": int(row["id"]),
+                "title": str(row["title"] or "").strip(),
+                "dueDate": str(row["due_date"] or "").strip(),
+                "isDone": bool(row["is_done"]),
+                "createdAt": str(row["created_at"] or "").strip(),
+            }
+            for row in rows
+        ]
+
+    return get_cached_local_data("tasks", (), loader)
 
 
 def add_task(title: str, due_date: str) -> None:
@@ -3460,6 +3568,7 @@ def add_task(title: str, due_date: str) -> None:
             "INSERT INTO tasks (title, due_date, is_done, created_at) VALUES (?, ?, 0, ?)",
             (title.strip(), due_date.strip(), utcnow_iso()),
         )
+    clear_local_data_cache()
 
 
 def toggle_task(task_id: int) -> None:
@@ -3472,11 +3581,13 @@ def toggle_task(task_id: int) -> None:
             """,
             (task_id,),
         )
+    clear_local_data_cache()
 
 
 def delete_task(task_id: int) -> None:
     with get_db_connection() as connection:
         connection.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    clear_local_data_cache()
 
 
 FOOTBALL_ACTIVITY_ICON_RULES: Tuple[Tuple[str, str], ...] = (
@@ -5348,11 +5459,13 @@ def update_trainer_profile(
                 profile_id.strip(),
             ),
         )
+    clear_local_data_cache()
 
 
 def delete_trainer_profile(profile_id: str) -> None:
     with get_db_connection() as connection:
         connection.execute("DELETE FROM trainer_profiles WHERE id = ?", (profile_id.strip(),))
+    clear_local_data_cache()
 
 
 def seed_workspace_tables() -> None:
@@ -5405,42 +5518,45 @@ def get_weather_description(code: int) -> Dict[str, str]:
 
 
 def load_trainer_profiles() -> List[Dict[str, Any]]:
-    with get_db_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT
-                id,
-                full_name,
-                email,
-                username,
-                password_hash,
-                invite_token,
-                invite_expires_at,
-                invite_accepted_at,
-                role,
-                member_type,
-                system_role,
-                knvb_license,
-                education,
-                availability_days,
-                phone,
-                notes,
-                is_admin,
-                status,
-                created_at
-            FROM trainer_profiles
-            ORDER BY full_name COLLATE NOCASE ASC, created_at DESC
-            """
-        ).fetchall()
+    def loader() -> List[Dict[str, Any]]:
+        with get_db_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    id,
+                    full_name,
+                    email,
+                    username,
+                    password_hash,
+                    invite_token,
+                    invite_expires_at,
+                    invite_accepted_at,
+                    role,
+                    member_type,
+                    system_role,
+                    knvb_license,
+                    education,
+                    availability_days,
+                    phone,
+                    notes,
+                    is_admin,
+                    status,
+                    created_at
+                FROM trainer_profiles
+                ORDER BY full_name COLLATE NOCASE ASC, created_at DESC
+                """
+            ).fetchall()
 
-    profiles = []
-    for row in rows:
-        profile = build_user_payload(row)
-        profile["memberType"] = profile.get("memberType") or ("Medewerker" if profile.get("isAdmin") else "Vrijwilliger")
-        profile["systemRole"] = profile.get("systemRole") or profile.get("role") or ""
-        profiles.append(profile)
+        profiles = []
+        for row in rows:
+            profile = build_user_payload(row)
+            profile["memberType"] = profile.get("memberType") or ("Medewerker" if profile.get("isAdmin") else "Vrijwilliger")
+            profile["systemRole"] = profile.get("systemRole") or profile.get("role") or ""
+            profiles.append(profile)
 
-    return profiles
+        return profiles
+
+    return get_cached_local_data("trainer_profiles", (), loader)
 
 
 def build_admin_account_debug_summary() -> Dict[str, Any]:
@@ -5587,6 +5703,7 @@ def add_trainer_profile(
                 created_at,
             ),
         )
+    clear_local_data_cache()
 
 
 def create_trainer_invite_profile(
@@ -5637,6 +5754,7 @@ def create_trainer_invite_profile(
                 created_at,
             ),
         )
+    clear_local_data_cache()
 
     return {
         "profileId": profile_id,
@@ -5646,84 +5764,104 @@ def create_trainer_invite_profile(
 
 
 def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
-    with get_db_connection() as connection:
-        row = connection.execute(
-            """
-            SELECT
-                id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
-                knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
-            FROM trainer_profiles
-            WHERE id = ?
-            LIMIT 1
-            """,
-            (user_id.strip(),),
-        ).fetchone()
+    normalized_user_id = str(user_id or "").strip()
 
-    if row is None:
-        return None
+    def loader() -> Optional[Dict[str, Any]]:
+        with get_db_connection() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
+                    knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
+                FROM trainer_profiles
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (normalized_user_id,),
+            ).fetchone()
 
-    return build_user_payload(row)
+        if row is None:
+            return None
+
+        return build_user_payload(row)
+
+    return get_cached_local_data("user_by_id", (normalized_user_id,), loader)
 
 
 def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
-    with get_db_connection() as connection:
-        row = connection.execute(
-            """
-            SELECT
-                id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
-                knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
-            FROM trainer_profiles
-            WHERE lower(username) = lower(?)
-            LIMIT 1
-            """,
-            (username.strip(),),
-        ).fetchone()
+    normalized_username = str(username or "").strip()
 
-    if row is None:
-        return None
+    def loader() -> Optional[Dict[str, Any]]:
+        with get_db_connection() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
+                    knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
+                FROM trainer_profiles
+                WHERE lower(username) = lower(?)
+                LIMIT 1
+                """,
+                (normalized_username,),
+            ).fetchone()
 
-    return build_user_payload(row)
+        if row is None:
+            return None
+
+        return build_user_payload(row)
+
+    return get_cached_local_data("user_by_username", (normalized_username.lower(),), loader)
 
 
 def get_user_by_login(login_value: str) -> Optional[Dict[str, Any]]:
-    with get_db_connection() as connection:
-        row = connection.execute(
-            """
-            SELECT
-                id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
-                knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
-            FROM trainer_profiles
-            WHERE lower(email) = lower(?) OR lower(username) = lower(?)
-            ORDER BY is_admin DESC, created_at ASC
-            LIMIT 1
-            """,
-            (login_value.strip(), login_value.strip()),
-        ).fetchone()
+    normalized_login = str(login_value or "").strip()
 
-    if row is None:
-        return None
+    def loader() -> Optional[Dict[str, Any]]:
+        with get_db_connection() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
+                    knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
+                FROM trainer_profiles
+                WHERE lower(email) = lower(?) OR lower(username) = lower(?)
+                ORDER BY is_admin DESC, created_at ASC
+                LIMIT 1
+                """,
+                (normalized_login, normalized_login),
+            ).fetchone()
 
-    return build_user_payload(row)
+        if row is None:
+            return None
+
+        return build_user_payload(row)
+
+    return get_cached_local_data("user_by_login", (normalized_login.lower(),), loader)
 
 
 def get_user_by_invite_token(invite_token: str) -> Optional[Dict[str, Any]]:
-    with get_db_connection() as connection:
-        row = connection.execute(
-            """
-            SELECT
-                id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
-                knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
-            FROM trainer_profiles
-            WHERE invite_token = ?
-            LIMIT 1
-            """,
-            (invite_token.strip(),),
-        ).fetchone()
+    normalized_invite_token = str(invite_token or "").strip()
 
-    if row is None:
-        return None
+    def loader() -> Optional[Dict[str, Any]]:
+        with get_db_connection() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
+                    knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
+                FROM trainer_profiles
+                WHERE invite_token = ?
+                LIMIT 1
+                """,
+                (normalized_invite_token,),
+            ).fetchone()
 
-    return build_user_payload(row)
+        if row is None:
+            return None
+
+        return build_user_payload(row)
+
+    return get_cached_local_data("user_by_invite_token", (normalized_invite_token,), loader)
 
 
 def accept_trainer_invite(profile_id: str, password: str) -> None:
@@ -5744,6 +5882,7 @@ def accept_trainer_invite(profile_id: str, password: str) -> None:
                 profile_id.strip(),
             ),
         )
+    clear_local_data_cache()
 
 
 def authenticate_user(login_value: str, password: str) -> Optional[Dict[str, Any]]:
@@ -6408,6 +6547,7 @@ def invalidate_ecwid_orders_cache() -> None:
     with ecwid_orders_cache_lock:
         ecwid_orders_cache["payload"] = None
         ecwid_orders_cache["cached_at"] = 0.0
+        ecwid_orders_cache["config_fingerprint"] = None
 
 
 def update_ecwid_order_to_processing(order_id: str) -> bool:
@@ -6716,6 +6856,7 @@ def refresh_orders_cache() -> None:
         with cache_lock:
             orders_cache["payload"] = payload
             orders_cache["cached_at"] = time.time()
+            orders_cache["config_fingerprint"] = get_external_cache_fingerprint(include_moneybird=True)
     finally:
         refresh_in_progress = False
 
@@ -6736,6 +6877,7 @@ def refresh_ecwid_orders_cache() -> None:
         with ecwid_orders_cache_lock:
             ecwid_orders_cache["payload"] = payload
             ecwid_orders_cache["cached_at"] = time.time()
+            ecwid_orders_cache["config_fingerprint"] = get_external_cache_fingerprint()
     finally:
         ecwid_refresh_in_progress = False
 
@@ -6751,18 +6893,21 @@ def start_ecwid_orders_background_refresh() -> None:
 
 def fetch_orders(force_refresh: bool = False) -> Dict[str, Any]:
     now = time.time()
+    config_fingerprint = get_external_cache_fingerprint(include_moneybird=True)
     with cache_lock:
         cached_payload = orders_cache.get("payload")
         cached_at = float(orders_cache.get("cached_at") or 0.0)
+        cached_fingerprint = orders_cache.get("config_fingerprint")
 
-    cache_is_fresh = cached_payload is not None and now - cached_at < CACHE_TTL_SECONDS
+    cache_matches_config = cached_fingerprint == config_fingerprint
+    cache_is_fresh = cached_payload is not None and cache_matches_config and now - cached_at < CACHE_TTL_SECONDS
 
     if not force_refresh and cache_is_fresh:
         payload = dict(cached_payload)
         payload["cachedAt"] = cached_at
         return payload
 
-    if not force_refresh and cached_payload is not None:
+    if not force_refresh and cached_payload is not None and cache_matches_config:
         payload = dict(cached_payload)
         payload["cachedAt"] = cached_at
         start_background_refresh()
@@ -6783,6 +6928,7 @@ def fetch_orders(force_refresh: bool = False) -> Dict[str, Any]:
     with cache_lock:
         orders_cache["payload"] = payload
         orders_cache["cached_at"] = now
+        orders_cache["config_fingerprint"] = config_fingerprint
 
     payload_with_cache = dict(payload)
     payload_with_cache["cachedAt"] = now
@@ -6791,18 +6937,21 @@ def fetch_orders(force_refresh: bool = False) -> Dict[str, Any]:
 
 def fetch_ecwid_orders(force_refresh: bool = False) -> Dict[str, Any]:
     now = time.time()
+    config_fingerprint = get_external_cache_fingerprint()
     with ecwid_orders_cache_lock:
         cached_payload = ecwid_orders_cache.get("payload")
         cached_at = float(ecwid_orders_cache.get("cached_at") or 0.0)
+        cached_fingerprint = ecwid_orders_cache.get("config_fingerprint")
 
-    cache_is_fresh = cached_payload is not None and now - cached_at < CACHE_TTL_SECONDS
+    cache_matches_config = cached_fingerprint == config_fingerprint
+    cache_is_fresh = cached_payload is not None and cache_matches_config and now - cached_at < CACHE_TTL_SECONDS
 
     if not force_refresh and cache_is_fresh:
         payload = dict(cached_payload)
         payload["cachedAt"] = cached_at
         return payload
 
-    if not force_refresh and cached_payload is not None:
+    if not force_refresh and cached_payload is not None and cache_matches_config:
         payload = dict(cached_payload)
         payload["cachedAt"] = cached_at
         start_ecwid_orders_background_refresh()
@@ -6823,6 +6972,7 @@ def fetch_ecwid_orders(force_refresh: bool = False) -> Dict[str, Any]:
     with ecwid_orders_cache_lock:
         ecwid_orders_cache["payload"] = payload
         ecwid_orders_cache["cached_at"] = now
+        ecwid_orders_cache["config_fingerprint"] = config_fingerprint
 
     payload_with_cache = dict(payload)
     payload_with_cache["cachedAt"] = now
