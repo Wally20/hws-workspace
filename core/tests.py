@@ -19,6 +19,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         with legacy.get_db_connection() as connection:
             connection.execute("DELETE FROM rate_limit_attempts")
             connection.execute("DELETE FROM registration_email_statuses")
+            connection.execute("DELETE FROM football_days_playbooks WHERE title LIKE 'Test draaiboek%'")
         super().tearDown()
 
     def extract_csrf_token(self, response) -> str:
@@ -195,6 +196,38 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             legacy.get_visible_pages_for_user({"id": "social", "isAdmin": False, "systemRole": "Social media beheerder"}),
         )
         self.assertIn("leads", legacy.get_visible_pages_for_user({"id": "trainer", "isAdmin": False, "systemRole": "Trainer"}))
+
+    def test_football_days_new_page_renders_for_authenticated_user(self):
+        response = self.build_authenticated_client().get("/voetbaldagen/nieuw", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Nieuw draaiboek", content)
+        self.assertIn('action="/voetbaldagen/nieuw"', content)
+
+    def test_football_days_new_page_saves_and_redirects_to_created_playbook(self):
+        response = self.build_authenticated_client().post(
+            "/voetbaldagen/nieuw",
+            {
+                "csrf_token": self.TEST_CSRF_TOKEN,
+                "title": "Test draaiboek voetbaldag",
+                "event_date": "2026-05-01",
+                "location": "Sportpark HWS",
+                "staff_name": ["Test Trainer"],
+                "staff_role": ["Trainer"],
+                "staff_task": ["Veld 1"],
+                "program_start": ["09:00"],
+                "program_end": ["10:00"],
+                "program_activity": ["Training"],
+                "contingencies": "Regenplan klaarzetten.",
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertRegex(response["Location"], r"^/voetbaldagen/\d+\?success=")
+        created_id = int(response["Location"].split("/voetbaldagen/", 1)[1].split("?", 1)[0])
+        self.assertEqual(legacy.load_football_days_playbook(created_id)["title"], "Test draaiboek voetbaldag")
 
     def test_registrations_page_only_loads_products_for_overview(self):
         catalog_payload = {

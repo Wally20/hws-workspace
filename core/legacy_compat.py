@@ -36,6 +36,9 @@ ENDPOINTS = {
     "personal_profile_page": "personal_profile_page",
     "trainers_page": "trainers_page",
     "agenda_page": "agenda_page",
+    "football_days_page": "football_days_page",
+    "football_days_new_page": "football_days_new_page",
+    "football_days_edit_page": "football_days_edit_page",
     "oefeningen_bibliotheek_page": "oefeningen_bibliotheek_page",
     "api_update_exercise_category": "api_update_exercise_category",
     "api_update_exercise": "api_update_exercise",
@@ -57,6 +60,7 @@ ENDPOINTS = {
 PATH_KWARGS = {
     "invite_accept_page": {"invite_token"},
     "registrations_detail_page": {"product_key"},
+    "football_days_edit_page": {"playbook_id"},
     "voorstellen_maker_detail_page": {"proposal_id"},
     "content_album_page": {"album_id"},
 }
