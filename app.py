@@ -43,6 +43,9 @@ PPTX_XML_NAMESPACES = {
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
 }
+DOCX_XML_NAMESPACES = {
+    "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+}
 PPTX_SLIDE_WIDTH = 12192000
 PPTX_SLIDE_HEIGHT = 6858000
 EXERCISE_FIELD_MIN_X = 350000
@@ -2394,6 +2397,10 @@ def normalize_exercise_category(value: Any) -> str:
     return ""
 
 
+def normalize_exercise_title_key(value: Any) -> str:
+    return re.sub(r"\s+", " ", normalize_exercise_text(value)).casefold()
+
+
 def is_allowed_exercise_category(value: Any) -> bool:
     return normalize_exercise_category(value) in EXERCISE_CATEGORY_OPTIONS
 
@@ -2411,24 +2418,35 @@ def parse_exercise_text(lines: List[str]) -> Dict[str, str]:
     label_map = {
         "OEFENING:": "title",
         "TRAININGSOEFENING:": "trainingExercise",
+        "ORGANISATIE:": "trainingExercise",
         "DUUR:": "duration",
         "OMSCHRIJVING OEFENING:": "description",
         "MATERIALEN:": "materials",
         "AFMETINGEN:": "dimensions",
         "COACHING:": "coaching",
+        "BIJZONDERE SPELREGELS:": "specialRules",
         "VARIATIE MAKKELIJKER MAKEN:": "variationEasier",
         "VARIATIE MOEILIJKER MAKEN:": "variationHarder",
     }
     sections: Dict[str, List[str]] = {value: [] for value in label_map.values()}
     current_key = ""
+    labels_by_length = sorted(label_map.items(), key=lambda item: len(item[0]), reverse=True)
 
     for raw_line in lines:
         line = normalize_exercise_text(raw_line)
         if not line:
             continue
         upper_line = line.upper()
-        if upper_line in label_map:
-            current_key = label_map[upper_line]
+        matched_label = ""
+        for label, key in labels_by_length:
+            if upper_line == label or upper_line.startswith(label):
+                matched_label = label
+                current_key = key
+                inline_value = normalize_exercise_text(line[len(label):])
+                if inline_value:
+                    sections[current_key].append(inline_value)
+                break
+        if matched_label:
             continue
         if current_key:
             sections[current_key].append(line)
@@ -2438,6 +2456,87 @@ def parse_exercise_text(lines: List[str]) -> Dict[str, str]:
     if duration:
         parsed["duration"] = normalize_exercise_text(duration.replace("\n", " "))
     return parsed
+
+
+def extract_docx_paragraph_text(paragraph: XmlElementTree.Element) -> str:
+    return normalize_exercise_text(
+        "".join(text_node.text or "" for text_node in paragraph.findall(".//w:t", DOCX_XML_NAMESPACES))
+    )
+
+
+def extract_docx_table_lines(table: XmlElementTree.Element) -> List[str]:
+    lines: List[str] = []
+    for row in table.findall("w:tr", DOCX_XML_NAMESPACES):
+        for cell in row.findall("w:tc", DOCX_XML_NAMESPACES):
+            for paragraph in cell.findall("w:p", DOCX_XML_NAMESPACES):
+                text = extract_docx_paragraph_text(paragraph)
+                if text:
+                    lines.append(text)
+    return lines
+
+
+def parse_exercises_from_docx(file_bytes: bytes) -> List[Dict[str, Any]]:
+    exercises: List[Dict[str, Any]] = []
+    current_category = ""
+    pending_title = ""
+
+    with zipfile.ZipFile(BytesIO(file_bytes)) as archive:
+        document_root = XmlElementTree.fromstring(archive.read("word/document.xml"))
+        body = document_root.find("w:body", DOCX_XML_NAMESPACES)
+        if body is None:
+            return exercises
+
+        for child in body:
+            tag_name = child.tag.rsplit("}", 1)[-1]
+            if tag_name == "p":
+                text = extract_docx_paragraph_text(child)
+                if not text:
+                    continue
+                category = normalize_exercise_category(text)
+                if category:
+                    current_category = category
+                    pending_title = ""
+                else:
+                    pending_title = text
+                continue
+
+            if tag_name != "tbl":
+                continue
+
+            parsed = parse_exercise_text(extract_docx_table_lines(child))
+            title = normalize_exercise_text(parsed.get("title") or pending_title)
+            if not title:
+                continue
+
+            description = parsed.get("description", "")
+            special_rules = parsed.get("specialRules", "")
+            if special_rules:
+                description = normalize_exercise_text(
+                    f"{description}\n\nBijzondere spelregels:\n{special_rules}"
+                    if description
+                    else f"Bijzondere spelregels:\n{special_rules}"
+                )
+
+            exercises.append(
+                {
+                    "title": title,
+                    "category": normalize_exercise_category(current_category),
+                    "duration": parsed.get("duration", ""),
+                    "trainingExercise": parsed.get("trainingExercise", ""),
+                    "description": description,
+                    "coaching": parsed.get("coaching", ""),
+                    "variationEasier": parsed.get("variationEasier", ""),
+                    "variationHarder": parsed.get("variationHarder", ""),
+                    "dimensions": parsed.get("dimensions", ""),
+                    "materials": parsed.get("materials", ""),
+                    "field": {"viewBox": [0, 0, PPTX_SLIDE_WIDTH, PPTX_SLIDE_HEIGHT], "elements": []},
+                    "sourceSlide": None,
+                    "sourceLabel": f"Word #{len(exercises) + 1}",
+                }
+            )
+            pending_title = ""
+
+    return exercises
 
 
 def pptx_shape_bounds(shape: XmlElementTree.Element) -> Optional[Dict[str, float]]:
@@ -2849,31 +2948,63 @@ def insert_exercises(exercises: List[Dict[str, Any]]) -> int:
 
         placeholders = ", ".join("?" for _ in insert_columns)
         column_sql = ", ".join(insert_columns)
-        rows = [
-            tuple([normalize_exercise_text(item.get("title"))] if has_legacy_name else [])
-            + (
-                normalize_exercise_text(item.get("title")),
-                normalize_exercise_category(item.get("category")),
-                normalize_exercise_text(item.get("duration")),
-                normalize_exercise_text(item.get("trainingExercise")),
-                normalize_exercise_text(item.get("description")),
-                normalize_exercise_text(item.get("coaching")),
-                normalize_exercise_text(item.get("variationEasier")),
-                normalize_exercise_text(item.get("variationHarder")),
-                normalize_exercise_text(item.get("dimensions")),
-                normalize_exercise_text(item.get("materials")),
-                json.dumps(item.get("field") or {}, ensure_ascii=True),
-                item.get("sourceSlide"),
-                now,
+        existing_title_keys = {
+            normalize_exercise_title_key(row["title"])
+            for row in connection.execute("SELECT title FROM exercises").fetchall()
+            if normalize_exercise_title_key(row["title"])
+        }
+        seen_title_keys: Set[str] = set()
+        rows = []
+        for item in exercises:
+            title = normalize_exercise_text(item.get("title"))
+            title_key = normalize_exercise_title_key(title)
+            if not title or title_key in existing_title_keys or title_key in seen_title_keys:
+                continue
+            seen_title_keys.add(title_key)
+            rows.append(
+                tuple([title] if has_legacy_name else [])
+                + (
+                    title,
+                    normalize_exercise_category(item.get("category")),
+                    normalize_exercise_text(item.get("duration")),
+                    normalize_exercise_text(item.get("trainingExercise")),
+                    normalize_exercise_text(item.get("description")),
+                    normalize_exercise_text(item.get("coaching")),
+                    normalize_exercise_text(item.get("variationEasier")),
+                    normalize_exercise_text(item.get("variationHarder")),
+                    normalize_exercise_text(item.get("dimensions")),
+                    normalize_exercise_text(item.get("materials")),
+                    json.dumps(item.get("field") or {}, ensure_ascii=True),
+                    item.get("sourceSlide"),
+                    now,
+                )
+                + ((now,) if has_legacy_created_at else ())
             )
-            + ((now,) if has_legacy_created_at else ())
-            for item in exercises
-            if normalize_exercise_text(item.get("title"))
-        ]
         if not rows:
             return 0
         connection.executemany(f"INSERT INTO exercises ({column_sql}) VALUES ({placeholders})", rows)
     return len(rows)
+
+
+def filter_importable_exercises(exercises: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int]:
+    with get_db_connection() as connection:
+        existing_title_keys = {
+            normalize_exercise_title_key(row["title"])
+            for row in connection.execute("SELECT title FROM exercises").fetchall()
+            if normalize_exercise_title_key(row["title"])
+        }
+
+    importable: List[Dict[str, Any]] = []
+    seen_title_keys: Set[str] = set()
+    skipped_count = 0
+    for exercise in exercises:
+        title_key = normalize_exercise_title_key(exercise.get("title"))
+        if not title_key or title_key in existing_title_keys or title_key in seen_title_keys:
+            skipped_count += 1
+            continue
+        seen_title_keys.add(title_key)
+        importable.append(exercise)
+    return importable, skipped_count
 
 
 def get_exercise_import_preview_path(preview_id: str) -> str:
@@ -8166,25 +8297,35 @@ def oefeningen_bibliotheek_page() -> str:
     if request.method == "POST":
         action = request.form.get("action", "preview").strip() or "preview"
         if action == "preview":
-            upload = request.files.get("pptx_file")
+            upload = request.files.get("exercise_file") or request.files.get("pptx_file")
             if upload is None or not upload.filename:
-                return redirect(url_for("oefeningen_bibliotheek_page", error="Kies eerst een PowerPoint-bestand."))
-            if not upload.filename.lower().endswith(".pptx"):
-                return redirect(url_for("oefeningen_bibliotheek_page", error="Upload een .pptx-bestand."))
+                return redirect(url_for("oefeningen_bibliotheek_page", error="Kies eerst een PowerPoint- of Word-bestand."))
+            filename = upload.filename.lower()
+            if not filename.endswith((".pptx", ".docx")):
+                return redirect(url_for("oefeningen_bibliotheek_page", error="Upload een .pptx- of .docx-bestand."))
 
             try:
                 file_bytes = upload.read()
-                preview_exercises = parse_exercises_from_pptx(file_bytes)
+                if filename.endswith(".docx"):
+                    preview_exercises = parse_exercises_from_docx(file_bytes)
+                    source_label = "Word"
+                else:
+                    preview_exercises = parse_exercises_from_pptx(file_bytes)
+                    source_label = "PowerPoint"
+                preview_exercises, skipped_count = filter_importable_exercises(preview_exercises)
                 preview_id = save_exercise_import_preview(preview_exercises)
             except (zipfile.BadZipFile, XmlElementTree.ParseError, KeyError, ValueError, OSError):
-                app.logger.exception("PowerPoint importpreview kon niet worden gemaakt")
-                return redirect(url_for("oefeningen_bibliotheek_page", error="Deze PowerPoint kon niet worden gelezen."))
+                app.logger.exception("Importpreview kon niet worden gemaakt")
+                return redirect(url_for("oefeningen_bibliotheek_page", error="Dit bestand kon niet worden gelezen."))
 
             if not preview_exercises:
                 clear_exercise_import_preview(preview_id)
-                return redirect(url_for("oefeningen_bibliotheek_page", error="Geen oefeningen gevonden in deze PowerPoint."))
+                if skipped_count:
+                    return redirect(url_for("oefeningen_bibliotheek_page", error=f"Geen nieuwe oefeningen gevonden. {skipped_count} dubbele oefeningen overgeslagen."))
+                return redirect(url_for("oefeningen_bibliotheek_page", error=f"Geen oefeningen gevonden in deze {source_label}."))
 
             exercises = load_exercises()
+            skipped_message = f" {skipped_count} dubbele oefeningen overgeslagen." if skipped_count else ""
             return render_template(
                 "oefeningen_bibliotheek.html",
                 active_page="oefeningen-bibliotheek",
@@ -8192,7 +8333,7 @@ def oefeningen_bibliotheek_page() -> str:
                 categories=list(EXERCISE_CATEGORY_OPTIONS),
                 import_preview=add_exercise_field_svgs(preview_exercises),
                 import_preview_id=preview_id,
-                success=f"{len(preview_exercises)} oefeningen gevonden. Controleer de preview en upload daarna wat je wilt bewaren.",
+                success=f"{len(preview_exercises)} nieuwe oefeningen gevonden.{skipped_message} Controleer de preview en upload daarna wat je wilt bewaren.",
                 error="",
             )
 
@@ -8200,7 +8341,7 @@ def oefeningen_bibliotheek_page() -> str:
         try:
             preview_exercises = load_exercise_import_preview(preview_id)
         except (OSError, ValueError, json.JSONDecodeError):
-            return redirect(url_for("oefeningen_bibliotheek_page", error="De importpreview is verlopen. Upload de PowerPoint opnieuw."))
+            return redirect(url_for("oefeningen_bibliotheek_page", error="De importpreview is verlopen. Upload het bestand opnieuw."))
 
         if action == "import_all":
             for index, preview_exercise in enumerate(preview_exercises):

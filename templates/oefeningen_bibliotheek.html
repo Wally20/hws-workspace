@@ -13,8 +13,8 @@
         <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="action" value="preview">
         <label class="subtle-button exercise-file-button">
-          <input type="file" name="pptx_file" accept=".pptx" required>
-          PowerPoint kiezen
+          <input type="file" name="exercise_file" accept=".pptx,.docx" required>
+          Bestand kiezen
         </label>
         <button type="submit" class="refresh-button">Importeren</button>
       </form>
@@ -64,7 +64,7 @@
                   <h2>{{ exercise.title }}</h2>
                   <p class="exercise-tile-meta">
                     {% if exercise.duration %}{{ exercise.duration }}{% else %}Oefening{% endif %}
-                    {% if exercise.sourceSlide %} · slide {{ exercise.sourceSlide }}{% endif %}
+                    {% if exercise.sourceLabel %} · {{ exercise.sourceLabel }}{% elif exercise.sourceSlide %} · slide {{ exercise.sourceSlide }}{% endif %}
                   </p>
                 </div>
               </div>
@@ -153,7 +153,7 @@
   {% else %}
     <section class="summary-card exercise-empty-state">
       <p class="panel-title">Nog geen oefeningen</p>
-      <p class="feature-list-subtitle">Importeer de PowerPoint om de bibliotheek te vullen.</p>
+      <p class="feature-list-subtitle">Importeer een PowerPoint of Word-bestand om de bibliotheek te vullen.</p>
     </section>
   {% endif %}
 
