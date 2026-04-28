@@ -53,6 +53,8 @@ DOCX_XML_NAMESPACES = {
 }
 PPTX_SLIDE_WIDTH = 12192000
 PPTX_SLIDE_HEIGHT = 6858000
+FOOTBALL_DAYS_PDF_WIDTH = 960
+FOOTBALL_DAYS_PDF_HEIGHT = 540
 EXERCISE_FIELD_MIN_X = 350000
 EXERCISE_FIELD_MAX_X = 4700000
 EXERCISE_FIELD_MIN_Y = 1600000
@@ -1996,6 +1998,7 @@ def init_db() -> None:
                 ecwid_product_sku TEXT,
                 staff_json TEXT NOT NULL DEFAULT '[]',
                 program_json TEXT NOT NULL DEFAULT '[]',
+                field_layout_json TEXT NOT NULL DEFAULT '[]',
                 contingencies TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -2123,6 +2126,7 @@ def init_db() -> None:
             ("ecwid_product_id", "ecwid_product_id TEXT"),
             ("ecwid_product_name", "ecwid_product_name TEXT"),
             ("ecwid_product_sku", "ecwid_product_sku TEXT"),
+            ("field_layout_json", "field_layout_json TEXT NOT NULL DEFAULT '[]'"),
         ):
             if column_name in football_playbook_columns:
                 continue
@@ -2874,7 +2878,7 @@ def load_exercises() -> List[Dict[str, Any]]:
             rows = connection.execute(
                 """
                 SELECT id, title, category, training_exercise, description, coaching,
-                       variation_easier, variation_harder, dimensions, materials, field_json,
+                       variation_easier, variation_harder, dimensions, materials, duration, field_json,
                        source_slide, updated_at
                 FROM exercises
                 ORDER BY category COLLATE NOCASE, title COLLATE NOCASE
@@ -2899,6 +2903,7 @@ def load_exercises() -> List[Dict[str, Any]]:
                     "variationHarder": str(row["variation_harder"] or "").strip(),
                     "dimensions": str(row["dimensions"] or "").strip(),
                     "materials": str(row["materials"] or "").strip(),
+                    "duration": str(row["duration"] or "").strip(),
                     "field": field,
                     "sourceSlide": row["source_slide"],
                     "updatedAt": str(row["updated_at"] or "").strip(),
@@ -3651,13 +3656,15 @@ def delete_task(task_id: int) -> None:
 
 FOOTBALL_ACTIVITY_ICON_RULES: Tuple[Tuple[str, str], ...] = (
     ("ontvangst|aanmelden|inloop|registratie", "clipboard"),
+    ("opstarten|kleedkamer|omkleden|shirt", "clipboard"),
     ("warming|warm-up|activatie", "flame"),
-    ("training|techniek|oefening|dribbel|passen|partij|wedstrijd", "football"),
+    ("training|techniek|oefening|dribbel|passen|partij|wedstrijd|fungames", "football"),
     ("lunch|eten|pauze|drinken", "utensils"),
-    ("toernooi|finale|prijs|ceremonie|afsluiting", "trophy"),
+    ("toernooi|finale|prijs|ceremonie|afsluiting|penalty|bokaal", "trophy"),
     ("foto|media|content", "camera"),
     ("ehbo|blessure|zorg", "medical"),
     ("materiaal|opbouw|afbouw|veld", "cones"),
+    ("quiz", "clipboard"),
 )
 
 
@@ -3667,6 +3674,53 @@ def infer_football_activity_icon(activity_name: str) -> str:
         if re.search(pattern, normalized_name):
             return icon_key
     return "clock"
+
+
+def clamp_float(value: Any, minimum: float, maximum: float, fallback: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = fallback
+    return max(minimum, min(maximum, number))
+
+
+def normalize_hex_color(value: Any, fallback: str = "#D5EFD3") -> str:
+    normalized = str(value or "").strip()
+    if re.fullmatch(r"#[0-9A-Fa-f]{6}", normalized):
+        return normalized.upper()
+    return fallback
+
+
+def normalize_football_field_layout(layout: Any) -> List[Dict[str, Any]]:
+    normalized_layout: List[Dict[str, Any]] = []
+    items = layout if isinstance(layout, list) else []
+    for index, item in enumerate(items[:80]):
+        if not isinstance(item, dict):
+            continue
+        width = clamp_float(item.get("width"), 8.0, 100.0, 20.0)
+        height = clamp_float(item.get("height"), 6.0, 100.0, 14.0)
+        x = clamp_float(item.get("x"), 0.0, 100.0 - width, 8.0)
+        y = clamp_float(item.get("y"), 0.0, 100.0 - height, 8.0)
+        try:
+            exercise_id = int(item.get("exerciseId") or 0)
+        except (TypeError, ValueError):
+            exercise_id = 0
+        normalized_layout.append(
+            {
+                "id": str(item.get("id") or f"block-{index + 1}").strip()[:80],
+                "x": round(x, 3),
+                "y": round(y, 3),
+                "width": round(width, 3),
+                "height": round(height, 3),
+                "title": str(item.get("title") or "").strip()[:120],
+                "exerciseId": exercise_id,
+                "exerciseTitle": str(item.get("exerciseTitle") or "").strip()[:180],
+                "exerciseKind": str(item.get("exerciseKind") or "").strip()[:180],
+                "category": str(item.get("category") or "").strip()[:120],
+                "color": normalize_hex_color(item.get("color")),
+            }
+        )
+    return normalized_layout
 
 
 def normalize_football_days_playbook(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
@@ -3682,6 +3736,7 @@ def normalize_football_days_playbook(row: Optional[sqlite3.Row]) -> Dict[str, An
             "registrationCount": 0,
             "staff": [],
             "program": [],
+            "fieldLayout": [],
             "contingencies": "",
             "createdAt": "",
             "updatedAt": "",
@@ -3695,6 +3750,10 @@ def normalize_football_days_playbook(row: Optional[sqlite3.Row]) -> Dict[str, An
         program = json.loads(str(row["program_json"] or "[]"))
     except json.JSONDecodeError:
         program = []
+    try:
+        field_layout = json.loads(str(row["field_layout_json"] or "[]"))
+    except (KeyError, IndexError, json.JSONDecodeError):
+        field_layout = []
 
     normalized_program = []
     for item in program if isinstance(program, list) else []:
@@ -3722,6 +3781,8 @@ def normalize_football_days_playbook(row: Optional[sqlite3.Row]) -> Dict[str, An
         if name or role or setup_task:
             normalized_staff.append({"name": name, "role": role, "setupTask": setup_task})
 
+    normalized_field_layout = normalize_football_field_layout(field_layout)
+
     return {
         "id": int(row["id"]),
         "title": str(row["title"] or "Draaiboek Voetbaldagen").strip(),
@@ -3733,6 +3794,7 @@ def normalize_football_days_playbook(row: Optional[sqlite3.Row]) -> Dict[str, An
         "registrationCount": 0,
         "staff": normalized_staff,
         "program": normalized_program,
+        "fieldLayout": normalized_field_layout,
         "contingencies": str(row["contingencies"] or "").strip(),
         "createdAt": str(row["created_at"] or "").strip(),
         "updatedAt": str(row["updated_at"] or "").strip(),
@@ -3743,7 +3805,7 @@ def load_football_days_playbooks() -> List[Dict[str, Any]]:
     with get_db_connection() as connection:
         rows = connection.execute(
             """
-            SELECT id, title, event_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, contingencies, created_at, updated_at
+            SELECT id, title, event_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, field_layout_json, contingencies, created_at, updated_at
             FROM football_days_playbooks
             ORDER BY COALESCE(NULLIF(event_date, ''), updated_at) DESC, id DESC
             """
@@ -3755,7 +3817,7 @@ def load_football_days_playbook(playbook_id: int) -> Optional[Dict[str, Any]]:
     with get_db_connection() as connection:
         row = connection.execute(
             """
-            SELECT id, title, event_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, contingencies, created_at, updated_at
+            SELECT id, title, event_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, field_layout_json, contingencies, created_at, updated_at
             FROM football_days_playbooks
             WHERE id = ?
             """,
@@ -3880,6 +3942,7 @@ def save_football_days_playbook(playbook: Dict[str, Any], playbook_id: Optional[
         str(playbook.get("ecwidProductSku") or "").strip(),
         json.dumps(playbook.get("staff") or [], ensure_ascii=False),
         json.dumps(playbook.get("program") or [], ensure_ascii=False),
+        json.dumps(normalize_football_field_layout(playbook.get("fieldLayout")), ensure_ascii=False),
         str(playbook.get("contingencies") or "").strip(),
     )
 
@@ -3896,6 +3959,7 @@ def save_football_days_playbook(playbook: Dict[str, Any], playbook_id: Optional[
                     ecwid_product_sku = ?,
                     staff_json = ?,
                     program_json = ?,
+                    field_layout_json = ?,
                     contingencies = ?,
                     updated_at = ?
                 WHERE id = ?
@@ -3907,9 +3971,9 @@ def save_football_days_playbook(playbook: Dict[str, Any], playbook_id: Optional[
         cursor = connection.execute(
             """
             INSERT INTO football_days_playbooks (
-                title, event_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, contingencies, created_at, updated_at
+                title, event_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, field_layout_json, contingencies, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (*payload, now, now),
         )
@@ -3952,6 +4016,11 @@ def build_football_days_playbook_from_form() -> Dict[str, Any]:
             }
         )
 
+    try:
+        field_layout_payload = json.loads(request.form.get("field_layout_json", "[]"))
+    except json.JSONDecodeError:
+        field_layout_payload = []
+
     return {
         "title": request.form.get("title", "Draaiboek Voetbaldagen").strip() or "Draaiboek Voetbaldagen",
         "eventDate": request.form.get("event_date", "").strip(),
@@ -3961,8 +4030,903 @@ def build_football_days_playbook_from_form() -> Dict[str, Any]:
         "ecwidProductSku": request.form.get("ecwid_product_sku", "").strip(),
         "staff": staff,
         "program": program,
+        "fieldLayout": normalize_football_field_layout(field_layout_payload),
         "contingencies": request.form.get("contingencies", "").strip(),
     }
+
+
+def clean_football_days_club_name(value: Any) -> str:
+    cleaned = re.sub(r"\|.*", "", str(value or ""))
+    cleaned = re.sub(r"\bdraaiboek\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bvoetbaldag(?:en)?\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bhws\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b", "", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    return cleaned or "HWS"
+
+
+def format_football_days_date(value: Any) -> str:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return "datum nog in te vullen"
+    try:
+        parsed_date = datetime.strptime(raw_value, "%Y-%m-%d").date()
+    except ValueError:
+        return raw_value
+    weekday_labels = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
+    month_labels = [
+        "januari",
+        "februari",
+        "maart",
+        "april",
+        "mei",
+        "juni",
+        "juli",
+        "augustus",
+        "september",
+        "oktober",
+        "november",
+        "december",
+    ]
+    return f"{weekday_labels[parsed_date.weekday()]} {parsed_date.day} {month_labels[parsed_date.month - 1]} {parsed_date.year}"
+
+
+def normalize_football_days_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    data = payload if isinstance(payload, dict) else {}
+    title = str(data.get("title") or "Draaiboek Voetbaldagen").strip() or "Draaiboek Voetbaldagen"
+    product_id = str(data.get("productId") or data.get("ecwidProductId") or "").strip()
+    product_name = str(data.get("productName") or data.get("ecwidProductName") or "").strip()
+    product_sku = str(data.get("productSku") or data.get("ecwidProductSku") or "").strip()
+    club_name = clean_football_days_club_name(data.get("clubName") or title or product_name or data.get("location"))
+    registration_count = str(data.get("registrationCount") or "0").strip() or "0"
+    if product_id or product_name or product_sku:
+        try:
+            orders_payload = fetch_ecwid_orders()
+            registration_count = str(
+                count_ecwid_product_registrations(
+                    orders_payload.get("items", []),
+                    product_id,
+                    product_name,
+                    product_sku,
+                )
+            )
+        except requests.RequestException:
+            pass
+
+    staff = []
+    for item in data.get("staff") if isinstance(data.get("staff"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        row = {
+            "name": str(item.get("name") or "").strip(),
+            "role": str(item.get("role") or "").strip(),
+            "setupTask": str(item.get("setupTask") or "").strip(),
+        }
+        if row["name"] or row["role"] or row["setupTask"]:
+            staff.append(row)
+
+    program = []
+    for item in data.get("program") if isinstance(data.get("program"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        activity = str(item.get("activity") or "").strip()
+        if not activity:
+            continue
+        program.append(
+            {
+                "startTime": str(item.get("startTime") or "").strip(),
+                "endTime": str(item.get("endTime") or "").strip(),
+                "activity": activity,
+                "icon": infer_football_activity_icon(activity),
+            }
+        )
+
+    field_layout = normalize_football_field_layout(data.get("fieldLayout"))
+    exercise_lookup = {int(exercise["id"]): exercise for exercise in load_exercises()}
+    for block in field_layout:
+        exercise = exercise_lookup.get(int(block.get("exerciseId") or 0))
+        if exercise is None:
+            continue
+        block["exerciseTitle"] = block.get("exerciseTitle") or exercise.get("title", "")
+        block["exerciseKind"] = block.get("exerciseKind") or exercise.get("trainingExercise", "")
+        block["category"] = block.get("category") or exercise.get("category", "")
+        block["exerciseDetails"] = {
+            "description": exercise.get("description", ""),
+            "coaching": exercise.get("coaching", ""),
+            "variationEasier": exercise.get("variationEasier", ""),
+            "variationHarder": exercise.get("variationHarder", ""),
+            "dimensions": exercise.get("dimensions", ""),
+            "materials": exercise.get("materials", ""),
+        }
+        block["exerciseField"] = exercise.get("field") if isinstance(exercise.get("field"), dict) else {}
+
+    return {
+        "title": title,
+        "eventDate": str(data.get("eventDate") or "").strip(),
+        "eventDateLabel": format_football_days_date(data.get("eventDate")),
+        "location": str(data.get("location") or "").strip(),
+        "clubName": club_name,
+        "coverTitle": "HWS VOETBALDAG",
+        "coverMeta": f"{club_name.upper()} | {registration_count} AANMELDINGEN",
+        "staff": staff,
+        "program": program,
+        "fieldLayout": field_layout,
+        "contingencies": str(data.get("contingencies") or "").strip(),
+        "registrationCount": registration_count,
+    }
+
+
+def football_days_pdf_filename(data: Dict[str, Any]) -> str:
+    base = slugify_value(f"{data.get('clubName') or 'voetbaldag'}-{data.get('eventDate') or 'draaiboek'}")
+    return f"{base}.pdf"
+
+
+def chunk_items(items: List[Any], size: int) -> List[List[Any]]:
+    return [items[index : index + size] for index in range(0, len(items), size)] or [[]]
+
+
+def football_days_background_paths() -> List[str]:
+    root = os.path.join(os.path.dirname(__file__), "static", "assets", "football-days-pdf")
+    return [os.path.join(root, f"background-{index:02d}.png") for index in range(1, 11)]
+
+
+def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.pdfgen import canvas
+    except ImportError as exc:
+        raise RuntimeError("De PDF-library ontbreekt. Installeer de packages uit requirements.txt.") from exc
+
+    font_root = os.path.join(os.path.dirname(__file__), "static", "assets", "fonts")
+    pdf_fonts = {
+        "regular": "PoppinsPDF",
+        "bold": "PoppinsPDF-Bold",
+        "extra_bold": "PoppinsPDF-ExtraBold",
+        "black": "PoppinsPDF-Black",
+    }
+    font_files = {
+        "regular": "Poppins-Regular.ttf",
+        "bold": "Poppins-Bold.ttf",
+        "extra_bold": "Poppins-ExtraBold.ttf",
+        "black": "Poppins-Black.ttf",
+    }
+    try:
+        registered_fonts = set(pdfmetrics.getRegisteredFontNames())
+        for key, font_name in pdf_fonts.items():
+            if font_name not in registered_fonts:
+                pdfmetrics.registerFont(TTFont(font_name, os.path.join(font_root, font_files[key])))
+    except Exception as exc:
+        raise RuntimeError("De Poppins-fontbestanden ontbreken of kunnen niet worden geladen.") from exc
+
+    regular_font = pdf_fonts["regular"]
+    bold_font = pdf_fonts["bold"]
+    extra_bold_font = pdf_fonts["extra_bold"]
+    black_font = pdf_fonts["black"]
+    pdf_white = colors.white
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=(FOOTBALL_DAYS_PDF_WIDTH, FOOTBALL_DAYS_PDF_HEIGHT))
+    backgrounds = football_days_background_paths()
+    def draw_background(page_index: int, shade_alpha: float = 0.18) -> None:
+        background = backgrounds[page_index % len(backgrounds)]
+        if os.path.exists(background):
+            pdf.drawImage(ImageReader(background), 0, 0, FOOTBALL_DAYS_PDF_WIDTH, FOOTBALL_DAYS_PDF_HEIGHT)
+        else:
+            pdf.setFillColor(colors.HexColor("#0d0d0d"))
+            pdf.rect(0, 0, FOOTBALL_DAYS_PDF_WIDTH, FOOTBALL_DAYS_PDF_HEIGHT, fill=1, stroke=0)
+        pdf.saveState()
+        pdf.setFillColor(colors.Color(0, 0, 0, alpha=shade_alpha))
+        pdf.rect(0, 0, FOOTBALL_DAYS_PDF_WIDTH, FOOTBALL_DAYS_PDF_HEIGHT, fill=1, stroke=0)
+        pdf.restoreState()
+
+    def draw_text(text: Any, x: float, y: float, size: float, color: Any = pdf_white, font: str = None) -> None:
+        pdf.setFillColor(color)
+        font = font or bold_font
+        pdf.setFont(font, size)
+        pdf.drawString(x, y, str(text or ""))
+
+    def split_text(text: Any, max_width: float, size: float, font: str = None) -> List[str]:
+        font = font or regular_font
+        words = str(text or "").replace("\r", "").split()
+        lines: List[str] = []
+        current = ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if stringWidth(candidate, font, size) <= max_width or not current:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        return lines
+
+    def draw_wrapped(text: Any, x: float, y: float, max_width: float, size: float, leading: float, color: Any = pdf_white, font: str = None) -> float:
+        font = font or regular_font
+        pdf.setFillColor(color)
+        pdf.setFont(font, size)
+        current_y = y
+        for paragraph in str(text or "").splitlines() or [""]:
+            lines = split_text(paragraph, max_width, size, font) or [""]
+            for line in lines:
+                pdf.drawString(x, current_y, line)
+                current_y -= leading
+            current_y -= leading * 0.35
+        return current_y
+
+    def draw_header(title: str, page_index: int) -> None:
+        draw_background(page_index)
+        draw_text(title.upper(), 278, 428, 54, pdf_white, black_font)
+
+    def draw_panel(x: float, y: float, width: float, height: float, alpha: float = 0.78) -> None:
+        pdf.saveState()
+        pdf.setFillColor(colors.Color(0, 0, 0, alpha=min(0.82, max(0.24, alpha))))
+        pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.45))
+        pdf.roundRect(x, y, width, height, 4, fill=1, stroke=1)
+        pdf.restoreState()
+
+    def draw_table(headers: List[str], rows: List[List[str]], widths: List[float], x: float, y: float, row_height: float, font_size: float = 12) -> None:
+        table_width = sum(widths)
+        header_height = 31
+        pdf.saveState()
+        pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.74))
+        pdf.rect(x, y - header_height, table_width, header_height, fill=1, stroke=0)
+        pdf.setFillColor(pdf_white)
+        pdf.setFont(bold_font, 10)
+        cursor_x = x
+        for index, header in enumerate(headers):
+            pdf.drawString(cursor_x + 12, y - 20, header.upper())
+            cursor_x += widths[index]
+        pdf.restoreState()
+
+        current_y = y - header_height
+        for row_index, row in enumerate(rows):
+            pdf.saveState()
+            pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.56 if row_index % 2 == 0 else 0.46))
+            pdf.rect(x, current_y - row_height, table_width, row_height, fill=1, stroke=0)
+            pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.18))
+            pdf.line(x, current_y - row_height, x + table_width, current_y - row_height)
+            pdf.restoreState()
+            cursor_x = x
+            for cell_index, cell in enumerate(row):
+                draw_wrapped(cell or "-", cursor_x + 12, current_y - 18, widths[cell_index] - 22, font_size, font_size + 3)
+                cursor_x += widths[cell_index]
+            current_y -= row_height
+
+    def readable_text_color(hex_color: Any) -> Any:
+        return pdf_white
+
+    def draw_program_icon(icon_key: str, cx: float, cy: float, size: float = 21) -> None:
+        key = icon_key if icon_key in {"clipboard", "flame", "football", "utensils", "trophy", "camera", "medical", "cones", "clock"} else "clock"
+        radius = size / 2
+        pdf.saveState()
+        pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.94))
+        pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.08))
+        pdf.setLineWidth(1.6)
+        pdf.circle(cx, cy, radius + 8, stroke=1, fill=1)
+        pdf.setLineWidth(1.9)
+        if key == "football":
+            pdf.circle(cx, cy, radius * 0.74, stroke=1, fill=0)
+            pdf.circle(cx, cy, radius * 0.18, stroke=1, fill=0)
+            for dx, dy in ((0, radius * 0.7), (radius * 0.66, radius * 0.22), (radius * 0.42, -radius * 0.58), (-radius * 0.42, -radius * 0.58), (-radius * 0.66, radius * 0.22)):
+                pdf.line(cx, cy, cx + dx, cy + dy)
+        elif key == "trophy":
+            pdf.roundRect(cx - 7, cy + 1, 14, 10, 2, stroke=1, fill=0)
+            pdf.arc(cx - 16, cy + 2, cx - 4, cy + 14, 260, 130)
+            pdf.arc(cx + 4, cy + 2, cx + 16, cy + 14, -30, 130)
+            pdf.line(cx, cy + 1, cx, cy - 8)
+            pdf.line(cx - 8, cy - 9, cx + 8, cy - 9)
+        elif key == "utensils":
+            for offset in (-4, 0, 4):
+                pdf.line(cx - 7 + offset / 2, cy + 10, cx - 7 + offset / 2, cy - 3)
+            pdf.line(cx - 10, cy - 3, cx - 5, cy - 3)
+            pdf.line(cx + 7, cy + 10, cx + 7, cy - 10)
+            pdf.arc(cx + 3, cy + 1, cx + 13, cy + 13, 90, 180)
+        elif key == "clipboard":
+            pdf.roundRect(cx - 8, cy - 10, 16, 20, 2, stroke=1, fill=0)
+            pdf.roundRect(cx - 5, cy + 7, 10, 5, 1.4, stroke=1, fill=0)
+            pdf.line(cx - 4, cy + 2, cx + 5, cy + 2)
+            pdf.line(cx - 4, cy - 3, cx + 5, cy - 3)
+        elif key == "flame":
+            path = pdf.beginPath()
+            path.moveTo(cx, cy - 10)
+            path.curveTo(cx - 14, cy - 4, cx - 7, cy + 7, cx - 1, cy + 12)
+            path.curveTo(cx - 1, cy + 5, cx + 6, cy + 5, cx + 3, cy + 12)
+            path.curveTo(cx + 12, cy + 4, cx + 13, cy - 7, cx, cy - 10)
+            pdf.drawPath(path, stroke=1, fill=0)
+        elif key == "camera":
+            pdf.roundRect(cx - 11, cy - 7, 22, 16, 2, stroke=1, fill=0)
+            pdf.line(cx - 5, cy + 9, cx + 4, cy + 9)
+            pdf.circle(cx, cy + 1, 4.2, stroke=1, fill=0)
+        elif key == "medical":
+            pdf.rect(cx - 3, cy - 10, 6, 20, stroke=1, fill=0)
+            pdf.rect(cx - 10, cy - 3, 20, 6, stroke=1, fill=0)
+        elif key == "cones":
+            pdf.line(cx - 8, cy - 10, cx - 2, cy + 10)
+            pdf.line(cx + 8, cy - 10, cx + 2, cy + 10)
+            pdf.line(cx - 11, cy - 10, cx + 11, cy - 10)
+            pdf.line(cx - 5, cy + 1, cx + 5, cy + 1)
+            pdf.line(cx - 3, cy + 7, cx + 3, cy + 7)
+        else:
+            pdf.circle(cx, cy, radius * 0.72, stroke=1, fill=0)
+            pdf.line(cx, cy, cx, cy + 6)
+            pdf.line(cx, cy, cx + 6, cy - 4)
+        pdf.restoreState()
+
+    def draw_program_page(rows: List[Dict[str, Any]], page_index: int) -> None:
+        draw_header("Programma", page_index)
+        row_count = max(1, len(rows))
+        top_y = 374
+        bottom_y = 58
+        available_height = top_y - bottom_y
+        row_height = min(37, available_height / row_count)
+        row_box_height = max(18, row_height - 4)
+        icon_size = 18 if row_height >= 32 else 14
+        start_font_size = 14 if row_height >= 32 else 11.5
+        end_font_size = 10 if row_height >= 32 else 8.5
+        activity_font_size = 17 if row_height >= 32 else 13.5
+        activity_leading = 18 if row_height >= 32 else 13.5
+        max_activity_lines = 2 if row_height >= 32 else 1
+        x = 78
+        width = 804
+        compact_icon_labels = {
+            "clipboard": "L",
+            "flame": "W",
+            "football": "V",
+            "utensils": "P",
+            "trophy": "B",
+            "camera": "F",
+            "medical": "+",
+            "cones": "M",
+            "clock": "T",
+        }
+        for row_index, item in enumerate(rows):
+            row_y = top_y - (row_index * row_height)
+            pdf.saveState()
+            pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.55 if row_index % 2 == 0 else 0.45))
+            pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.18))
+            pdf.roundRect(x, row_y - row_box_height + 2, width, row_box_height, 5, fill=1, stroke=1)
+            pdf.restoreState()
+
+            icon_key = str(item.get("icon") or infer_football_activity_icon(str(item.get("activity") or "")))
+            row_center_y = row_y - (row_box_height / 2) + 2
+            if row_height >= 30:
+                draw_program_icon(icon_key, x + 28, row_center_y, icon_size)
+            else:
+                badge_radius = max(6, min(8, row_box_height * 0.34))
+                pdf.saveState()
+                pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.9))
+                pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.08))
+                pdf.setLineWidth(1.2)
+                pdf.circle(x + 28, row_center_y, badge_radius, stroke=1, fill=1)
+                pdf.setFillColor(pdf_white)
+                pdf.setFont(black_font, 6.8)
+                label = compact_icon_labels.get(icon_key, "T")
+                label_width = stringWidth(label, black_font, 6.8)
+                pdf.drawString(x + 28 - (label_width / 2), row_center_y - 2.4, label)
+                pdf.restoreState()
+
+            start = str(item.get("startTime") or "").strip() or "--:--"
+            end = str(item.get("endTime") or "").strip() or "--:--"
+            pdf.setFillColor(pdf_white)
+            pdf.setFont(black_font, start_font_size)
+            pdf.drawString(x + 62, row_center_y + (3 if row_height >= 32 else 2), start)
+            pdf.setFont(regular_font, end_font_size)
+            pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.74))
+            pdf.drawString(x + 62, row_center_y - (12 if row_height >= 32 else 9), end)
+
+            pdf.setFillColor(pdf_white)
+            pdf.setFont(bold_font, activity_font_size)
+            activity = str(item.get("activity") or "Nog in te vullen").strip()
+            activity_lines = split_text(activity, width - 205, activity_font_size, bold_font)[:max_activity_lines]
+            text_y = row_center_y + (activity_font_size * 0.34)
+            if len(activity_lines) > 1:
+                text_y += activity_leading / 2
+            for line in activity_lines:
+                pdf.drawString(x + 168, text_y, line)
+                text_y -= activity_leading
+
+    def draw_overview_page(page_index: int) -> None:
+        draw_header("Overzicht", page_index)
+        intro = (
+            f"Dit draaiboek bundelt alle praktische informatie voor de voetbaldag bij {data['clubName']} "
+            f"op {data['eventDateLabel']}. Trainers en medewerkers zien in een oogopslag wie wat doet, "
+            "hoe het dagprogramma loopt en welke afspraken gelden bij onvoorziene situaties."
+        )
+        panel_width = 670
+        padding_x = 34
+        padding_top = 34
+        padding_bottom = 32
+        intro_font_size = 17
+        intro_leading = 23
+        intro_lines: List[str] = []
+        for paragraph in intro.splitlines() or [""]:
+            intro_lines.extend(split_text(paragraph, panel_width - (padding_x * 2), intro_font_size, regular_font) or [""])
+        intro_height = max(1, len(intro_lines)) * intro_leading
+
+        tile_width = 292
+        tile_height = 48
+        tile_gap_x = 30
+        tile_gap_y = 18
+        detail_rows = 2
+        detail_height = (detail_rows * tile_height) + ((detail_rows - 1) * tile_gap_y)
+        intro_to_tiles_gap = 28
+        panel_height = padding_top + intro_height + intro_to_tiles_gap + detail_height + padding_bottom
+        panel_x = (FOOTBALL_DAYS_PDF_WIDTH - panel_width) / 2
+        panel_y = (FOOTBALL_DAYS_PDF_HEIGHT - panel_height) / 2 - 8
+
+        pdf.saveState()
+        pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.78))
+        pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.55))
+        pdf.roundRect(panel_x, panel_y, panel_width, panel_height, 5, fill=1, stroke=1)
+        pdf.restoreState()
+
+        text_x = panel_x + padding_x
+        text_y = panel_y + panel_height - padding_top
+        pdf.setFillColor(colors.HexColor("#171717"))
+        pdf.setFont(regular_font, intro_font_size)
+        for line in intro_lines:
+            pdf.drawString(text_x, text_y, line)
+            text_y -= intro_leading
+
+        details = [
+            ("Club", data["clubName"]),
+            ("Datum", data["eventDateLabel"]),
+            ("Locatie", data["location"] or "Nog in te vullen"),
+            ("Aanmeldingen", data["registrationCount"]),
+        ]
+        detail_start_y = text_y - intro_to_tiles_gap + 7
+        for index, (label, value) in enumerate(details):
+            column = index % 2
+            row = index // 2
+            box_x = text_x + column * (tile_width + tile_gap_x)
+            box_y = detail_start_y - (row * (tile_height + tile_gap_y)) - tile_height
+            pdf.saveState()
+            pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.58))
+            pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.52))
+            pdf.roundRect(box_x, box_y, tile_width, tile_height, 4, fill=1, stroke=1)
+            pdf.restoreState()
+            pdf.setFillColor(colors.HexColor("#303030"))
+            pdf.setFont(bold_font, 11.5)
+            pdf.drawString(box_x + 16, box_y + tile_height - 18, label.upper())
+            pdf.setFillColor(colors.HexColor("#5f5f5f"))
+            pdf.setFont(regular_font, 15)
+            value_lines = split_text(value, tile_width - 32, 15, regular_font)[:2]
+            value_y = box_y + tile_height - 33
+            for line in value_lines:
+                pdf.drawString(box_x + 16, value_y, line)
+                value_y -= 14
+
+    def draw_staff_page(rows: List[Dict[str, Any]], page_index: int) -> None:
+        draw_header("Taakverdeling", page_index)
+        x = 78
+        width = 804
+        top_y = 382
+        header_height = 31
+        row_height = 37
+        columns = [
+            ("Naam", x + 18, 210, bold_font),
+            ("Rol", x + 250, 190, regular_font),
+            ("Taak bij uitzetten", x + 468, 315, regular_font),
+        ]
+
+        pdf.saveState()
+        pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.72))
+        pdf.roundRect(x, top_y - header_height, width, header_height, 5, fill=1, stroke=0)
+        pdf.restoreState()
+        pdf.setFillColor(pdf_white)
+        pdf.setFont(black_font, 10.5)
+        for label, column_x, _column_width, _font in columns:
+            pdf.drawString(column_x, top_y - 20, label.upper())
+
+        for row_index, member in enumerate(rows):
+            row_top = top_y - header_height - (row_index * row_height)
+            row_y = row_top - row_height
+            pdf.saveState()
+            pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.55 if row_index % 2 == 0 else 0.45))
+            pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.16))
+            pdf.roundRect(x, row_y, width, row_height - 2, 4, fill=1, stroke=1)
+            pdf.restoreState()
+
+            values = [
+                str(member.get("name") or "-").strip() or "-",
+                str(member.get("role") or "-").strip() or "-",
+                str(member.get("setupTask") or "-").strip() or "-",
+            ]
+            for value, (_label, column_x, column_width, font) in zip(values, columns):
+                font_size = 13.5 if font == bold_font else 12.5
+                line_height = 14
+                lines = split_text(value, column_width, font_size, font)[:2]
+                text_y = row_y + 21 if len(lines) == 1 else row_y + 26
+                pdf.setFillColor(pdf_white if font == bold_font else colors.Color(1, 1, 1, alpha=0.82))
+                pdf.setFont(font, font_size)
+                for line in lines:
+                    pdf.drawString(column_x, text_y, line)
+                    text_y -= line_height
+
+    def draw_field_exercise_table(rows: List[List[str]]) -> None:
+        x = 360
+        width = 535
+        top_y = 386
+        header_height = 28
+        row_height = 34
+        columns = [
+            ("#", x + 14, 32, black_font, 9.5),
+            ("Naam blok", x + 58, 122, bold_font, 10.5),
+            ("Naam oefening", x + 204, 230, regular_font, 10.5),
+            ("Welke oefening", x + 445, 78, regular_font, 9.5),
+        ]
+
+        pdf.saveState()
+        pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.72))
+        pdf.roundRect(x, top_y - header_height, width, header_height, 4, fill=1, stroke=0)
+        pdf.restoreState()
+        pdf.setFillColor(pdf_white)
+        pdf.setFont(black_font, 9.2)
+        for label, column_x, _column_width, _font, _font_size in columns:
+            pdf.drawString(column_x, top_y - 18, label.upper())
+
+        for row_index, row in enumerate(rows[:8]):
+            row_top = top_y - header_height - (row_index * row_height)
+            row_y = row_top - row_height
+            pdf.saveState()
+            pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.55 if row_index % 2 == 0 else 0.45))
+            pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.16))
+            pdf.roundRect(x, row_y, width, row_height - 2, 3, fill=1, stroke=1)
+            pdf.restoreState()
+            for value, (_label, column_x, column_width, font, font_size) in zip(row, columns):
+                lines = split_text(value or "-", column_width, font_size, font)[:2]
+                text_y = row_y + 19 if len(lines) == 1 else row_y + 24
+                pdf.setFillColor(pdf_white if font == bold_font or font == black_font else colors.Color(1, 1, 1, alpha=0.82))
+                pdf.setFont(font, font_size)
+                for line in lines:
+                    pdf.drawString(column_x, text_y, line)
+                    text_y -= 11
+
+    def draw_exercise_field_preview(field: Any, x: float, y: float, width: float, height: float, label: str) -> None:
+        pdf.saveState()
+        pdf.setFillColor(colors.HexColor("#159447"))
+        pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.32))
+        pdf.roundRect(x, y, width, height, 5, fill=1, stroke=1)
+        pdf.restoreState()
+        if not isinstance(field, dict):
+            draw_wrapped("Geen veldtekening beschikbaar", x + 26, y + height / 2, width - 52, 12, 15, pdf_white, bold_font)
+            return
+
+        image_data_url = str(field.get("imageDataUrl") or "").strip()
+        if image_data_url.startswith("data:image/") and "," in image_data_url:
+            try:
+                image_bytes = base64.b64decode(image_data_url.split(",", 1)[1])
+                pdf.drawImage(ImageReader(BytesIO(image_bytes)), x + 10, y + 10, width - 20, height - 20, preserveAspectRatio=True, anchor="c", mask="auto")
+                return
+            except Exception:
+                pass
+
+        raw_viewbox = field.get("viewBox")
+        raw_elements = field.get("elements")
+        if not isinstance(raw_viewbox, list) or len(raw_viewbox) != 4 or not isinstance(raw_elements, list) or not raw_elements:
+            draw_wrapped("Geen veldtekening beschikbaar", x + 26, y + height / 2, width - 52, 12, 15, pdf_white, bold_font)
+            return
+
+        viewbox = [safe_svg_number(value) for value in raw_viewbox]
+        if viewbox[2] <= 0 or viewbox[3] <= 0:
+            draw_wrapped("Geen veldtekening beschikbaar", x + 26, y + height / 2, width - 52, 12, 15, pdf_white, bold_font)
+            return
+
+        scale = min((width - 20) / viewbox[2], (height - 20) / viewbox[3])
+        draw_width = viewbox[2] * scale
+        draw_height = viewbox[3] * scale
+        offset_x = x + (width - draw_width) / 2 - (viewbox[0] * scale)
+        offset_y = y + (height - draw_height) / 2 + draw_height + (viewbox[1] * scale)
+
+        def map_x(value: float) -> float:
+            return offset_x + value * scale
+
+        def map_y(value: float) -> float:
+            return offset_y - value * scale
+
+        for element in raw_elements[:140]:
+            if not isinstance(element, dict):
+                continue
+            element_x = safe_svg_number(element.get("x"))
+            element_y = safe_svg_number(element.get("y"))
+            element_width = max(1.0, safe_svg_number(element.get("width"), 1.0))
+            element_height = max(1.0, safe_svg_number(element.get("height"), 1.0))
+            fill = safe_svg_color(element.get("fill"))
+            fill_color = colors.HexColor(fill)
+            element_type = str(element.get("type") or "").strip()
+            mapped_x = map_x(element_x)
+            mapped_y = map_y(element_y + element_height)
+            mapped_width = element_width * scale
+            mapped_height = element_height * scale
+            pdf.saveState()
+            pdf.setFillColor(fill_color)
+            pdf.setStrokeColor(colors.white if fill in {"#000000", "#00B050"} else colors.HexColor("#111111"))
+            pdf.setLineWidth(max(0.45, 9000 * scale))
+            if element_type == "ellipse":
+                pdf.ellipse(mapped_x, mapped_y, mapped_x + mapped_width, mapped_y + mapped_height, fill=1, stroke=1)
+            elif element_type == "cone":
+                points = [
+                    map_x(element_x + element_width * 0.18),
+                    map_y(element_y + element_height),
+                    map_x(element_x + element_width * 0.82),
+                    map_y(element_y + element_height),
+                    map_x(element_x + element_width * 0.62),
+                    map_y(element_y),
+                    map_x(element_x + element_width * 0.38),
+                    map_y(element_y),
+                ]
+                path = pdf.beginPath()
+                path.moveTo(points[0], points[1])
+                path.lineTo(points[2], points[3])
+                path.lineTo(points[4], points[5])
+                path.lineTo(points[6], points[7])
+                path.close()
+                pdf.drawPath(path, stroke=1, fill=1)
+            elif element_type == "line":
+                pdf.setStrokeColor(fill_color)
+                pdf.setLineWidth(max(1.2, 22000 * scale))
+                pdf.line(map_x(element_x), map_y(element_y), map_x(element_x + element_width), map_y(element_y + element_height))
+            else:
+                pdf.rect(mapped_x, mapped_y, mapped_width, mapped_height, fill=1, stroke=1)
+            pdf.restoreState()
+
+    def draw_exercise_text_panel(label: str, value: Any, x: float, y: float, width: float, height: float, max_lines: int = 5) -> None:
+        pdf.saveState()
+        pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.5))
+        pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.2))
+        pdf.roundRect(x, y, width, height, 5, fill=1, stroke=1)
+        pdf.restoreState()
+        pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.78))
+        pdf.setFont(black_font, 9.5)
+        pdf.drawString(x + 12, y + height - 17, label.upper())
+        pdf.setFillColor(pdf_white)
+        pdf.setFont(regular_font, 10.2)
+        text_y = y + height - 34
+        lines: List[str] = []
+        for paragraph in str(value or "Niet ingevuld").splitlines() or ["Niet ingevuld"]:
+            lines.extend(split_text(paragraph, width - 24, 10.2, regular_font) or [""])
+        for line in lines[:max_lines]:
+            pdf.drawString(x + 12, text_y, line)
+            text_y -= 12
+
+    def draw_field_line(x1: float, y1: float, x2: float, y2: float, width: float = 2.2) -> None:
+        pdf.saveState()
+        pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.92))
+        pdf.setLineWidth(width)
+        pdf.line(x1, y1, x2, y2)
+        pdf.restoreState()
+
+    def draw_football_field(x: float, y: float, width: float, height: float, blocks: List[Dict[str, Any]]) -> None:
+        pdf.saveState()
+        pdf.setFillColor(colors.HexColor("#168736"))
+        pdf.roundRect(x - 10, y - 10, width + 20, height + 20, 4, fill=1, stroke=0)
+        pdf.setFillColor(colors.HexColor("#168736"))
+        pdf.rect(x, y, width, height, fill=1, stroke=0)
+        pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.92))
+        pdf.setLineWidth(2.2)
+        pdf.rect(x, y, width, height, fill=0, stroke=1)
+        pdf.restoreState()
+
+        draw_field_line(x, y + height / 2, x + width, y + height / 2)
+        pdf.saveState()
+        pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.92))
+        pdf.setLineWidth(2.2)
+        center_radius = width * 0.18
+        pdf.circle(x + width / 2, y + height / 2, center_radius, stroke=1, fill=0)
+        pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.94))
+        pdf.circle(x + width / 2, y + height / 2, 2.4, stroke=0, fill=1)
+
+        penalty_width = width * 0.516
+        penalty_height = height * 0.134
+        penalty_x = x + (width - penalty_width) / 2
+        goal_box_width = width * 0.236
+        goal_box_height = height * 0.052
+        goal_box_x = x + (width - goal_box_width) / 2
+        goal_width = width * 0.11
+        goal_depth = height * 0.024
+        goal_x = x + (width - goal_width) / 2
+
+        pdf.rect(penalty_x, y + height - penalty_height, penalty_width, penalty_height, fill=0, stroke=1)
+        pdf.rect(penalty_x, y, penalty_width, penalty_height, fill=0, stroke=1)
+        pdf.rect(goal_box_x, y + height - goal_box_height, goal_box_width, goal_box_height, fill=0, stroke=1)
+        pdf.rect(goal_box_x, y, goal_box_width, goal_box_height, fill=0, stroke=1)
+        pdf.rect(goal_x, y + height, goal_width, goal_depth, fill=0, stroke=1)
+        pdf.rect(goal_x, y - goal_depth, goal_width, goal_depth, fill=0, stroke=1)
+        pdf.circle(x + width / 2, y + height * 0.895, 2.1, stroke=0, fill=1)
+        pdf.circle(x + width / 2, y + height * 0.105, 2.1, stroke=0, fill=1)
+        corner_radius = width * 0.032
+        pdf.arc(x - corner_radius, y + height - corner_radius, x + corner_radius, y + height + corner_radius, 270, 90)
+        pdf.arc(x + width - corner_radius, y + height - corner_radius, x + width + corner_radius, y + height + corner_radius, 180, 90)
+        pdf.arc(x - corner_radius, y - corner_radius, x + corner_radius, y + corner_radius, 0, 90)
+        pdf.arc(x + width - corner_radius, y - corner_radius, x + width + corner_radius, y + corner_radius, 90, 90)
+        pdf.restoreState()
+
+        for index, block in enumerate(blocks):
+            block_width = max(14.0, width * (float(block.get("width") or 0) / 100))
+            block_height = max(10.0, height * (float(block.get("height") or 0) / 100))
+            block_x = x + width * (float(block.get("x") or 0) / 100)
+            block_y = y + height - height * ((float(block.get("y") or 0) + float(block.get("height") or 0)) / 100)
+            block_color = normalize_hex_color(block.get("color"))
+            text_color = readable_text_color(block_color)
+
+            pdf.saveState()
+            red = int(block_color[1:3], 16) / 255
+            green = int(block_color[3:5], 16) / 255
+            blue = int(block_color[5:7], 16) / 255
+            pdf.setFillColor(colors.Color(red, green, blue, alpha=0.6))
+            pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.72))
+            pdf.roundRect(block_x, block_y, block_width, block_height, 2, fill=1, stroke=1)
+            pdf.setFillColor(pdf_white)
+            title = str(block.get("title") or f"Blok {index + 1}").strip()
+            exercise_title = str(block.get("exerciseTitle") or "Geen oefening").strip()
+            font_size = max(5.5, min(9.5, block_height * 0.2, block_width * 0.08))
+            pdf.setFont(bold_font, font_size)
+            title_lines = split_text(title.upper(), max(8, block_width - 8), font_size, bold_font)[:1]
+            exercise_lines = split_text(exercise_title, max(8, block_width - 8), max(5, font_size - 1.5), bold_font)[:1]
+            text_y = block_y + block_height / 2 + (font_size * 0.45)
+            for line in title_lines:
+                text_width = stringWidth(line, bold_font, font_size)
+                pdf.drawString(block_x + max(3, (block_width - text_width) / 2), text_y, line)
+                text_y -= font_size + 2
+            pdf.setFont(bold_font, max(5, font_size - 1.5))
+            for line in exercise_lines:
+                text_width = stringWidth(line, bold_font, max(5, font_size - 1.5))
+                pdf.drawString(block_x + max(3, (block_width - text_width) / 2), text_y, line)
+            pdf.restoreState()
+
+    def draw_field_layout_page(blocks: List[Dict[str, Any]], page_index: int) -> None:
+        draw_header("Veldplattegrond", page_index)
+        draw_football_field(94, 58, 230, 355, blocks)
+
+        selected_blocks = [block for block in blocks if block.get("exerciseTitle")]
+        rows = []
+        for index, block in enumerate(selected_blocks, start=1):
+            block_title = str(block.get("title") or f"Blok {index}").strip()
+            exercise_title = str(block.get("exerciseTitle") or "").strip()
+            exercise_kind = str(block.get("exerciseKind") or block.get("category") or "").strip()
+            rows.append([str(index), block_title, exercise_title, exercise_kind])
+        if not rows:
+            rows = [["-", "Nog geen blokken", "Nog geen oefening geselecteerd", ""]]
+
+        draw_field_exercise_table(rows)
+
+    def draw_exercise_detail_page(block: Dict[str, Any], page_index: int, fallback_index: int) -> None:
+        block_title = str(block.get("title") or f"Blok {fallback_index}").strip()
+        exercise_title = str(block.get("exerciseTitle") or "Oefening").strip()
+        exercise_kind = str(block.get("exerciseKind") or block.get("category") or "").strip()
+        header_title = f"{block_title} - {exercise_title}"
+        draw_header(header_title, page_index)
+
+        details = block.get("exerciseDetails") if isinstance(block.get("exerciseDetails"), dict) else {}
+        content_y = 58
+        content_height = 328
+        left_x = 50
+        column_width = 268
+        center_x = 340
+        center_width = 280
+        right_x = 642
+        panel_gap = 12
+        tall_panel = (content_height - panel_gap) / 2
+        short_panel = (content_height - (panel_gap * 2)) / 3
+
+        subtitle = f"Welke oefening: {exercise_kind}" if exercise_kind else "Welke oefening: niet ingevuld"
+        pdf.saveState()
+        pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.58))
+        pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.22))
+        pdf.roundRect(center_x, content_y + content_height - 34, center_width, 34, 5, fill=1, stroke=1)
+        pdf.restoreState()
+        draw_wrapped(subtitle, center_x + 14, content_y + content_height - 14, center_width - 28, 11, 13, pdf_white, bold_font)
+
+        draw_exercise_text_panel("Omschrijving oefening", details.get("description", ""), left_x, content_y + tall_panel + panel_gap, column_width, tall_panel, 7)
+        draw_exercise_text_panel("Coaching", details.get("coaching", ""), left_x, content_y, column_width, tall_panel, 7)
+        draw_exercise_field_preview(block.get("exerciseField"), center_x, content_y, center_width, content_height - 46, exercise_title)
+        draw_exercise_text_panel("Variatie makkelijker maken", details.get("variationEasier", ""), right_x, content_y + (short_panel + panel_gap) * 2, column_width, short_panel, 4)
+        draw_exercise_text_panel("Variatie moeilijker maken", details.get("variationHarder", ""), right_x, content_y + short_panel + panel_gap, column_width, short_panel, 4)
+        draw_exercise_text_panel("Afmetingen en materialen", "\n".join([str(details.get("dimensions") or ""), str(details.get("materials") or "")]).strip(), right_x, content_y, column_width, short_panel, 5)
+
+    page_index = 0
+    draw_background(page_index, 0.24)
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "assets", "hws-logo.png")
+    if os.path.exists(logo_path):
+        pdf.drawImage(
+            ImageReader(logo_path),
+            (FOOTBALL_DAYS_PDF_WIDTH - 190) / 2,
+            288,
+            190,
+            190,
+            mask="auto",
+            preserveAspectRatio=True,
+            anchor="c",
+        )
+    pdf.setFillColor(pdf_white)
+    pdf.setFont(extra_bold_font, 42)
+    cover_title = data.get("coverTitle") or "HWS VOETBALDAG"
+    title_width = stringWidth(cover_title, extra_bold_font, 42)
+    pdf.drawString((FOOTBALL_DAYS_PDF_WIDTH - title_width) / 2, 226, cover_title)
+    pdf.setFont(bold_font, 20)
+    meta = str(data.get("coverMeta") or f"{data['clubName'].upper()} | {data['registrationCount']} AANMELDINGEN").upper()
+    pdf.drawString((FOOTBALL_DAYS_PDF_WIDTH - stringWidth(meta, bold_font, 20)) / 2, 193, meta)
+    pdf.showPage()
+
+    page_index += 1
+    draw_overview_page(page_index)
+    pdf.showPage()
+
+    staff_rows = data["staff"] or [{"name": "Nog in te vullen", "role": "", "setupTask": ""}]
+    for chunk in chunk_items(staff_rows, 8):
+        page_index += 1
+        draw_staff_page(chunk, page_index)
+        pdf.showPage()
+
+    program_rows = data["program"] or [{"startTime": "", "endTime": "", "activity": "Nog in te vullen"}]
+    program_chunk_size = 14 if len(program_rows) <= 14 else 12
+    for chunk in chunk_items(program_rows, program_chunk_size):
+        page_index += 1
+        draw_program_page(chunk, page_index)
+        pdf.showPage()
+
+    contingency_lines = [
+        line.strip()
+        for line in str(data.get("contingencies") or "").splitlines()
+        if line.strip()
+    ] or ["Algemeen: Nog in te vullen"]
+    contingency_rows = []
+    for line in contingency_lines:
+        if ":" in line:
+            scenario, solution = line.split(":", 1)
+            contingency_rows.append([scenario.strip(), solution.strip()])
+        else:
+            contingency_rows.append(["Scenario", line])
+    for chunk in chunk_items(contingency_rows, 7):
+        page_index += 1
+        draw_header("Onvoorzien", page_index)
+        draw_table(["Situatie", "Afspraak of oplossing"], chunk, [250, 555], 58, 407, 45, 11)
+        pdf.showPage()
+
+    field_layout_rows = data.get("fieldLayout") if isinstance(data.get("fieldLayout"), list) else []
+    page_index += 1
+    draw_field_layout_page(field_layout_rows, page_index)
+    pdf.showPage()
+
+    selected_exercise_blocks = [block for block in field_layout_rows if block.get("exerciseTitle") or block.get("exerciseId")]
+    for exercise_index, block in enumerate(selected_exercise_blocks, start=1):
+        page_index += 1
+        draw_exercise_detail_page(block, page_index, exercise_index)
+        pdf.showPage()
+
+    pdf.save()
+    buffer.seek(0)
+    return buffer.read()
+
+
+@app.post("/api/voetbaldagen/export-pdf")
+def api_football_days_export_pdf():
+    access_redirect = require_page_access("voetbaldagen")
+    if access_redirect is not None:
+        return access_redirect
+
+    payload = request.get_json(silent=True) or {}
+    data = normalize_football_days_export_payload(payload)
+    try:
+        pdf_bytes = create_football_days_pdf(data)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    filename = football_days_pdf_filename(data)
+    return (
+        pdf_bytes,
+        200,
+        {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 def normalize_proposal_type(value: Any) -> str:
@@ -8807,6 +9771,7 @@ def football_days_new_page() -> str:
         "voetbaldagen_form.html",
         active_page="voetbaldagen",
         playbook=playbook,
+        exercises=load_exercises(),
         previous_playbooks=attach_football_days_registration_counts(load_football_days_playbooks(), cached_only=True),
         form_action=url_for("football_days_new_page"),
         page_mode="new",
@@ -8838,6 +9803,7 @@ def football_days_edit_page(playbook_id: int) -> str:
         "voetbaldagen_form.html",
         active_page="voetbaldagen",
         playbook=playbook,
+        exercises=load_exercises(),
         previous_playbooks=attach_football_days_registration_counts(
             [item for item in load_football_days_playbooks() if item["id"] != playbook_id],
             cached_only=True,

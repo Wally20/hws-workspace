@@ -126,6 +126,11 @@
         <div class="football-program-list" id="footballProgramRows">
           {% for item in playbook.program %}
             <div class="football-program-row" data-football-program-row>
+              <button type="button" class="football-program-drag-handle" data-football-program-drag-handle draggable="true" aria-label="Sleep activiteit" title="Sleep activiteit">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path>
+                </svg>
+              </button>
               <div class="football-activity-icon" data-activity-icon="{{ item.icon }}" aria-hidden="true"></div>
               <input type="time" name="program_start" value="{{ item.startTime }}" aria-label="Begintijd">
               <input type="time" name="program_end" value="{{ item.endTime }}" aria-label="Eindtijd">
@@ -138,6 +143,34 @@
           <button type="submit" class="subtle-button subtle-button-strong">Programma opslaan</button>
         </div>
       </article>
+    </section>
+
+    <section class="summary-card old-function-tile football-days-panel football-field-planner-panel">
+      <input type="hidden" name="field_layout_json" id="footballFieldLayoutInput" value="{{ playbook.fieldLayout|tojson|forceescape }}">
+      <div class="feature-list-head">
+        <div>
+          <p class="panel-title">Veldplattegrond</p>
+        </div>
+        <div class="football-field-actions">
+          <button type="button" class="subtle-button action-small" id="addFootballFieldBlock">+ Blok</button>
+          <button type="button" class="subtle-button action-small" id="centerFootballFieldBlocks">Centreer</button>
+        </div>
+      </div>
+      <div class="football-field-workspace">
+        <div class="football-field-shell">
+          <div class="football-field-board" id="footballFieldBoard" aria-label="Veldplattegrond"></div>
+        </div>
+        <aside class="football-field-sidebar">
+          <div class="football-field-count">
+            <span>Blokken</span>
+            <strong id="footballFieldBlockCount">0</strong>
+          </div>
+          <button type="button" class="subtle-button action-small" id="clearFootballFieldBlocks">Leeg veld</button>
+        </aside>
+      </div>
+      <div class="football-days-save">
+        <button type="submit" class="subtle-button subtle-button-strong">Veldplattegrond opslaan</button>
+      </div>
     </section>
 
     <section class="summary-card old-function-tile football-days-panel">
@@ -181,6 +214,11 @@
 
   <template id="footballProgramRowTemplate">
     <div class="football-program-row" data-football-program-row>
+      <button type="button" class="football-program-drag-handle" data-football-program-drag-handle draggable="true" aria-label="Sleep activiteit" title="Sleep activiteit">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path>
+        </svg>
+      </button>
       <div class="football-activity-icon" data-activity-icon="clock" aria-hidden="true"></div>
       <input type="time" name="program_start" aria-label="Begintijd">
       <input type="time" name="program_end" aria-label="Eindtijd">
@@ -209,6 +247,71 @@
     </section>
   </div>
 
+  <div class="agenda-modal football-field-modal" id="footballFieldBlockModal" hidden>
+    <div class="agenda-modal-backdrop" data-close-football-field-modal></div>
+    <section class="agenda-modal-dialog football-field-dialog" role="dialog" aria-modal="true" aria-labelledby="footballFieldBlockTitle">
+      <div class="agenda-modal-header">
+        <div>
+          <h2 id="footballFieldBlockTitle">Blok bewerken</h2>
+        </div>
+        <button type="button" class="team-modal-close" data-close-football-field-modal aria-label="Sluiten">×</button>
+      </div>
+      <div class="football-field-modal-grid">
+        <label class="field">
+          <span>Naam op blok</span>
+          <input type="text" id="footballFieldBlockName" placeholder="Bijvoorbeeld: Partijvorm 1">
+        </label>
+        <label class="field football-field-color-field">
+          <span>Kleur blok</span>
+          <input type="color" id="footballFieldBlockColor" value="#d5efd3">
+        </label>
+        <label class="field">
+          <span>Oefening</span>
+          <input type="search" id="footballFieldExerciseSearch" placeholder="Zoek in oefeningen bibliotheek" autocomplete="off">
+        </label>
+      </div>
+      <p class="football-field-search-feedback" id="footballFieldExerciseSearchFeedback" aria-live="polite"></p>
+      <div class="football-field-exercise-filters" aria-label="Oefeningen filteren">
+        <label>
+          <span>Categorie</span>
+          <select id="footballFieldExerciseCategoryFilter">
+            <option value="">Alle categorieën</option>
+          </select>
+        </label>
+        <label>
+          <span>Soort</span>
+          <select id="footballFieldExerciseKindFilter">
+            <option value="">Alle soorten</option>
+          </select>
+        </label>
+        <label>
+          <span>Duur</span>
+          <select id="footballFieldExerciseDurationFilter">
+            <option value="">Alle duren</option>
+          </select>
+        </label>
+        <button type="button" class="subtle-button action-small" id="clearFootballFieldExerciseFilters">Wis filters</button>
+      </div>
+      <div class="football-field-color-swatches" id="footballFieldColorSwatches" aria-label="Snelle kleuren">
+        <button type="button" style="--swatch-color: #d5efd3" data-field-color="#d5efd3" aria-label="Lichtgroen"></button>
+        <button type="button" style="--swatch-color: #cfe8ff" data-field-color="#cfe8ff" aria-label="Lichtblauw"></button>
+        <button type="button" style="--swatch-color: #fff1a8" data-field-color="#fff1a8" aria-label="Geel"></button>
+        <button type="button" style="--swatch-color: #ffd6d6" data-field-color="#ffd6d6" aria-label="Rood"></button>
+        <button type="button" style="--swatch-color: #e6ddff" data-field-color="#e6ddff" aria-label="Paars"></button>
+        <button type="button" style="--swatch-color: #ffffff" data-field-color="#ffffff" aria-label="Wit"></button>
+      </div>
+      <div class="football-field-exercise-list" id="footballFieldExerciseList"></div>
+      <div class="football-field-modal-actions">
+        <button type="button" class="subtle-button action-small football-field-danger" id="deleteFootballFieldBlock">Verwijder blok</button>
+        <div>
+          <button type="button" class="subtle-button" data-close-football-field-modal>Annuleren</button>
+          <button type="button" class="subtle-button subtle-button-strong" id="saveFootballFieldBlock">Opslaan</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
   <script type="application/json" id="footballPreviousPlaybooks">{{ previous_playbooks|tojson }}</script>
+  <script type="application/json" id="footballExerciseLibrary">{{ exercises|tojson }}</script>
   <script nonce="{{ csp_nonce }}" src="../static/voetbaldagen.js?v={{ asset_version }}" defer></script>
 {% endblock %}
