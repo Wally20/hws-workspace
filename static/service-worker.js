@@ -1,9 +1,10 @@
-const CACHE_NAME = "hws-workspace-v1";
+const CACHE_NAME = "hws-workspace-v2";
 const APP_SHELL = [
   "/static/offline.html",
   "/static/styles.css",
   "/static/base.js",
   "/static/voetbaldagen.js",
+  "/static/oefeningen-bibliotheek.js",
   "/static/assets/hws-logo.png",
   "/static/manifest.webmanifest",
 ];
