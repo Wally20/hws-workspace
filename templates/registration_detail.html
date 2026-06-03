@@ -113,6 +113,15 @@
       >
         Kopieer e-mailadressen die nog niet gemaild zijn
       </button>
+      <button
+        type="button"
+        class="team-primary-button"
+        id="sendPendingRegistrationEmailsButton"
+        data-product-key="{{ selected_product.productKey }}"
+        {% if not selected_product.pendingEmailList %}disabled{% endif %}
+      >
+        Verstuur standaardmail naar huidige inschrijvingen
+      </button>
       <span class="registrations-copy-feedback" id="registrationCopyFeedback" aria-live="polite"></span>
     </div>
 

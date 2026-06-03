@@ -2377,6 +2377,75 @@ def auto_email_new_registration_orders(orders: List[Dict[str, Any]]) -> Dict[str
     return result
 
 
+def send_registration_product_emails(product_key: str, orders: List[Dict[str, Any]]) -> Dict[str, Any]:
+    normalized_product_key = str(product_key or "").strip()
+    result = {
+        "productKey": normalized_product_key,
+        "sentOrderIds": [],
+        "skippedOrderIds": [],
+        "failedOrderIds": [],
+        "ecwidUpdatedOrderIds": [],
+    }
+    if not normalized_product_key:
+        return result
+
+    sync_ecwid = get_env_bool("REGISTRATION_EMAIL_SYNC_ECWID_PROCESSING", True)
+    seen_order_ids: Set[str] = set()
+    sent_order_ids: Set[str] = set()
+    skipped_order_ids: Set[str] = set()
+    failed_order_ids: Set[str] = set()
+    ecwid_updated_order_ids: Set[str] = set()
+
+    for order in orders:
+        order_id = str(order.get("id", "") or "").strip()
+        recipient_email = str(order.get("email", "") or "").strip()
+        if not order_id or order_id in seen_order_ids:
+            continue
+        if not recipient_email:
+            continue
+
+        matching_item = next(
+            (item for item in order.get("items", []) if build_order_item_product_key(item) == normalized_product_key),
+            None,
+        )
+        if matching_item is None:
+            continue
+
+        seen_order_ids.add(order_id)
+        if order_id in load_registration_emailed_order_ids(normalized_product_key, {order_id}):
+            skipped_order_ids.add(order_id)
+            continue
+        if get_env_bool("REGISTRATION_EMAIL_ONLY_PAID", True) and not registration_order_is_paid(order):
+            skipped_order_ids.add(order_id)
+            continue
+
+        try:
+            email_sent = send_registration_confirmation_email(order, matching_item)
+        except Exception as exc:
+            failed_order_ids.add(order_id)
+            app.logger.warning("Handmatige inschrijvingsmail mislukt voor order %s: %s", order_id, exc)
+            continue
+
+        if not email_sent:
+            skipped_order_ids.add(order_id)
+            continue
+
+        set_registration_orders_emailed(normalized_product_key, [order_id], True)
+        sent_order_ids.add(order_id)
+        if sync_ecwid:
+            try:
+                if update_ecwid_order_to_processing(order_id):
+                    ecwid_updated_order_ids.add(order_id)
+            except RuntimeError as exc:
+                app.logger.warning("Ecwid-status na handmatige mail niet bijgewerkt voor order %s: %s", order_id, exc)
+
+    result["sentOrderIds"] = sorted(sent_order_ids)
+    result["skippedOrderIds"] = sorted(skipped_order_ids)
+    result["failedOrderIds"] = sorted(failed_order_ids)
+    result["ecwidUpdatedOrderIds"] = sorted(ecwid_updated_order_ids)
+    return result
+
+
 def load_completed_registration_event_keys() -> Set[str]:
     with get_db_connection() as connection:
         rows = connection.execute(
@@ -13933,6 +14002,60 @@ def api_save_registration_event_email_settings():
             "settings": settings_row,
             "templates": load_registration_event_email_templates(product_key),
             "message": "Mailinstellingen opgeslagen.",
+        }
+    )
+
+
+@app.post("/api/registrations/send-event-email")
+def api_send_registration_event_email():
+    access_redirect = require_page_access("orders")
+    if access_redirect is not None:
+        return access_redirect
+
+    if not registration_auto_email_is_configured():
+        return jsonify({"error": "Automatische inschrijvingsmail is nog niet volledig geconfigureerd."}), 400
+
+    payload = request.get_json(silent=True) or {}
+    product_key = str(payload.get("productKey", "") or "").strip()
+    if not product_key:
+        return jsonify({"error": "Product ontbreekt."}), 400
+
+    products_payload = fetch_catalog_products()
+    orders_payload = fetch_ecwid_orders(force_refresh=True)
+    selected_product = build_registration_product_detail(
+        products_payload.get("items", []),
+        orders_payload.get("items", []),
+        product_key,
+    )
+    if selected_product is None:
+        return jsonify({"error": "Product niet gevonden."}), 404
+
+    order_ids = normalize_registration_email_status_order_ids(
+        [order.get("id", "") for order in selected_product.get("orders", [])]
+    )
+    if len(order_ids) > 500:
+        return jsonify({"error": "Te veel bestellingen in één verzoek."}), 400
+
+    send_result = send_registration_product_emails(product_key, orders_payload.get("items", []))
+    sent_count = len(send_result["sentOrderIds"])
+    failed_count = len(send_result["failedOrderIds"])
+    skipped_count = len(send_result["skippedOrderIds"])
+    if failed_count:
+        message = f"{sent_count} mails verstuurd, {failed_count} mislukt en {skipped_count} overgeslagen."
+    elif sent_count:
+        message = f"{sent_count} standaardmail(s) verstuurd en op gemaild gezet."
+    else:
+        message = "Geen mails verstuurd. Alle passende bestellingen waren al gemaild, onbetaald of hadden geen e-mailadres."
+
+    return jsonify(
+        {
+            "ok": failed_count == 0,
+            "productKey": product_key,
+            "sentOrderIds": send_result["sentOrderIds"],
+            "skippedOrderIds": send_result["skippedOrderIds"],
+            "failedOrderIds": send_result["failedOrderIds"],
+            "ecwidUpdatedOrderIds": send_result["ecwidUpdatedOrderIds"],
+            "message": message,
         }
     )
 

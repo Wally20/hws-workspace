@@ -3,6 +3,7 @@ const productList = document.querySelector("#registrationsProductList");
 const productCards = Array.from(document.querySelectorAll(".registrations-product-card"));
 const copyEmailsButton = document.querySelector("#copyRegistrationEmailsButton");
 const copyPendingEmailsButton = document.querySelector("#copyPendingRegistrationEmailsButton");
+const sendPendingEmailsButton = document.querySelector("#sendPendingRegistrationEmailsButton");
 const copyFeedback = document.querySelector("#registrationCopyFeedback");
 const syncEmailedOrdersButton = document.querySelector("#syncEmailedOrdersButton");
 const syncEmailedOrdersFeedback = document.querySelector("#syncEmailedOrdersFeedback");
@@ -295,6 +296,9 @@ function syncRegistrationOrderUI() {
   if (copyPendingEmailsButton instanceof HTMLButtonElement) {
     copyPendingEmailsButton.disabled = pendingEmails.length === 0;
   }
+  if (sendPendingEmailsButton instanceof HTMLButtonElement) {
+    sendPendingEmailsButton.disabled = pendingEmails.length === 0;
+  }
 }
 
 async function updateRegistrationEmailStatus(orderIds, emailed) {
@@ -345,6 +349,31 @@ async function saveRegistrationEmailSettings() {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const errorMessage = typeof payload.error === "string" && payload.error ? payload.error : "Opslaan lukte niet.";
+    const error = new Error(errorMessage);
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+async function sendPendingRegistrationEmails() {
+  const productKey = String(sendPendingEmailsButton?.dataset.productKey || "").trim();
+  if (!productKey) {
+    return null;
+  }
+
+  const response = await fetch("/api/registrations/send-event-email", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: JSON.stringify({ productKey }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const errorMessage = typeof payload.error === "string" && payload.error ? payload.error : "Versturen lukte niet.";
     const error = new Error(errorMessage);
     error.payload = payload;
     throw error;
@@ -498,6 +527,50 @@ async function copyPendingRegistrationEmails() {
     if (copyFeedback) {
       copyFeedback.textContent = "E-mailadressen zijn gekopieerd, maar de gemaild-status kon niet worden opgeslagen.";
     }
+  }
+}
+
+async function handleSendPendingRegistrationEmails() {
+  if (!(sendPendingEmailsButton instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const { pendingOrderIds } = getRegistrationEmailState();
+  if (!pendingOrderIds.length) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Weet je zeker dat je de standaardmail wilt versturen naar ${pendingOrderIds.length} nog niet gemailde bestelling(en)?`
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  sendPendingEmailsButton.disabled = true;
+  if (copyFeedback) {
+    copyFeedback.textContent = "Standaardmails versturen...";
+  }
+
+  try {
+    const payload = await sendPendingRegistrationEmails();
+    const sentOrderIds = Array.isArray(payload?.sentOrderIds) ? payload.sentOrderIds : [];
+    sentOrderIds.forEach((orderId) => {
+      getRegistrationCheckboxesForOrder(orderId).forEach((checkbox) => {
+        checkbox.checked = true;
+      });
+    });
+    syncRegistrationOrderUI();
+    if (copyFeedback) {
+      copyFeedback.textContent = payload?.message || "Standaardmails verstuurd.";
+    }
+  } catch (error) {
+    if (copyFeedback) {
+      copyFeedback.textContent =
+        error instanceof Error && error.message ? error.message : "Versturen lukte niet. Probeer het opnieuw.";
+    }
+  } finally {
+    syncRegistrationOrderUI();
   }
 }
 
@@ -671,6 +744,7 @@ productSearchInput?.addEventListener("search", filterProducts);
 productSearchInput?.addEventListener("change", filterProducts);
 copyEmailsButton?.addEventListener("click", copyRegistrationEmails);
 copyPendingEmailsButton?.addEventListener("click", copyPendingRegistrationEmails);
+sendPendingEmailsButton?.addEventListener("click", handleSendPendingRegistrationEmails);
 registrationEmailSettingsForm?.addEventListener("submit", handleRegistrationEmailSettingsSubmit);
 registrationEmailTemplateSelect?.addEventListener("change", applySelectedRegistrationEmailTemplate);
 emailedCheckboxes.forEach((checkbox) => {
