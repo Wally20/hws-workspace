@@ -1255,6 +1255,51 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         mocked_email_message.return_value.send.assert_called_once_with(fail_silently=False)
         self.assertEqual(legacy.load_registration_emailed_order_ids("id:101"), {"ORDER-1"})
 
+    def test_manual_registration_product_email_hides_customer_in_bcc(self):
+        mock_order = {
+            "id": "ORDER-1",
+            "orderNumber": "ORDER-1",
+            "createdAt": "2026-04-10T10:00:00+02:00",
+            "status": "PAID",
+            "paymentStatus": "PAID",
+            "email": "klant@example.com",
+            "customerName": "Klant Een",
+            "orderExtraFields": [
+                {"title": "Voornaam", "value": "Klant"},
+                {"title": "Achternaam", "value": "Een"},
+            ],
+            "items": [
+                {"productId": 101, "name": "Meivakantie Camp", "quantity": 1, "price": 79.0, "sku": "MVC-1"},
+            ],
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "REGISTRATION_EMAIL_SYNC_ECWID_PROCESSING": "0",
+                "REGISTRATION_EMAIL_BCC": "david.van.walstijn@gmail.com",
+            },
+            clear=False,
+        ), patch.object(
+            settings,
+            "DEFAULT_FROM_EMAIL",
+            "info@hwsvoetbalschool.nl",
+        ), patch.object(
+            legacy,
+            "EmailMessage",
+        ) as mocked_email_message:
+            result = legacy.send_registration_product_emails("id:101", [mock_order])
+
+        self.assertEqual(result["sentOrderIds"], ["ORDER-1"])
+        mocked_email_message.assert_called_once()
+        email_kwargs = mocked_email_message.call_args.kwargs
+        self.assertEqual(email_kwargs["to"], ["info@hwsvoetbalschool.nl"])
+        self.assertEqual(
+            email_kwargs["bcc"],
+            ["klant@example.com", "david.van.walstijn@gmail.com"],
+        )
+        mocked_email_message.return_value.send.assert_called_once_with(fail_silently=False)
+
     def test_registrations_page_redirects_legacy_product_query_to_detail_page(self):
         response = self.build_authenticated_client().get("/aanmeldingen?product=id:101", secure=True)
 

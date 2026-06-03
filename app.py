@@ -2323,7 +2323,20 @@ def parse_email_list(value: str) -> List[str]:
     return emails
 
 
-def send_registration_confirmation_email(order: Dict[str, Any], item: Dict[str, Any]) -> bool:
+def append_unique_email(emails: List[str], email: str, excluded: Optional[Set[str]] = None) -> None:
+    normalized_email = str(email or "").strip()
+    email_key = normalized_email.lower()
+    if not normalized_email or (excluded and email_key in excluded):
+        return
+    if email_key not in {existing.lower() for existing in emails}:
+        emails.append(normalized_email)
+
+
+def send_registration_confirmation_email(
+    order: Dict[str, Any],
+    item: Dict[str, Any],
+    deliver_recipient_as_bcc: bool = False,
+) -> bool:
     recipient_email = str(order.get("email", "") or "").strip()
     if not recipient_email:
         return False
@@ -2337,6 +2350,18 @@ def send_registration_confirmation_email(order: Dict[str, Any], item: Dict[str, 
     sender = f"{from_name} <{from_email}>" if from_name else from_email
     bcc = parse_email_list(get_env("REGISTRATION_EMAIL_BCC"))
     reply_to = parse_email_list(get_env("REGISTRATION_EMAIL_REPLY_TO"))
+    to = [recipient_email]
+
+    if deliver_recipient_as_bcc:
+        primary_recipient = (settings.DEFAULT_FROM_EMAIL or settings.EMAIL_HOST_USER or "info@hwsvoetbalschool.nl").strip()
+        to = [primary_recipient]
+        excluded_bcc = {email.lower() for email in to}
+        manual_bcc: List[str] = []
+        append_unique_email(manual_bcc, recipient_email, excluded_bcc)
+        for email in bcc:
+            append_unique_email(manual_bcc, email, excluded_bcc)
+        append_unique_email(manual_bcc, "david.van.walstijn@gmail.com", excluded_bcc)
+        bcc = manual_bcc
 
     email_message = EmailMessage(
         subject=(
@@ -2346,7 +2371,7 @@ def send_registration_confirmation_email(order: Dict[str, Any], item: Dict[str, 
         ),
         body=build_registration_event_email_body(order, item, email_settings),
         from_email=sender,
-        to=[recipient_email],
+        to=to,
         bcc=bcc,
         reply_to=reply_to or None,
     )
@@ -2446,7 +2471,7 @@ def send_registration_product_emails(product_key: str, orders: List[Dict[str, An
             continue
 
         try:
-            email_sent = send_registration_confirmation_email(order, matching_item)
+            email_sent = send_registration_confirmation_email(order, matching_item, deliver_recipient_as_bcc=True)
         except Exception as exc:
             failed_order_ids.add(order_id)
             app.logger.warning("Handmatige inschrijvingsmail mislukt voor order %s: %s", order_id, exc)
