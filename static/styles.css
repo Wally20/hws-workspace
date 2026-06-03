@@ -970,9 +970,9 @@ body.sidebar-collapsed .sidebar-toggle {
 }
 
 .training-home-tile {
-  --tile-accent: #e03131;
-  --tile-soft: #fff1f1;
-  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23e03131' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 3H6a2 2 0 0 0-2 2v16l3-2 3 2 3-2 3 2V5a2 2 0 0 0-2-2h-2'/%3E%3Cpath d='M9 7h6'/%3E%3Cpath d='M9 11h6'/%3E%3Cpath d='M9 15h4'/%3E%3C/svg%3E");
+  --tile-accent: #111111;
+  --tile-soft: #f2f2f2;
+  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23111111' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 3H6a2 2 0 0 0-2 2v16l3-2 3 2 3-2 3 2V5a2 2 0 0 0-2-2h-2'/%3E%3Cpath d='M9 7h6'/%3E%3Cpath d='M9 11h6'/%3E%3Cpath d='M9 15h4'/%3E%3C/svg%3E");
   min-height: 365px;
   padding: 38px;
   border-color: color-mix(in srgb, var(--tile-accent) 34%, #ffffff);
@@ -1044,43 +1044,43 @@ body.sidebar-collapsed .sidebar-toggle {
 .training-home-tile[href*="trainingen"],
 .training-home-tile[href*="content"],
 .training-home-tile[href*="per-maand"] {
-  --tile-accent: #2563eb;
-  --tile-soft: #edf4ff;
-  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='16' rx='2'/%3E%3Cpath d='M8 4v16'/%3E%3Cpath d='M3 10h18'/%3E%3Cpath d='M3 15h18'/%3E%3C/svg%3E");
+  --tile-accent: #111111;
+  --tile-soft: #f2f2f2;
+  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23111111' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='16' rx='2'/%3E%3Cpath d='M8 4v16'/%3E%3Cpath d='M3 10h18'/%3E%3Cpath d='M3 15h18'/%3E%3C/svg%3E");
 }
 
 .training-home-tile[href*="aanmeldingen"],
 .training-home-tile[href*="spaarpot"],
 .training-home-tile[href*="winst"],
 .training-home-tile[href*="per-seizoen"] {
-  --tile-accent: #d97706;
-  --tile-soft: #fff8e6;
-  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23d97706' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='M3 10h18'/%3E%3Ccircle cx='8' cy='15' r='1.6'/%3E%3Cpath d='M13 14h4'/%3E%3Cpath d='M13 17h3'/%3E%3C/svg%3E");
+  --tile-accent: #111111;
+  --tile-soft: #f2f2f2;
+  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23111111' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='M3 10h18'/%3E%3Ccircle cx='8' cy='15' r='1.6'/%3E%3Cpath d='M13 14h4'/%3E%3Cpath d='M13 17h3'/%3E%3C/svg%3E");
 }
 
 .training-home-tile[href*="trainers"],
 .training-home-tile[href*="leads"],
 .training-home-tile[href*="totaal"] {
-  --tile-accent: #059669;
-  --tile-soft: #ecfdf5;
-  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23059669' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87'/%3E%3Cpath d='M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E");
+  --tile-accent: #111111;
+  --tile-soft: #f2f2f2;
+  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23111111' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87'/%3E%3Cpath d='M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E");
 }
 
 .training-home-tile[href*="oefeningen"],
 .training-home-tile[href*="overeenkomsten"],
 .training-home-tile[href*="voetbaldagen"],
 .training-home-tile[href*="per-training"] {
-  --tile-accent: #0284c7;
-  --tile-soft: #eef9ff;
-  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%230284c7' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3h9l4 4v17H6z'/%3E%3Cpath d='M15 3v5h5'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h6'/%3E%3Cpath d='M9 9h2'/%3E%3C/svg%3E");
+  --tile-accent: #111111;
+  --tile-soft: #f2f2f2;
+  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23111111' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3h9l4 4v17H6z'/%3E%3Cpath d='M15 3v5h5'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h6'/%3E%3Cpath d='M9 9h2'/%3E%3C/svg%3E");
 }
 
 .training-home-tile[href*="social-media"],
 .training-home-tile[href*="voorstellen"],
 .training-home-tile[href*="omzet"] {
-  --tile-accent: #e03131;
-  --tile-soft: #fff1f1;
-  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23e03131' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v18'/%3E%3Cpath d='M3 12h18'/%3E%3Cpath d='M6.4 6.4a8 8 0 0 1 11.2 0'/%3E%3Cpath d='M6.4 17.6a8 8 0 0 0 11.2 0'/%3E%3C/svg%3E");
+  --tile-accent: #111111;
+  --tile-soft: #f2f2f2;
+  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23111111' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v18'/%3E%3Cpath d='M3 12h18'/%3E%3Cpath d='M6.4 6.4a8 8 0 0 1 11.2 0'/%3E%3Cpath d='M6.4 17.6a8 8 0 0 0 11.2 0'/%3E%3C/svg%3E");
 }
 
 .training-home-tile-active {
@@ -4014,9 +4014,9 @@ body.sidebar-collapsed #footballFieldWizardModal {
 }
 
 .revenue-entry-card {
-  --tile-accent: #e03131;
-  --tile-soft: #fff1f1;
-  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23e03131' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 19V5'/%3E%3Cpath d='M4 19h16'/%3E%3Cpath d='M8 15l3-3 3 2 5-7'/%3E%3Cpath d='M17 7h2v2'/%3E%3C/svg%3E");
+  --tile-accent: #111111;
+  --tile-soft: #f2f2f2;
+  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23111111' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 19V5'/%3E%3Cpath d='M4 19h16'/%3E%3Cpath d='M8 15l3-3 3 2 5-7'/%3E%3Cpath d='M17 7h2v2'/%3E%3C/svg%3E");
   min-height: 365px;
   padding: 38px;
   border-color: color-mix(in srgb, var(--tile-accent) 34%, #ffffff);
@@ -4053,28 +4053,28 @@ body.sidebar-collapsed #footballFieldWizardModal {
 }
 
 .revenue-entry-card[href*="per-maand"] {
-  --tile-accent: #2563eb;
-  --tile-soft: #edf4ff;
-  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='17' rx='2'/%3E%3Cpath d='M8 2v4'/%3E%3Cpath d='M16 2v4'/%3E%3Cpath d='M3 10h18'/%3E%3Cpath d='M8 14h.01'/%3E%3Cpath d='M12 14h.01'/%3E%3Cpath d='M16 14h.01'/%3E%3Cpath d='M8 18h.01'/%3E%3Cpath d='M12 18h.01'/%3E%3C/svg%3E");
+  --tile-accent: #111111;
+  --tile-soft: #f2f2f2;
+  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23111111' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='17' rx='2'/%3E%3Cpath d='M8 2v4'/%3E%3Cpath d='M16 2v4'/%3E%3Cpath d='M3 10h18'/%3E%3Cpath d='M8 14h.01'/%3E%3Cpath d='M12 14h.01'/%3E%3Cpath d='M16 14h.01'/%3E%3Cpath d='M8 18h.01'/%3E%3Cpath d='M12 18h.01'/%3E%3C/svg%3E");
 }
 
 .revenue-entry-card[href*="winst"],
 .revenue-entry-card[href*="per-seizoen"] {
-  --tile-accent: #d97706;
-  --tile-soft: #fff8e6;
-  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23d97706' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3v18h18'/%3E%3Cpath d='M7 16l4-4 3 3 5-7'/%3E%3Cpath d='M17 8h2v2'/%3E%3C/svg%3E");
+  --tile-accent: #111111;
+  --tile-soft: #f2f2f2;
+  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23111111' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3v18h18'/%3E%3Cpath d='M7 16l4-4 3 3 5-7'/%3E%3Cpath d='M17 8h2v2'/%3E%3C/svg%3E");
 }
 
 .revenue-entry-card[href*="totaal"] {
-  --tile-accent: #059669;
-  --tile-soft: #ecfdf5;
-  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23059669' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2v20'/%3E%3Cpath d='M17 5H9.5a3.5 3.5 0 0 0 0 7H14a3.5 3.5 0 0 1 0 7H6'/%3E%3C/svg%3E");
+  --tile-accent: #111111;
+  --tile-soft: #f2f2f2;
+  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23111111' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2v20'/%3E%3Cpath d='M17 5H9.5a3.5 3.5 0 0 0 0 7H14a3.5 3.5 0 0 1 0 7H6'/%3E%3C/svg%3E");
 }
 
 .revenue-entry-card[href*="per-training"] {
-  --tile-accent: #0284c7;
-  --tile-soft: #eef9ff;
-  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%230284c7' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 19V5'/%3E%3Cpath d='M8 19V9'/%3E%3Cpath d='M12 19V7'/%3E%3Cpath d='M16 19v-5'/%3E%3Cpath d='M20 19V4'/%3E%3C/svg%3E");
+  --tile-accent: #111111;
+  --tile-soft: #f2f2f2;
+  --tile-icon-url: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 24 24' fill='none' stroke='%23111111' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 19V5'/%3E%3Cpath d='M8 19V9'/%3E%3Cpath d='M12 19V7'/%3E%3Cpath d='M16 19v-5'/%3E%3Cpath d='M20 19V4'/%3E%3C/svg%3E");
 }
 
 .revenue-entry-card h2,
@@ -5606,13 +5606,13 @@ a.spaarpot-year-row:hover {
 .registrations-product-card:hover,
 .registrations-product-card:focus-visible {
   transform: translateY(-1px);
-  border-color: rgba(14, 116, 144, 0.28);
-  box-shadow: 0 16px 30px rgba(14, 116, 144, 0.12);
+  border-color: rgba(17, 17, 17, 0.22);
+  box-shadow: 0 16px 30px rgba(17, 17, 17, 0.08);
 }
 
 .registrations-product-card-active {
-  border-color: rgba(14, 116, 144, 0.45);
-  background: linear-gradient(135deg, rgba(236, 253, 245, 0.95), rgba(224, 242, 254, 0.95));
+  border-color: rgba(17, 17, 17, 0.32);
+  background: linear-gradient(135deg, rgba(242, 242, 242, 0.96), rgba(255, 255, 255, 0.96));
 }
 
 .registrations-product-name,
@@ -5700,12 +5700,12 @@ a.spaarpot-year-row:hover {
 }
 
 .registrations-order-card-emailed {
-  border-color: rgba(22, 163, 74, 0.24);
-  background: linear-gradient(135deg, rgba(240, 253, 244, 0.95), rgba(255, 255, 255, 0.94));
+  border-color: rgba(17, 17, 17, 0.18);
+  background: linear-gradient(135deg, rgba(242, 242, 242, 0.95), rgba(255, 255, 255, 0.94));
 }
 
 .registrations-order-card-pending {
-  border-color: rgba(245, 158, 11, 0.24);
+  border-color: rgba(17, 17, 17, 0.14);
 }
 
 .registrations-order-topline {
@@ -5734,7 +5734,7 @@ a.spaarpot-year-row:hover {
 .registrations-email-status-toggle input {
   width: 18px;
   height: 18px;
-  accent-color: #0f766e;
+  accent-color: #111111;
 }
 
 .registrations-order-grid {
@@ -5808,13 +5808,13 @@ a.spaarpot-year-row:hover {
 }
 
 .leads-legend-chip-include {
-  background: rgba(220, 252, 231, 0.9);
-  color: #166534;
+  background: rgba(235, 235, 235, 0.92);
+  color: #111111;
 }
 
 .leads-legend-chip-exclude {
-  background: rgba(254, 226, 226, 0.9);
-  color: #b91c1c;
+  background: rgba(245, 245, 245, 0.92);
+  color: #5f5f5f;
 }
 
 .leads-legend-note {
@@ -5856,15 +5856,15 @@ a.spaarpot-year-row:hover {
 }
 
 .leads-product-card-included {
-  border-color: rgba(22, 163, 74, 0.42);
-  background: linear-gradient(135deg, rgba(220, 252, 231, 0.96), rgba(236, 253, 245, 0.96));
-  box-shadow: 0 18px 34px rgba(22, 163, 74, 0.12);
+  border-color: rgba(17, 17, 17, 0.3);
+  background: linear-gradient(135deg, rgba(242, 242, 242, 0.96), rgba(255, 255, 255, 0.96));
+  box-shadow: 0 18px 34px rgba(17, 17, 17, 0.08);
 }
 
 .leads-product-card-excluded {
-  border-color: rgba(220, 38, 38, 0.35);
-  background: linear-gradient(135deg, rgba(254, 242, 242, 0.96), rgba(255, 237, 213, 0.96));
-  box-shadow: 0 18px 34px rgba(220, 38, 38, 0.1);
+  border-color: rgba(17, 17, 17, 0.16);
+  background: linear-gradient(135deg, rgba(247, 247, 247, 0.96), rgba(255, 255, 255, 0.96));
+  box-shadow: 0 18px 34px rgba(17, 17, 17, 0.05);
 }
 
 .leads-product-stats {
