@@ -9996,7 +9996,6 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "draaiboeken",
             "voetbaldagen",
             "samenwerkende-amateurclubs",
-            "tasks",
             "orders",
             "leads",
             "financien",
@@ -14143,47 +14142,6 @@ def api_save_training():
     if training is None:
         return jsonify({"error": "Geef de training een titel en voeg minimaal één oefening toe."}), 400
     return jsonify({"ok": True, "training": training, "trainings": load_training_sessions()})
-
-
-@app.route("/taken", methods=["GET", "POST"])
-def tasks_page() -> str:
-    access_redirect = require_page_access("tasks")
-    if access_redirect is not None:
-        return access_redirect
-
-    if request.method == "POST":
-        action = request.form.get("action", "").strip()
-        if action == "create":
-            title = request.form.get("title", "").strip()
-            due_date = request.form.get("due_date", "").strip()
-            if title and due_date:
-                add_task(title, due_date)
-                return redirect(url_for("tasks_page", success="Taak opgeslagen."))
-        elif action == "toggle":
-            task_id = request.form.get("task_id", type=int)
-            if task_id:
-                toggle_task(task_id)
-                return redirect(url_for("tasks_page", filter=request.args.get("filter", "all"), success="Taakstatus bijgewerkt."))
-        elif action == "delete":
-            task_id = request.form.get("task_id", type=int)
-            if task_id:
-                delete_task(task_id)
-                return redirect(url_for("tasks_page", filter=request.args.get("filter", "all"), success="Taak verwijderd."))
-
-    active_filter = request.args.get("filter", "all").strip() or "all"
-    tasks = load_tasks()
-    if active_filter == "open":
-        tasks = [item for item in tasks if not item.get("isDone")]
-    elif active_filter == "done":
-        tasks = [item for item in tasks if item.get("isDone")]
-
-    return render_template(
-        "tasks.html",
-        active_page="tasks",
-        tasks=tasks,
-        current_filter=active_filter,
-        success=request.args.get("success", "").strip(),
-    )
 
 
 @app.get("/voetbaldagen")

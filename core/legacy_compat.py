@@ -61,7 +61,6 @@ ENDPOINTS = {
     "api_update_exercise_video": "api_update_exercise_video",
     "api_delete_exercise_video": "api_delete_exercise_video",
     "api_delete_exercise": "api_delete_exercise",
-    "tasks_page": "tasks_page",
     "voorstellen_maker_page": "voorstellen_maker_page",
     "voorstellen_maker_detail_page": "voorstellen_maker_detail_page",
     "overeenkomsten_page": "overeenkomsten_page",

@@ -54,16 +54,6 @@
             <span>Agenda</span>
           </a>
           {% endif %}
-          {% if 'tasks' in visible_pages %}
-          <a class="nav-item {% if active_page == 'tasks' %}nav-item-active{% endif %}" href="/taken">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path d="M9 7h10M9 12h10M9 17h10M5 7l1.5 1.5L8.5 6M5 12l1.5 1.5L8.5 11M5 17l1.5 1.5L8.5 16"></path>
-              </svg>
-            </span>
-            <span>Taken</span>
-          </a>
-          {% endif %}
           {% if 'draaiboeken' in visible_pages %}
           <a class="nav-item {% if active_page == 'draaiboeken' or active_page == 'voetbaldagen' or active_page == 'samenwerkende-amateurclubs' %}nav-item-active{% endif %}" href="/draaiboeken">
             <span class="nav-icon" aria-hidden="true">

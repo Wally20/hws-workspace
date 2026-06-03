@@ -67,7 +67,6 @@ api_update_exercise_field_overlay = legacy_view("api_update_exercise_field_overl
 api_update_exercise_video = legacy_view("api_update_exercise_video")
 api_delete_exercise_video = legacy_view("api_delete_exercise_video")
 api_delete_exercise = legacy_view("api_delete_exercise")
-tasks_page = legacy_view("tasks_page")
 voorstellen_maker_page = legacy_view("voorstellen_maker_page")
 voorstellen_maker_detail_page = legacy_view("voorstellen_maker_detail_page")
 api_voorstellen_maker_training_counts = legacy_view("voorstellen_maker_training_counts_api")
