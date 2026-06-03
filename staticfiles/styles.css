@@ -7602,8 +7602,8 @@ body.sidebar-collapsed .exercise-modal {
   right: 22px;
   bottom: 22px;
   z-index: 90;
-  width: 54px;
-  height: 54px;
+  width: 44px;
+  height: 44px;
   border: 1px solid rgba(17, 17, 17, 0.12);
   border-radius: 50%;
   background: #111111;
@@ -7623,7 +7623,7 @@ body.sidebar-collapsed .exercise-modal {
 
 .workspace-search-fab span {
   display: block;
-  font-size: 1.55rem;
+  font-size: 1.25rem;
   font-weight: 900;
   line-height: 1;
 }
@@ -7639,7 +7639,7 @@ body.sidebar-collapsed .exercise-modal {
 .workspace-search-panel {
   position: fixed;
   right: 22px;
-  bottom: 88px;
+  bottom: 76px;
   z-index: 91;
   width: min(620px, calc(100vw - 28px));
   max-height: min(720px, calc(100vh - 116px));
@@ -7856,13 +7856,13 @@ body.sidebar-collapsed .exercise-modal {
   .workspace-search-fab {
     right: 16px;
     bottom: 16px;
-    width: 52px;
-    height: 52px;
+    width: 42px;
+    height: 42px;
   }
 
   .workspace-search-panel {
     right: 14px;
-    bottom: 78px;
+    bottom: 68px;
     width: calc(100vw - 28px);
     max-height: calc(100vh - 98px);
     padding: 14px;
