@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Financiën | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Financiën</h1>
+      <p class="welcome-line">Bekijk omzetoverzichten en de spaarpot vanuit een financieel overzicht.</p>
+    </div>
+  </header>
+
+  <section class="training-home-grid" aria-label="Financiën">
+    {% if 'revenue' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/omzet">
+        <span class="panel-title">Omzet</span>
+        <span class="feature-list-subtitle">Bekijk omzet, winst en seizoensoverzichten.</span>
+      </a>
+    {% endif %}
+
+    {% if 'spaarpot' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/spaarpot">
+        <span class="panel-title">Spaarpot</span>
+        <span class="feature-list-subtitle">Volg de inkomsten en kwartalen van de spaarpot.</span>
+      </a>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -135,27 +135,15 @@
           </a>
           {% endif %}
           {% endif %}
-          {% if 'revenue' in visible_pages %}
-          <a class="nav-item {% if active_page == 'revenue' %}nav-item-active{% endif %}" href="/omzet">
+          {% if 'financien' in visible_pages %}
+          <a class="nav-item {% if active_page == 'financien' or active_page == 'revenue' or active_page == 'spaarpot' %}nav-item-active{% endif %}" href="/financien">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none">
                 <path d="M5 19h14"></path>
                 <path d="M7.5 16V11M12 16V7M16.5 16V9"></path>
               </svg>
             </span>
-            <span>Omzet</span>
-          </a>
-          {% endif %}
-          {% if 'spaarpot' in visible_pages %}
-          <a class="nav-item {% if active_page == 'spaarpot' %}nav-item-active{% endif %}" href="/spaarpot">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path d="M5 9.5h14v8.5a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"></path>
-                <path d="M7.5 9.5V7a4.5 4.5 0 0 1 9 0v2.5"></path>
-                <path d="M9 14h6"></path>
-              </svg>
-            </span>
-            <span>Spaarpot</span>
+            <span>Financiën</span>
           </a>
           {% endif %}
           {% if 'trainer-fees' in visible_pages %}

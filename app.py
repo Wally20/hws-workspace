@@ -9999,6 +9999,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "tasks",
             "orders",
             "leads",
+            "financien",
             "revenue",
             "spaarpot",
             "trainer-fees",
@@ -13052,6 +13053,15 @@ def revenue_home_page() -> str:
         last_updated=format_cache_timestamp(payload.get("cachedAt", 0.0)),
         message=payload.get("message"),
     )
+
+
+@app.get("/financien")
+def financien_page() -> str:
+    access_redirect = require_page_access("financien")
+    if access_redirect is not None:
+        return access_redirect
+
+    return render_template("financien.html", active_page="financien")
 
 
 @app.get("/omzet/totaal")
