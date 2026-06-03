@@ -961,7 +961,7 @@ body.sidebar-collapsed .sidebar-toggle {
 .training-home-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  gap: 22px;
   margin-bottom: 22px;
 }
 
@@ -970,17 +970,118 @@ body.sidebar-collapsed .sidebar-toggle {
 }
 
 .training-home-tile {
-  border-radius: 18px;
+  --tile-accent: #e03131;
+  --tile-soft: #fff1f1;
+  --tile-icon: "O";
+  min-height: 330px;
+  padding: 42px;
+  border-color: color-mix(in srgb, var(--tile-accent) 34%, #ffffff);
+  border-radius: 22px;
+  box-shadow: 0 14px 34px rgba(20, 27, 44, 0.06);
   text-align: left;
   cursor: pointer;
-  display: grid;
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
   color: inherit;
   text-decoration: none;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.training-home-tile::before {
+  content: var(--tile-icon);
+  width: 86px;
+  height: 86px;
+  margin-bottom: auto;
+  border-radius: 20px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--tile-soft);
+  color: var(--tile-accent);
+  font-size: 2rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.training-home-tile::after {
+  content: "Open onderdeel ->";
+  margin-top: auto;
+  color: var(--tile-accent);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.training-home-tile:hover,
+.training-home-tile:focus-visible {
+  border-color: var(--tile-accent);
+  box-shadow: 0 18px 42px color-mix(in srgb, var(--tile-accent) 14%, transparent);
+  color: inherit;
+  transform: translateY(-2px);
+  outline: 0;
+}
+
+.training-home-tile .panel-title {
+  margin: 54px 0 16px;
+  color: #101828;
+  font-size: clamp(1.95rem, 2.6vw, 2.9rem);
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1.08;
+}
+
+.training-home-tile .feature-list-subtitle {
+  margin: 0 0 38px;
+  color: #667085;
+  font-size: 1.06rem;
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+.training-home-tile[href*="trainingen"],
+.training-home-tile[href*="content"],
+.training-home-tile[href*="per-maand"] {
+  --tile-accent: #2563eb;
+  --tile-soft: #edf4ff;
+  --tile-icon: "▦";
+}
+
+.training-home-tile[href*="aanmeldingen"],
+.training-home-tile[href*="spaarpot"],
+.training-home-tile[href*="winst"],
+.training-home-tile[href*="per-seizoen"] {
+  --tile-accent: #d97706;
+  --tile-soft: #fff8e6;
+  --tile-icon: "=";
+}
+
+.training-home-tile[href*="trainers"],
+.training-home-tile[href*="leads"],
+.training-home-tile[href*="totaal"] {
+  --tile-accent: #059669;
+  --tile-soft: #ecfdf5;
+  --tile-icon: "◔";
+}
+
+.training-home-tile[href*="oefeningen"],
+.training-home-tile[href*="overeenkomsten"],
+.training-home-tile[href*="voetbaldagen"],
+.training-home-tile[href*="per-training"] {
+  --tile-accent: #0284c7;
+  --tile-soft: #eef9ff;
+  --tile-icon: "A";
+}
+
+.training-home-tile[href*="social-media"],
+.training-home-tile[href*="voorstellen"],
+.training-home-tile[href*="omzet"] {
+  --tile-accent: #e03131;
+  --tile-soft: #fff1f1;
+  --tile-icon: "●";
 }
 
 .training-home-tile-active {
-  border-color: #111111;
+  border-color: var(--tile-accent);
 }
 
 .training-home-count {
@@ -3904,14 +4005,74 @@ body.sidebar-collapsed #footballFieldWizardModal {
   opacity: 0.5;
 }
 
-.revenue-card,
-.revenue-entry-card {
+.revenue-card {
   display: grid;
   gap: 10px;
 }
 
 .revenue-entry-card {
-  min-height: 280px;
+  --tile-accent: #e03131;
+  --tile-soft: #fff1f1;
+  --tile-icon: "O";
+  min-height: 330px;
+  padding: 42px;
+  border-color: color-mix(in srgb, var(--tile-accent) 34%, #ffffff);
+  border-radius: 22px;
+  box-shadow: 0 14px 34px rgba(20, 27, 44, 0.06);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.revenue-entry-card::before {
+  content: var(--tile-icon);
+  width: 86px;
+  height: 86px;
+  margin-bottom: auto;
+  border-radius: 20px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--tile-soft);
+  color: var(--tile-accent);
+  font-size: 2rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.revenue-entry-card:hover,
+.revenue-entry-card:focus-visible {
+  border-color: var(--tile-accent);
+  box-shadow: 0 18px 42px color-mix(in srgb, var(--tile-accent) 14%, transparent);
+  color: inherit;
+  transform: translateY(-2px);
+  outline: 0;
+}
+
+.revenue-entry-card[href*="per-maand"] {
+  --tile-accent: #2563eb;
+  --tile-soft: #edf4ff;
+  --tile-icon: "▦";
+}
+
+.revenue-entry-card[href*="winst"],
+.revenue-entry-card[href*="per-seizoen"] {
+  --tile-accent: #d97706;
+  --tile-soft: #fff8e6;
+  --tile-icon: "=";
+}
+
+.revenue-entry-card[href*="totaal"] {
+  --tile-accent: #059669;
+  --tile-soft: #ecfdf5;
+  --tile-icon: "◔";
+}
+
+.revenue-entry-card[href*="per-training"] {
+  --tile-accent: #0284c7;
+  --tile-soft: #eef9ff;
+  --tile-icon: "A";
 }
 
 .revenue-entry-card h2,
@@ -3923,6 +4084,29 @@ body.sidebar-collapsed #footballFieldWizardModal {
 
 .revenue-total {
   font-size: clamp(1.65rem, 2vw, 2.2rem);
+}
+
+.revenue-entry-card .panel-title {
+  margin: 54px 0 16px;
+  color: #101828;
+  font-size: clamp(1.95rem, 2.6vw, 2.9rem);
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1.08;
+}
+
+.revenue-entry-card h2 {
+  color: #101828;
+  font-size: clamp(1.15rem, 1.35vw, 1.45rem);
+  line-height: 1.25;
+}
+
+.revenue-entry-card .revenue-entry-copy {
+  margin: 12px 0 38px;
+  color: #667085;
+  font-size: 1.03rem;
+  font-weight: 500;
+  line-height: 1.55;
 }
 
 .revenue-card-strong {
@@ -3943,13 +4127,17 @@ body.sidebar-collapsed #footballFieldWizardModal {
   margin-top: auto;
   display: inline-flex;
   align-items: center;
-  min-height: 40px;
-  padding: 0 14px;
-  border-radius: 999px;
-  background: #111111;
-  color: #ffffff;
-  font-size: 0.92rem;
-  font-weight: 700;
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--tile-accent);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.revenue-entry-link::after {
+  content: " ->";
 }
 
 .spaarpot-quarter-tabs {
@@ -7223,6 +7411,44 @@ body.sidebar-collapsed .exercise-modal {
 }
 
 @media (max-width: 640px) {
+  .main-content {
+    padding: 24px 16px 34px;
+  }
+
+  .training-home-grid,
+  .oefenstof-home-grid,
+  .revenue-entry-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .training-home-tile,
+  .revenue-entry-card {
+    min-height: 280px;
+    padding: 28px;
+    border-radius: 20px;
+  }
+
+  .training-home-tile::before,
+  .revenue-entry-card::before {
+    width: 68px;
+    height: 68px;
+    border-radius: 17px;
+    font-size: 1.55rem;
+  }
+
+  .training-home-tile .panel-title,
+  .revenue-entry-card .panel-title {
+    margin-top: 38px;
+    font-size: clamp(1.65rem, 8vw, 2.25rem);
+  }
+
+  .training-home-tile .feature-list-subtitle,
+  .revenue-entry-card .revenue-entry-copy {
+    margin-bottom: 28px;
+    font-size: 0.98rem;
+  }
+
   .agenda-modal {
     padding: 10px;
   }
