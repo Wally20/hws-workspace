@@ -21,6 +21,9 @@ const registrationEmailSettingsForm = document.querySelector("#registrationEmail
 const registrationEmailProductKey = document.querySelector("#registrationEmailProductKey");
 const registrationEmailProductName = document.querySelector("#registrationEmailProductName");
 const registrationEventDateInput = document.querySelector("#registrationEventDateInput");
+const registrationUseSecondEventDateInput = document.querySelector("#registrationUseSecondEventDateInput");
+const registrationSecondEventDateField = document.querySelector("#registrationSecondEventDateField");
+const registrationEventDate2Input = document.querySelector("#registrationEventDate2Input");
 const registrationEmailSubjectInput = document.querySelector("#registrationEmailSubjectInput");
 const registrationEmailBodyInput = document.querySelector("#registrationEmailBodyInput");
 const registrationEmailTemplateSelect = document.querySelector("#registrationEmailTemplateSelect");
@@ -341,6 +344,13 @@ async function saveRegistrationEmailSettings() {
       productKey,
       productName: String(registrationEmailProductName?.value || "").trim(),
       eventDate: String(registrationEventDateInput?.value || "").trim(),
+      useSecondEventDate: registrationUseSecondEventDateInput instanceof HTMLInputElement
+        ? registrationUseSecondEventDateInput.checked
+        : false,
+      eventDate2:
+        registrationUseSecondEventDateInput instanceof HTMLInputElement && registrationUseSecondEventDateInput.checked
+          ? String(registrationEventDate2Input?.value || "").trim()
+          : "",
       emailSubject: String(registrationEmailSubjectInput?.value || "").trim(),
       emailBody: String(registrationEmailBodyInput?.value || "").trim(),
     }),
@@ -354,6 +364,21 @@ async function saveRegistrationEmailSettings() {
     throw error;
   }
   return payload;
+}
+
+function syncSecondEventDateField() {
+  const useSecondDate =
+    registrationUseSecondEventDateInput instanceof HTMLInputElement && registrationUseSecondEventDateInput.checked;
+
+  if (registrationSecondEventDateField instanceof HTMLElement) {
+    registrationSecondEventDateField.hidden = !useSecondDate;
+  }
+  if (registrationEventDate2Input instanceof HTMLInputElement) {
+    registrationEventDate2Input.disabled = !useSecondDate;
+    if (!useSecondDate) {
+      registrationEventDate2Input.value = "";
+    }
+  }
 }
 
 async function sendPendingRegistrationEmails() {
@@ -747,6 +772,7 @@ copyPendingEmailsButton?.addEventListener("click", copyPendingRegistrationEmails
 sendPendingEmailsButton?.addEventListener("click", handleSendPendingRegistrationEmails);
 registrationEmailSettingsForm?.addEventListener("submit", handleRegistrationEmailSettingsSubmit);
 registrationEmailTemplateSelect?.addEventListener("change", applySelectedRegistrationEmailTemplate);
+registrationUseSecondEventDateInput?.addEventListener("change", syncSecondEventDateField);
 emailedCheckboxes.forEach((checkbox) => {
   checkbox.addEventListener("change", handleRegistrationEmailedToggle);
 });
@@ -755,4 +781,5 @@ completeRegistrationEventButton?.addEventListener("click", handleCompleteRegistr
 cancelRegistrationEventButton?.addEventListener("click", handleCancelRegistrationEvent);
 
 filterProducts();
+syncSecondEventDateField();
 syncRegistrationOrderUI();

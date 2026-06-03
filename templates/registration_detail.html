@@ -45,6 +45,23 @@
             value="{{ selected_product.eventDate }}"
           >
         </label>
+        <label class="registrations-second-date-toggle">
+          <input
+            type="checkbox"
+            id="registrationUseSecondEventDateInput"
+            {% if selected_product.eventDate2 %}checked{% endif %}
+          >
+          <span>Tweede datum gebruiken</span>
+        </label>
+        <label class="field" id="registrationSecondEventDateField" {% if not selected_product.eventDate2 %}hidden{% endif %}>
+          <span>Tweede eventdatum</span>
+          <input
+            type="date"
+            id="registrationEventDate2Input"
+            value="{{ selected_product.eventDate2 }}"
+            {% if not selected_product.eventDate2 %}disabled{% endif %}
+          >
+        </label>
         <label class="field">
           <span>Onderwerp</span>
           <input
@@ -69,12 +86,12 @@
         <textarea
           id="registrationEmailBodyInput"
           rows="12"
-          placeholder="Beste {klant_naam},&#10;&#10;Bedankt voor je inschrijving voor {product_naam} op {event_datum}.&#10;&#10;Met sportieve groet,&#10;HWS Voetbalschool"
+          placeholder="Beste {klant_naam},&#10;&#10;Bedankt voor je inschrijving voor {product_naam} op {event_datums}.&#10;&#10;Met sportieve groet,&#10;HWS Voetbalschool"
         >{{ selected_product.emailBody }}</textarea>
       </label>
       <div class="registrations-email-settings-footer">
         <p class="orders-toolbar-text">
-          Beschikbare velden: {klant_naam}, {deelnemer_naam}, {voornaam}, {achternaam}, {product_naam}, {event_datum}, {ordernummer}
+          Beschikbare velden: {klant_naam}, {deelnemer_naam}, {voornaam}, {achternaam}, {product_naam}, {event_datum}, {event_datum_2}, {event_datums}, {ordernummer}
         </p>
         <button type="submit" class="team-primary-button" id="saveRegistrationEmailSettingsButton">
           Mail opslaan

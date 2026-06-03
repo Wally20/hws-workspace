@@ -1897,6 +1897,7 @@ def build_registration_product_detail(
 
     email_settings = load_registration_event_email_settings(normalized_product_key)
     detail_entry["eventDate"] = email_settings.get("eventDate", "")
+    detail_entry["eventDate2"] = email_settings.get("eventDate2", "")
     detail_entry["emailSubject"] = email_settings.get("emailSubject", "")
     detail_entry["emailBody"] = email_settings.get("emailBody", "")
     detail_entry["emailSettingsUpdatedAt"] = email_settings.get("updatedAt", "")
@@ -2040,6 +2041,7 @@ def load_registration_event_email_settings(product_key: str) -> Dict[str, str]:
             "productKey": "",
             "productName": "",
             "eventDate": "",
+            "eventDate2": "",
             "emailSubject": "",
             "emailBody": "",
             "updatedAt": "",
@@ -2048,7 +2050,7 @@ def load_registration_event_email_settings(product_key: str) -> Dict[str, str]:
     with get_db_connection() as connection:
         row = connection.execute(
             """
-            SELECT product_key, product_name, event_date, email_subject, email_body, updated_at
+            SELECT product_key, product_name, event_date, event_date_2, email_subject, email_body, updated_at
             FROM registration_event_email_settings
             WHERE product_key = ?
             """,
@@ -2060,6 +2062,7 @@ def load_registration_event_email_settings(product_key: str) -> Dict[str, str]:
             "productKey": normalized_product_key,
             "productName": "",
             "eventDate": "",
+            "eventDate2": "",
             "emailSubject": "",
             "emailBody": "",
             "updatedAt": "",
@@ -2069,6 +2072,7 @@ def load_registration_event_email_settings(product_key: str) -> Dict[str, str]:
         "productKey": str(row["product_key"] or "").strip(),
         "productName": str(row["product_name"] or "").strip(),
         "eventDate": str(row["event_date"] or "").strip(),
+        "eventDate2": str(row["event_date_2"] or "").strip(),
         "emailSubject": str(row["email_subject"] or "").strip(),
         "emailBody": str(row["email_body"] or "").strip(),
         "updatedAt": str(row["updated_at"] or "").strip(),
@@ -2080,7 +2084,7 @@ def load_registration_event_email_templates(exclude_product_key: str = "") -> Li
     with get_db_connection() as connection:
         rows = connection.execute(
             """
-            SELECT product_key, product_name, event_date, email_subject, email_body, updated_at
+            SELECT product_key, product_name, event_date, event_date_2, email_subject, email_body, updated_at
             FROM registration_event_email_settings
             WHERE trim(email_body) != ''
             ORDER BY updated_at DESC, product_name COLLATE NOCASE
@@ -2094,15 +2098,18 @@ def load_registration_event_email_templates(exclude_product_key: str = "") -> Li
             continue
         product_name = str(row["product_name"] or "").strip() or product_key
         event_date = str(row["event_date"] or "").strip()
+        event_date_2 = str(row["event_date_2"] or "").strip()
+        date_label = format_registration_event_dates_label(event_date, event_date_2)
         templates.append(
             {
                 "productKey": product_key,
                 "productName": product_name,
                 "eventDate": event_date,
+                "eventDate2": event_date_2,
                 "emailSubject": str(row["email_subject"] or "").strip(),
                 "emailBody": str(row["email_body"] or "").strip(),
                 "updatedAt": str(row["updated_at"] or "").strip(),
-                "label": f"{product_name} ({format_display_date(event_date)})" if event_date else product_name,
+                "label": f"{product_name} ({date_label})" if date_label else product_name,
             }
         )
     return templates
@@ -2112,6 +2119,7 @@ def save_registration_event_email_settings(
     product_key: str,
     product_name: str,
     event_date: Any,
+    event_date_2: Any,
     email_subject: Any,
     email_body: Any,
 ) -> Dict[str, str]:
@@ -2124,6 +2132,10 @@ def save_registration_event_email_settings(
     raw_event_date = str(event_date or "").strip()
     if raw_event_date and not normalized_event_date:
         raise ValueError("Vul een geldige eventdatum in.")
+    normalized_event_date_2 = normalize_registration_event_date(event_date_2)
+    raw_event_date_2 = str(event_date_2 or "").strip()
+    if raw_event_date_2 and not normalized_event_date_2:
+        raise ValueError("Vul een geldige tweede eventdatum in.")
 
     normalized_subject = str(email_subject or "").strip()[:300]
     normalized_body = str(email_body or "").strip()
@@ -2135,11 +2147,12 @@ def save_registration_event_email_settings(
         connection.execute(
             """
             INSERT INTO registration_event_email_settings
-                (product_key, product_name, event_date, email_subject, email_body, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (product_key, product_name, event_date, event_date_2, email_subject, email_body, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(product_key) DO UPDATE SET
                 product_name = excluded.product_name,
                 event_date = excluded.event_date,
+                event_date_2 = excluded.event_date_2,
                 email_subject = excluded.email_subject,
                 email_body = excluded.email_body,
                 updated_at = excluded.updated_at
@@ -2148,6 +2161,7 @@ def save_registration_event_email_settings(
                 normalized_product_key,
                 normalized_product_name,
                 normalized_event_date,
+                normalized_event_date_2,
                 normalized_subject,
                 normalized_body,
                 updated_at,
@@ -2208,6 +2222,14 @@ def format_display_date(value: Any) -> str:
     return f"{weekday_name} {parsed_date.day} {month_name} {parsed_date.year}"
 
 
+def format_registration_event_dates_label(event_date: Any, event_date_2: Any = "") -> str:
+    first_label = format_display_date(event_date) or str(event_date or "").strip()
+    second_label = format_display_date(event_date_2) or str(event_date_2 or "").strip()
+    if first_label and second_label:
+        return f"{first_label} en {second_label}"
+    return first_label or second_label
+
+
 def render_registration_email_template(template: str, order: Dict[str, Any], item: Dict[str, Any], settings_row: Dict[str, str]) -> str:
     customer_name = str(order.get("customerName", "") or "").strip() or "ouder/verzorger"
     product_name = str(item.get("name", "") or "").strip() or "de activiteit"
@@ -2218,6 +2240,7 @@ def render_registration_email_template(template: str, order: Dict[str, Any], ite
         str(details.get("lastName", "") or ""),
     )
     event_date = str(settings_row.get("eventDate", "") or "").strip()
+    event_date_2 = str(settings_row.get("eventDate2", "") or "").strip()
     replacements = {
         "klant_naam": customer_name,
         "deelnemer_naam": participant_name or customer_name,
@@ -2226,6 +2249,9 @@ def render_registration_email_template(template: str, order: Dict[str, Any], ite
         "product_naam": product_name,
         "event_datum": format_display_date(event_date) or event_date,
         "eventdatum": format_display_date(event_date) or event_date,
+        "event_datum_2": format_display_date(event_date_2) or event_date_2,
+        "eventdatum_2": format_display_date(event_date_2) or event_date_2,
+        "event_datums": format_registration_event_dates_label(event_date, event_date_2),
         "ordernummer": order_number,
     }
     rendered = str(template or "")
@@ -3530,6 +3556,7 @@ def init_db() -> None:
                 product_key TEXT PRIMARY KEY,
                 product_name TEXT NOT NULL DEFAULT '',
                 event_date TEXT,
+                event_date_2 TEXT,
                 email_subject TEXT NOT NULL DEFAULT '',
                 email_body TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL
@@ -3583,6 +3610,13 @@ def init_db() -> None:
         }
         if "canceled_at" not in registration_event_columns:
             connection.execute("ALTER TABLE registration_event_statuses ADD COLUMN canceled_at TEXT")
+
+        registration_email_settings_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(registration_event_email_settings)").fetchall()
+        }
+        if "event_date_2" not in registration_email_settings_columns:
+            connection.execute("ALTER TABLE registration_event_email_settings ADD COLUMN event_date_2 TEXT")
 
         agenda_training_columns = {
             row["name"]
@@ -13990,6 +14024,7 @@ def api_save_registration_event_email_settings():
             product_key=product_key,
             product_name=product_name,
             event_date=payload.get("eventDate", ""),
+            event_date_2=payload.get("eventDate2", "") if payload.get("useSecondEventDate") else "",
             email_subject=payload.get("emailSubject", ""),
             email_body=payload.get("emailBody", ""),
         )

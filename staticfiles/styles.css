@@ -5743,11 +5743,32 @@ a.spaarpot-year-row:hover {
 .registrations-email-settings-grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: 180px minmax(220px, 1fr) minmax(220px, 1fr);
+  grid-template-columns: 180px 190px 180px minmax(220px, 1fr);
+  align-items: end;
 }
 
 .registrations-email-settings-form textarea {
   min-height: 260px;
+}
+
+.registrations-second-date-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-soft);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.registrations-second-date-toggle input {
+  width: 18px;
+  min-height: 18px;
+  height: 18px;
+  accent-color: #111111;
 }
 
 .registrations-email-settings-footer {
