@@ -69,3 +69,11 @@ services:
         value: "500"
       - key: BUNNY_IMAGE_ALLOWED_TYPES
         value: image/jpeg,image/png,image/webp,image/avif
+      - key: BUNNY_VIDEO_PUBLIC_BASE
+        sync: false
+      - key: BUNNY_VIDEO_BASE_PATH
+        value: exercise-videos
+      - key: BUNNY_VIDEO_MAX_UPLOAD_MB
+        value: "5000"
+      - key: BUNNY_VIDEO_ALLOWED_TYPES
+        value: video/mp4,video/webm,video/quicktime

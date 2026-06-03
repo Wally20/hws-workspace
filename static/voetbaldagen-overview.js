@@ -1,4 +1,14 @@
 (() => {
+  const configElement = document.getElementById("footballOverviewConfig");
+  let overviewConfig = {};
+  if (configElement) {
+    try {
+      overviewConfig = JSON.parse(configElement.textContent || "{}");
+    } catch (error) {
+      overviewConfig = {};
+    }
+  }
+  const registrationCountsApi = overviewConfig.registrationCountsApi || "/api/voetbaldagen/registration-counts";
   const countElements = Array.from(document.querySelectorAll("[data-football-registration-count]"));
   const playbookIds = countElements
     .map((element) => String(element.dataset.playbookId || "").trim())
@@ -11,7 +21,7 @@
   const loadCounts = async () => {
     try {
       const params = new URLSearchParams({ playbook_ids: playbookIds.join(",") });
-      const response = await fetch(`/api/voetbaldagen/registration-counts?${params.toString()}`);
+      const response = await fetch(`${registrationCountsApi}?${params.toString()}`);
       const payload = await response.json();
       if (!response.ok || !payload.counts) {
         return;

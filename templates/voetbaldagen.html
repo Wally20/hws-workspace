@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 
-{% block title %}Voetbaldagen | HWS Voetbalschool Workspace{% endblock %}
+{% block title %}{{ page_context.pageTitle }} | HWS Voetbalschool Workspace{% endblock %}
 
 {% block content %}
   <header class="page-header football-days-header">
     <div>
-      <h1>Voetbaldagen</h1>
-      <p class="welcome-line">Open een opgeslagen draaiboek of maak een nieuwe voetbaldag aan.</p>
+      <h1>{{ page_context.pageTitle }}</h1>
+      <p class="welcome-line">{{ page_context.overviewDescription }}</p>
     </div>
     <div class="football-days-actions">
-      <a href="/voetbaldagen/nieuw" class="refresh-button">Nieuw</a>
+      <a href="{{ page_context.newPath }}" class="refresh-button">Nieuw</a>
     </div>
   </header>
 
@@ -20,16 +20,26 @@
   <section class="football-playbook-grid">
     {% for playbook in playbooks %}
       <article class="summary-card old-function-tile football-playbook-tile">
-        <a href="/voetbaldagen/{{ playbook.id }}" class="football-playbook-link">
+        <a href="{{ page_context.editPathPrefix }}/{{ playbook.id }}" class="football-playbook-link">
           <div class="feature-record-head">
             <div>
               <h2>{{ playbook.title }}</h2>
               <p class="feature-record-meta">
-                {{ playbook.eventDate if playbook.eventDate else "Geen datum" }}
+                {% if page_context.supportsCycleDates and (playbook.cycleNumber or playbook.cycleStartDate or playbook.cycleEndDate) %}
+                  Cyclus{% if playbook.cycleNumber %} {{ playbook.cycleNumber }}{% endif %}: {{ playbook.cycleStartDate or "?" }} t/m {{ playbook.cycleEndDate or "?" }}
+                {% else %}
+                  {{ playbook.eventDate if playbook.eventDate else "Geen datum" }}
+                {% endif %}
                 {% if playbook.location %} · {{ playbook.location }}{% endif %}
               </p>
             </div>
-            <span class="pill">{{ playbook.program|length }} blokken</span>
+            <span class="pill">
+              {% if page_context.supportsFieldTrainings %}
+                {{ playbook.fieldTrainings|length }} trainingen
+              {% else %}
+                {{ playbook.program|length }} blokken
+              {% endif %}
+            </span>
           </div>
           <div class="compact-stat-list">
             <div class="compact-stat-row">
@@ -46,12 +56,25 @@
                 >{{ playbook.registrationCount or 0 }}</span>
               </div>
             {% endif %}
-            <div class="compact-stat-row">
-              <span>Onvoorzien plan</span>
-              <span class="compact-stat-value">{{ "Ja" if playbook.contingencies else "Nee" }}</span>
-            </div>
+            {% if page_context.showContingencies %}
+              <div class="compact-stat-row">
+                <span>Onvoorzien plan</span>
+                <span class="compact-stat-value">{{ "Ja" if playbook.contingencies else "Nee" }}</span>
+              </div>
+            {% endif %}
           </div>
         </a>
+        {% if page_context.playbookType == "samenwerkende-amateurclubs" %}
+          <form
+            class="football-playbook-tile-actions"
+            method="post"
+            action="{{ page_context.editPathPrefix }}/{{ playbook.id }}/dupliceren"
+            data-duplicate-playbook-form
+          >
+            <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+            <button type="submit" class="subtle-button football-playbook-duplicate-button">Dupliceer draaiboek</button>
+          </form>
+        {% endif %}
       </article>
     {% else %}
       <article class="summary-card old-function-tile">
@@ -59,5 +82,6 @@
       </article>
     {% endfor %}
   </section>
+  <script type="application/json" id="footballOverviewConfig">{{ {"registrationCountsApi": page_context.registrationCountsApi}|tojson }}</script>
   <script nonce="{{ csp_nonce }}" src="../static/voetbaldagen-overview.js?v={{ asset_version }}" defer></script>
 {% endblock %}

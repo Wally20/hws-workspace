@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Oefeningen Video's | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div class="exercise-library-header">
+      <div>
+        <h1>Oefeningen Video's</h1>
+        <p class="welcome-line">Upload snel een video en koppel die direct aan een oefening.</p>
+      </div>
+      <a href="/oefeningen-bibliotheek" class="subtle-button">Terug naar bibliotheek</a>
+    </div>
+  </header>
+
+  {% if success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+  {% endif %}
+
+  {% if error %}
+    <section class="notice trainers-notice trainers-notice-error">{{ error }}</section>
+  {% endif %}
+
+  <section class="summary-card exercise-video-upload-head">
+    <div>
+      <p class="panel-title">Snelle upload</p>
+      <p class="feature-list-subtitle">Zoek de oefening, kies een bestand en druk op uploaden.</p>
+    </div>
+    <div class="exercise-video-storage-pills">
+      <span class="pill">{{ "Bunny.net" if video_storage.bunny_enabled else "Lokale opslag" }}</span>
+      <span class="pill">{{ video_storage.max_upload_mb }} MB max</span>
+      <span class="pill">MP4, WebM, MOV</span>
+    </div>
+  </section>
+
+  {% if not video_storage.bunny_enabled %}
+    <section class="notice trainers-notice trainers-notice-error">
+      Bunny-config ontbreekt nog: {{ video_storage.missing_config|join(", ") }}. Tot die tijd gebruikt deze pagina lokale opslag.
+    </section>
+  {% endif %}
+
+  <section class="exercise-video-manager">
+    <label class="exercise-search-field" for="exerciseVideoSearch">
+      <span>Zoeken</span>
+      <input type="search" id="exerciseVideoSearch" placeholder="Zoek op oefening of categorie" autocomplete="off">
+    </label>
+
+    <div class="exercise-video-list" id="exerciseVideoList">
+      {% for exercise in exercises %}
+        <article
+          class="exercise-video-row"
+          data-exercise-video-row
+          data-search="{{ (exercise.title ~ ' ' ~ exercise.category)|lower }}"
+        >
+          <div class="exercise-video-row-copy">
+            <p class="exercise-video-row-title">{{ exercise.title }}</p>
+            <p class="exercise-tile-meta">{{ exercise.category or "Geen categorie" }}</p>
+            {% if exercise.videoUrl %}
+              <a href="{{ exercise.videoUrl }}" target="_blank" rel="noreferrer" class="exercise-video-link">{{ exercise.videoOriginalName or exercise.videoFileName or "Bekijk video" }}</a>
+            {% else %}
+              <span class="exercise-video-empty">Nog geen video gekoppeld</span>
+            {% endif %}
+          </div>
+
+          <form method="post" action="/oefeningen-videos" enctype="multipart/form-data" class="exercise-video-form">
+            <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+            <input type="hidden" name="action" value="upload_video">
+            <input type="hidden" name="exercise_id" value="{{ exercise.id }}">
+            <label class="subtle-button exercise-video-file-button">
+              <span>Video kiezen</span>
+              <input type="file" name="exercise_video" accept="video/mp4,video/webm,video/quicktime,.mp4,.m4v,.webm,.mov" required>
+            </label>
+            <button type="submit" class="refresh-button">Uploaden</button>
+          </form>
+
+          {% if exercise.videoUrl %}
+            <form method="post" action="/oefeningen-videos" class="exercise-video-delete-form">
+              <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+              <input type="hidden" name="action" value="delete_video">
+              <input type="hidden" name="exercise_id" value="{{ exercise.id }}">
+              <button type="submit" class="subtle-button action-danger">Verwijderen</button>
+            </form>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+
+    <p class="exercise-filter-empty" id="exerciseVideoEmpty" hidden>Geen oefeningen gevonden.</p>
+  </section>
+
+  <script nonce="{{ csp_nonce }}" src="../static/exercise-videos.js?v={{ asset_version }}" defer></script>
+{% endblock %}

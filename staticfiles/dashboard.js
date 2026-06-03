@@ -8,6 +8,7 @@ const saveEventsButton = document.querySelector("#saveEventsButton");
 const compactStatList = document.querySelector("#eventsStatList");
 const reportSummaryList = document.querySelector("#reportSummaryList");
 const revenueChart = document.querySelector(".revenue-chart");
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
 
 let selectedEvents = Array.from(document.querySelectorAll(".event-row")).map((row) => ({
   productId: row.dataset.productId || null,
@@ -44,6 +45,9 @@ function updateReportTile(reportSummary) {
 
 function updateEventTile(productSummary) {
   if (!compactStatList || !Array.isArray(productSummary)) {
+    return;
+  }
+  if (eventEditor && !eventEditor.hidden) {
     return;
   }
 
@@ -178,6 +182,7 @@ async function saveEvents() {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
     },
     body: JSON.stringify({
       items: selectedEvents.map((item) => ({

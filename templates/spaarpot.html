@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}Spaarpot | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Spaarpot</h1>
+      <p class="welcome-line">
+        BTW-reservering van {{ "{:.0f}".format(spaarpot_summary.ratePercentage).replace(".", ",") }}% over alle ontvangen Moneybird- en Stripe-betalingen
+      </p>
+    </div>
+  </header>
+
+  <section class="orders-toolbar">
+    <div class="orders-toolbar-copy">
+      <p class="orders-toolbar-title">Kwartaaloverzicht</p>
+      <p class="orders-toolbar-text">
+        Selecteer een jaar en open daarna een kwartaal · Laatst bijgewerkt: {{ last_updated }}
+      </p>
+    </div>
+    <form method="get" action="/spaarpot" class="revenue-filter-form">
+      <label for="spaarpotYearSelect" class="visually-hidden">Kies jaar</label>
+      <select id="spaarpotYearSelect" name="year" class="revenue-select" data-auto-submit="1">
+        {% for option in year_options %}
+          <option value="{{ option.value }}" {% if option.value == spaarpot_summary.selectedYear %}selected{% endif %}>
+            {{ option.label }}
+          </option>
+        {% endfor %}
+      </select>
+    </form>
+  </section>
+
+  {% if message %}
+    <section class="notice">{{ message }}</section>
+  {% endif %}
+
+  <section class="spaarpot-quarter-tabs" aria-label="Kwartalen">
+    {% for quarter in spaarpot_summary.quarters %}
+      <a
+        class="summary-card spaarpot-quarter-tile {% if selected_quarter == quarter.quarter %}spaarpot-quarter-tile-active{% endif %}"
+        href="/spaarpot?year={{ spaarpot_summary.selectedYear }}&quarter={{ quarter.quarter }}"
+        aria-current="{% if selected_quarter == quarter.quarter %}true{% else %}false{% endif %}"
+      >
+        <span class="panel-title">Q{{ quarter.quarter }} · {{ quarter.label }}</span>
+        <strong>€ {{ "{:,.2f}".format(quarter.reserve).replace(",", "X").replace(".", ",").replace("X", ".") }}</strong>
+        <span>{{ quarter.paymentCount }} betalingen · € {{ "{:,.2f}".format(quarter.income).replace(",", "X").replace(".", ",").replace("X", ".") }} inkomsten</span>
+      </a>
+    {% endfor %}
+  </section>
+
+  <section class="summary-card spaarpot-quarter-detail">
+    <div class="spaarpot-quarter-head">
+      <div>
+        <p class="panel-title">Q{{ selected_quarter_summary.quarter }} · {{ selected_quarter_summary.label }}</p>
+        <h2>{{ selected_quarter_summary.periodLabel }}</h2>
+      </div>
+      <div class="spaarpot-quarter-reserve">
+        <span>Spaarpot</span>
+        <strong>€ {{ "{:,.2f}".format(selected_quarter_summary.reserve).replace(",", "X").replace(".", ",").replace("X", ".") }}</strong>
+      </div>
+    </div>
+
+    <div class="spaarpot-quarter-stats">
+      <div>
+        <span>Inkomsten</span>
+        <strong>€ {{ "{:,.2f}".format(selected_quarter_summary.income).replace(",", "X").replace(".", ",").replace("X", ".") }}</strong>
+      </div>
+      <div>
+        <span>Betalingen</span>
+        <strong>{{ selected_quarter_summary.paymentCount }}</strong>
+      </div>
+    </div>
+
+    {% if selected_quarter_summary.payments %}
+      <div class="spaarpot-payment-list">
+        <div class="spaarpot-payment-row spaarpot-payment-head">
+          <span>Datum</span>
+          <span>Factuur</span>
+          <span>Rekening</span>
+          <span>Bedrag</span>
+          <span>9%</span>
+        </div>
+        {% for payment in selected_quarter_summary.payments %}
+          <div class="spaarpot-payment-row">
+            <span>{{ payment.dateLabel }}</span>
+            <span>{{ payment.invoiceId or "MoneyBird" }}</span>
+            <span>{{ payment.accountLabel }}</span>
+            <span>€ {{ "{:,.2f}".format(payment.amount).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
+            <span>€ {{ "{:,.2f}".format(payment.reserve).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="spaarpot-empty">Geen ontvangen Moneybird- of Stripe-betalingen in dit kwartaal.</p>
+    {% endif %}
+  </section>
+{% endblock %}

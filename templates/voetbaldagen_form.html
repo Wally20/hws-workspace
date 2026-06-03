@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 
-{% block title %}Voetbaldagen | HWS Voetbalschool Workspace{% endblock %}
+{% block title %}{{ page_context.pageTitle }} | HWS Voetbalschool Workspace{% endblock %}
 
 {% block content %}
   <header class="page-header football-days-header">
     <div>
       <h1>{{ "Nieuw draaiboek" if page_mode == "new" else playbook.title }}</h1>
-      <p class="welcome-line">Bouw het draaiboek op uit gegevens, medewerkers, programma en onvoorziene omstandigheden.</p>
+      <p class="welcome-line">{{ page_context.formDescription }}</p>
     </div>
     <div class="football-days-actions">
-      <a href="/voetbaldagen" class="subtle-button">Overzicht</a>
+      <a href="{{ page_context.overviewPath }}" class="subtle-button">Overzicht</a>
       <button type="button" class="refresh-button" id="exportFootballDaysPdf">Export PDF</button>
     </div>
   </header>
@@ -18,22 +18,52 @@
     <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
   {% endif %}
 
-  <form method="post" action="{{ form_action }}" class="football-days-page" id="footballDaysForm">
+  <form
+    method="post"
+    action="{{ form_action }}"
+    class="football-days-page"
+    id="footballDaysForm"
+    data-playbook-type="{{ page_context.playbookType }}"
+    data-default-title="{{ page_context.defaultTitle }}"
+    data-cover-title="{{ page_context.pdfCoverTitle }}"
+    data-intro-subject="{{ page_context.introSubject }}"
+    data-export-pdf-api="{{ page_context.exportPdfApi }}"
+    data-fallback-pdf-filename="{{ page_context.fallbackPdfFilename }}"
+  >
     <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
 
     <section class="summary-card old-function-tile football-days-meta">
       <label class="field">
         <span>Titel draaiboek</span>
-        <input type="text" name="title" value="{{ playbook.title }}" placeholder="Draaiboek Voetbaldag HWS">
+        <input type="text" name="title" value="{{ playbook.title }}" placeholder="{{ page_context.titlePlaceholder }}">
       </label>
       <label class="field">
         <span>Datum</span>
         <input type="date" name="event_date" value="{{ playbook.eventDate }}">
       </label>
+      {% if page_context.supportsCycleDates %}
       <label class="field">
-        <span>Locatie</span>
-        <input type="text" name="location" value="{{ playbook.location }}" placeholder="Sportpark, veld of club">
+        <span>Nummer cyclus</span>
+        <input type="number" name="cycle_number" value="{{ playbook.cycleNumber }}" placeholder="Bijv. 4" min="1" step="1" inputmode="numeric">
       </label>
+      <label class="field">
+        <span>Begindatum cyclus</span>
+        <input type="date" name="cycle_start_date" value="{{ playbook.cycleStartDate }}">
+      </label>
+      <label class="field">
+        <span>Einddatum cyclus</span>
+        <input type="date" name="cycle_end_date" value="{{ playbook.cycleEndDate }}">
+      </label>
+      <label class="field">
+        <span>Geen training datum + omschrijving</span>
+        <textarea name="cycle_no_training_dates" rows="3" placeholder="Bijv. 2026-10-19 - Herfstvakantie&#10;2026-10-21 - Geen veld beschikbaar">{{ playbook.cycleNoTrainingDatesText }}</textarea>
+      </label>
+      {% endif %}
+      <label class="field">
+        <span>{{ page_context.locationLabel }}</span>
+        <input type="text" name="location" value="{{ playbook.location }}" placeholder="{{ page_context.locationPlaceholder }}">
+      </label>
+      {% if page_context.showEcwidProduct %}
       <div class="field football-product-field">
         <span>Ecwid product</span>
         <input type="hidden" name="ecwid_product_id" id="footballEcwidProductId" value="{{ playbook.ecwidProductId }}">
@@ -55,8 +85,9 @@
         <span>Aanmeldingen</span>
         <strong id="footballRegistrationCount">{{ playbook.registrationCount or 0 }}</strong>
       </div>
+      {% endif %}
       <div class="football-days-save">
-        <button type="submit" class="subtle-button subtle-button-strong">Alles van de voetbaldag opslaan</button>
+        <button type="submit" class="subtle-button subtle-button-strong">{{ page_context.saveAllLabel }}</button>
       </div>
     </section>
 
@@ -66,6 +97,20 @@
           <div>
             <p class="panel-title">Trainers en medewerkers</p>
           </div>
+          {% if page_context.supportsSectionToggles %}
+            <input type="hidden" name="include_staff" value="0">
+            <label class="football-section-toggle">
+              <input type="checkbox" name="include_staff" value="1" {% if playbook.includeStaff %}checked{% endif %}>
+              <span>Aan</span>
+            </label>
+          {% endif %}
+          {% if page_context.supportsStaffSetupTasks %}
+            <input type="hidden" name="include_staff_setup_tasks" value="0">
+            <label class="football-section-toggle">
+              <input type="checkbox" name="include_staff_setup_tasks" value="1" {% if playbook.includeStaffSetupTasks %}checked{% endif %} id="includeStaffSetupTasks">
+              <span>Taak uitzetten</span>
+            </label>
+          {% endif %}
           <button type="button" class="subtle-button action-small" id="addFootballStaffRow">+ Medewerker</button>
         </div>
         <label class="field football-reuse-field">
@@ -82,14 +127,14 @@
           <div class="football-table-head">
             <span>Naam</span>
             <span>Rol</span>
-            <span>Taak uitzetten</span>
+            <span data-staff-setup-task-cell>Taak uitzetten</span>
             <span></span>
           </div>
           {% for member in playbook.staff %}
             <div class="football-table-row" data-football-staff-row>
               <input type="text" name="staff_name" value="{{ member.name }}" placeholder="Naam">
               <input type="text" name="staff_role" value="{{ member.role }}" placeholder="Trainer, EHBO, coordinator">
-              <input type="text" name="staff_setup_task" value="{{ member.setupTask }}" placeholder="Bijvoorbeeld: veld 2 uitzetten">
+              <textarea name="staff_setup_task" rows="2" placeholder="Bijvoorbeeld: veld 2 uitzetten" data-staff-setup-task-cell>{{ member.setupTask }}</textarea>
               <button type="button" class="subtle-button action-small football-row-remove" data-remove-football-row aria-label="Verwijder medewerker">Wis</button>
             </div>
           {% endfor %}
@@ -105,6 +150,13 @@
             <p class="panel-title">Programma</p>
           </div>
           <div class="football-program-actions">
+            {% if page_context.supportsSectionToggles %}
+              <input type="hidden" name="include_program" value="0">
+              <label class="football-section-toggle">
+                <input type="checkbox" name="include_program" value="1" {% if playbook.includeProgram %}checked{% endif %}>
+                <span>Aan</span>
+              </label>
+            {% endif %}
             <label class="subtle-button action-small football-image-import">
               Importeer afbeelding
               <input type="file" id="footballProgramImageImport" accept="image/*">
@@ -147,22 +199,75 @@
 
     <section class="summary-card old-function-tile football-days-panel football-field-planner-panel">
       <input type="hidden" name="field_layout_json" id="footballFieldLayoutInput" value="{{ playbook.fieldLayout|tojson|forceescape }}">
+      <input type="hidden" name="field_trainings_json" id="footballFieldTrainingsInput" value="{{ playbook.fieldTrainings|tojson|forceescape }}">
       <div class="feature-list-head">
         <div>
           <p class="panel-title">Veldplattegrond</p>
         </div>
         <div class="football-field-actions">
           <button type="button" class="subtle-button action-small" id="addFootballFieldBlock">+ Blok</button>
+          <button type="button" class="subtle-button action-small" id="pasteFootballFieldBlock">Plak blok</button>
+          <button type="button" class="subtle-button action-small" id="addFootballFieldArrow">+ Pijl</button>
+          {% if page_context.supportsFieldTrainings %}
+            <button type="button" class="subtle-button action-small football-field-wizard-button" id="openFootballFieldWizard" aria-label="Trainingen automatisch vullen" title="Trainingen automatisch vullen">✦</button>
+          {% endif %}
           <button type="button" class="subtle-button action-small" id="centerFootballFieldBlocks">Centreer</button>
         </div>
       </div>
+      <label class="field football-reuse-field">
+        <span>Terughalen uit vorig draaiboek</span>
+        <select data-reuse-playbook="fieldLayout">
+          <option value="">Kies een draaiboek</option>
+          {% for previous in previous_playbooks %}
+            <option value="{{ previous.id }}">{{ previous.title }}{% if previous.eventDate %} - {{ previous.eventDate }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% if page_context.supportsFieldTrainings %}
+        <div class="football-field-training-manager">
+          <div class="football-field-training-fields">
+            <label class="field">
+              <span>Naam training</span>
+              <input type="text" id="footballFieldTrainingName" placeholder="Bijvoorbeeld: Training O13">
+            </label>
+            <label class="field">
+              <span>Datum training</span>
+              <input type="date" id="footballFieldTrainingDate">
+            </label>
+            <button type="button" class="subtle-button action-small" id="addFootballFieldTraining">+ Training</button>
+            <button type="button" class="subtle-button action-small" id="duplicateFootballFieldTraining">Dupliceer training</button>
+            <button type="button" class="subtle-button action-small football-field-danger" id="removeFootballFieldTraining">Verwijder training</button>
+          </div>
+          <div class="football-field-training-tabs" id="footballFieldTrainingTabs" aria-label="Trainingen"></div>
+          <div class="football-field-period-manager">
+            <div class="football-field-period-fields">
+              <label class="field">
+                <span>Plattegrond naam</span>
+                <input type="text" id="footballFieldPeriodLabel" placeholder="Bijvoorbeeld: Ronde 1">
+              </label>
+              <label class="field">
+                <span>Van</span>
+                <input type="time" id="footballFieldPeriodStart">
+              </label>
+              <label class="field">
+                <span>Tot</span>
+                <input type="time" id="footballFieldPeriodEnd">
+              </label>
+              <button type="button" class="subtle-button action-small" id="addFootballFieldPeriod">+ Plattegrond</button>
+              <button type="button" class="subtle-button action-small" id="duplicateFootballFieldPeriod">Dupliceer plattegrond</button>
+              <button type="button" class="subtle-button action-small football-field-danger" id="removeFootballFieldPeriod">Verwijder plattegrond</button>
+            </div>
+            <div class="football-field-period-tabs" id="footballFieldPeriodTabs" aria-label="Plattegronden"></div>
+          </div>
+        </div>
+      {% endif %}
       <div class="football-field-workspace">
         <div class="football-field-shell">
           <div class="football-field-board" id="footballFieldBoard" aria-label="Veldplattegrond"></div>
         </div>
         <aside class="football-field-sidebar">
           <div class="football-field-count">
-            <span>Blokken</span>
+            <span>Blokken / pijlen</span>
             <strong id="footballFieldBlockCount">0</strong>
           </div>
           <button type="button" class="subtle-button action-small" id="clearFootballFieldBlocks">Leeg veld</button>
@@ -173,6 +278,7 @@
       </div>
     </section>
 
+    {% if page_context.showContingencies %}
     <section class="summary-card old-function-tile football-days-panel">
       <div class="feature-list-head">
         <div>
@@ -197,9 +303,10 @@
         <button type="submit" class="subtle-button subtle-button-strong">Onvoorziene omstandigheden opslaan</button>
       </div>
     </section>
+    {% endif %}
 
     <section class="football-days-save football-days-save-all">
-      <button type="submit" class="refresh-button">Alles van de voetbaldag opslaan</button>
+      <button type="submit" class="refresh-button">{{ page_context.saveAllLabel }}</button>
     </section>
   </form>
 
@@ -207,7 +314,7 @@
     <div class="football-table-row" data-football-staff-row>
       <input type="text" name="staff_name" placeholder="Naam">
       <input type="text" name="staff_role" placeholder="Trainer, EHBO, coordinator">
-      <input type="text" name="staff_setup_task" placeholder="Bijvoorbeeld: veld 2 uitzetten">
+      <textarea name="staff_setup_task" rows="2" placeholder="Bijvoorbeeld: veld 2 uitzetten" data-staff-setup-task-cell></textarea>
       <button type="button" class="subtle-button action-small football-row-remove" data-remove-football-row aria-label="Verwijder medewerker">Wis</button>
     </div>
   </template>
@@ -242,6 +349,35 @@
         <div class="football-import-preview-confirm">
           <button type="button" class="subtle-button" data-close-football-program-import>Annuleren</button>
           <button type="button" class="subtle-button subtle-button-strong" id="confirmFootballProgramImport">Importeer programma</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="agenda-modal football-field-modal" id="footballFieldArrowModal" hidden>
+    <div class="agenda-modal-backdrop" data-close-football-field-arrow-modal></div>
+    <section class="agenda-modal-dialog football-field-arrow-dialog" role="dialog" aria-modal="true" aria-labelledby="footballFieldArrowTitle">
+      <div class="agenda-modal-header">
+        <div>
+          <h2 id="footballFieldArrowTitle">Pijl bewerken</h2>
+        </div>
+        <button type="button" class="team-modal-close" data-close-football-field-arrow-modal aria-label="Sluiten">×</button>
+      </div>
+      <div class="football-field-modal-grid">
+        <label class="field football-field-color-field">
+          <span>Kleur pijl</span>
+          <input type="color" id="footballFieldArrowColor" value="#ffffff">
+        </label>
+        <label class="field">
+          <span>Dikte pijl</span>
+          <input type="range" id="footballFieldArrowWidth" min="2" max="12" step="1" value="5">
+        </label>
+      </div>
+      <div class="football-field-modal-actions">
+        <button type="button" class="subtle-button action-small football-field-danger" id="deleteFootballFieldArrow">Verwijder pijl</button>
+        <div>
+          <button type="button" class="subtle-button" data-close-football-field-arrow-modal>Annuleren</button>
+          <button type="button" class="subtle-button subtle-button-strong" id="saveFootballFieldArrow">Opslaan</button>
         </div>
       </div>
     </section>
@@ -285,6 +421,12 @@
           </select>
         </label>
         <label>
+          <span>Leeftijd</span>
+          <select id="footballFieldExerciseAgeFilter">
+            <option value="">Alle leeftijden</option>
+          </select>
+        </label>
+        <label>
           <span>Duur</span>
           <select id="footballFieldExerciseDurationFilter">
             <option value="">Alle duren</option>
@@ -301,8 +443,15 @@
         <button type="button" style="--swatch-color: #ffffff" data-field-color="#ffffff" aria-label="Wit"></button>
       </div>
       <div class="football-field-exercise-list" id="footballFieldExerciseList"></div>
+      <label class="football-field-export-toggle">
+        <input type="checkbox" id="footballFieldSameExerciseExport">
+        <span>Zelfde oefening als andere blokken: detailpagina maar 1x exporteren</span>
+      </label>
       <div class="football-field-modal-actions">
-        <button type="button" class="subtle-button action-small football-field-danger" id="deleteFootballFieldBlock">Verwijder blok</button>
+        <div>
+          <button type="button" class="subtle-button action-small" id="copyFootballFieldBlock">Kopieer blok</button>
+          <button type="button" class="subtle-button action-small football-field-danger" id="deleteFootballFieldBlock">Verwijder blok</button>
+        </div>
         <div>
           <button type="button" class="subtle-button" data-close-football-field-modal>Annuleren</button>
           <button type="button" class="subtle-button subtle-button-strong" id="saveFootballFieldBlock">Opslaan</button>
@@ -310,6 +459,36 @@
       </div>
     </section>
   </div>
+
+  {% if page_context.supportsFieldTrainings %}
+  <div class="agenda-modal football-field-modal" id="footballFieldWizardModal" hidden>
+    <div class="agenda-modal-backdrop" data-close-football-field-wizard></div>
+    <section class="agenda-modal-dialog football-field-wizard-dialog" role="dialog" aria-modal="true" aria-labelledby="footballFieldWizardTitle">
+      <div class="agenda-modal-header">
+        <div>
+          <h2 id="footballFieldWizardTitle">Trainingen automatisch vullen</h2>
+        </div>
+        <button type="button" class="team-modal-close" data-close-football-field-wizard aria-label="Sluiten">×</button>
+      </div>
+      <div class="football-field-wizard-controls">
+        <fieldset class="football-field-wizard-age-field" id="footballFieldWizardAge">
+          <legend>Leeftijd training</legend>
+          <div class="football-field-wizard-age-options" data-field-wizard-age-options></div>
+        </fieldset>
+        <label class="football-field-wizard-row-match-toggle">
+          <input type="checkbox" id="footballFieldWizardMatchRows">
+          <span>Oefeningen in Rij 1 en Rij 2 laten overeenkomen</span>
+        </label>
+      </div>
+      <p class="football-field-search-feedback" id="footballFieldWizardFeedback" aria-live="polite"></p>
+      <div class="football-field-wizard-list" id="footballFieldWizardRows"></div>
+      <div class="football-field-modal-actions">
+        <button type="button" class="subtle-button" data-close-football-field-wizard>Annuleren</button>
+        <button type="button" class="subtle-button subtle-button-strong" id="fillFootballFieldTrainings">Vul trainingen in</button>
+      </div>
+    </section>
+  </div>
+  {% endif %}
 
   <script type="application/json" id="footballPreviousPlaybooks">{{ previous_playbooks|tojson }}</script>
   <script type="application/json" id="footballExerciseLibrary">{{ exercises|tojson }}</script>

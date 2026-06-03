@@ -124,6 +124,130 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         mocked_save.assert_called_once()
 
+    def test_dashboard_events_can_be_saved_empty(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            original_data_dir = legacy.DATA_DIR
+            original_database_path = legacy.DATABASE_PATH
+            try:
+                legacy.DATA_DIR = temp_dir
+                legacy.DATABASE_PATH = os.path.join(temp_dir, "app.db")
+                legacy.clear_local_data_cache()
+                legacy.init_db()
+
+                legacy.save_dashboard_events_config(
+                    [{"productId": "1", "label": "Clinic", "matchTerms": ["Clinic"]}]
+                )
+                legacy.save_dashboard_events_config([])
+
+                self.assertEqual(legacy.load_dashboard_events_config(), [])
+            finally:
+                legacy.DATA_DIR = original_data_dir
+                legacy.DATABASE_PATH = original_database_path
+                legacy.clear_local_data_cache()
+
+    def test_training_session_save_uses_exercise_library(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            original_data_dir = legacy.DATA_DIR
+            original_database_path = legacy.DATABASE_PATH
+            try:
+                legacy.DATA_DIR = temp_dir
+                legacy.DATABASE_PATH = os.path.join(temp_dir, "app.db")
+                legacy.clear_local_data_cache()
+                legacy.init_db()
+                with legacy.get_db_connection() as connection:
+                    connection.execute(
+                        """
+                        INSERT INTO exercises (
+                            title, category, duration, training_exercise, description,
+                            coaching, variation_easier, variation_harder, dimensions,
+                            materials, field_json, source_slide, updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            "Passing vorm",
+                            "Passing",
+                            "10 minuten",
+                            "Techniek",
+                            "Omschrijving",
+                            "Coaching",
+                            "",
+                            "",
+                            "",
+                            "Ballen",
+                            "{}",
+                            None,
+                            legacy.utcnow_iso(),
+                        ),
+                    )
+
+                training = legacy.save_training_session(
+                    {
+                        "title": "Training JO11",
+                        "notes": "Focus op passing.",
+                        "exercises": [{"exerciseId": 1}],
+                    }
+                )
+
+                self.assertIsNotNone(training)
+                self.assertEqual(training["title"], "Training JO11")
+                self.assertEqual(training["exercises"][0]["title"], "Passing vorm")
+            finally:
+                legacy.DATA_DIR = original_data_dir
+                legacy.DATABASE_PATH = original_database_path
+                legacy.clear_local_data_cache()
+
+    def test_exercise_library_loads_alphabetically_by_title(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            original_data_dir = legacy.DATA_DIR
+            original_database_path = legacy.DATABASE_PATH
+            try:
+                legacy.DATA_DIR = temp_dir
+                legacy.DATABASE_PATH = os.path.join(temp_dir, "app.db")
+                legacy.clear_local_data_cache()
+                legacy.init_db()
+                with legacy.get_db_connection() as connection:
+                    for title, category in [
+                        ("Zigzag dribbel", "Dribbelvormen"),
+                        ("1v1 lijndribbbel", "1v1 vormen"),
+                        ("Aanname onder druk", "Techniek"),
+                        ("Balcontrole", "Passing"),
+                    ]:
+                        connection.execute(
+                            """
+                            INSERT INTO exercises (
+                                title, category, duration, training_exercise, description,
+                                coaching, variation_easier, variation_harder, dimensions,
+                                materials, field_json, source_slide, updated_at
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                title,
+                                category,
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                "{}",
+                                None,
+                                legacy.utcnow_iso(),
+                            ),
+                        )
+
+                self.assertEqual(
+                    [exercise["title"] for exercise in legacy.load_exercises()],
+                    ["Aanname onder druk", "Balcontrole", "Zigzag dribbel", "1v1 lijndribbbel"],
+                )
+            finally:
+                legacy.DATA_DIR = original_data_dir
+                legacy.DATABASE_PATH = original_database_path
+                legacy.clear_local_data_cache()
+
     def test_authenticated_session_stays_valid_after_old_timestamps(self):
         client = Client()
         session_store = import_module(settings.SESSION_ENGINE).SessionStore()
@@ -189,6 +313,62 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         )
         self.assertIn("orders", legacy.get_visible_pages_for_user({"id": "trainer", "isAdmin": False, "systemRole": "Trainer"}))
 
+    def test_football_day_only_agenda_day_counts_as_no_activity(self):
+        summary_day_plans = legacy.add_football_day_only_no_activity_days(
+            [
+                {
+                    "date": "2026-05-01",
+                    "planType": "Voetbaldag",
+                }
+            ],
+            [],
+        )
+        summary = legacy.build_agenda_day_plan_summary(summary_day_plans)
+        no_activity = next(item for item in summary if item["label"] == "Geen activiteit")
+        football_day = next(item for item in summary if item["label"] == "Voetbaldag")
+
+        self.assertEqual(football_day["count"], 1)
+        self.assertEqual(no_activity["count"], 1)
+        self.assertEqual(no_activity["details"][0]["copyText"], "1. Vrijdag 1 mei 2026")
+
+    def test_football_day_only_training_item_counts_as_no_activity(self):
+        summary_day_plans = legacy.add_football_day_only_no_activity_days(
+            [],
+            [
+                {
+                    "title": "Voetbaldag VV Voorst",
+                    "date": "2026-05-01",
+                    "time": "09:00",
+                }
+            ],
+        )
+        summary = legacy.build_agenda_day_plan_summary(summary_day_plans)
+        no_activity = next(item for item in summary if item["label"] == "Geen activiteit")
+
+        self.assertEqual(no_activity["count"], 1)
+        self.assertEqual(no_activity["details"][0]["copyText"], "1. Vrijdag 1 mei 2026")
+
+    def test_football_day_with_training_does_not_count_as_no_activity(self):
+        summary_day_plans = legacy.add_football_day_only_no_activity_days(
+            [],
+            [
+                {
+                    "title": "Voetbaldag VV Voorst",
+                    "date": "2026-05-01",
+                    "time": "09:00",
+                },
+                {
+                    "title": "Techniektraining JO10",
+                    "date": "2026-05-01",
+                    "time": "17:00",
+                },
+            ],
+        )
+        summary = legacy.build_agenda_day_plan_summary(summary_day_plans)
+        no_activity = next(item for item in summary if item["label"] == "Geen activiteit")
+
+        self.assertEqual(no_activity["count"], 0)
+
     def test_leads_page_is_visible_for_all_authenticated_users(self):
         self.assertIn("leads", legacy.get_visible_pages_for_user({"id": "admin", "isAdmin": True}))
         self.assertIn(
@@ -196,6 +376,146 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             legacy.get_visible_pages_for_user({"id": "social", "isAdmin": False, "systemRole": "Social media beheerder"}),
         )
         self.assertIn("leads", legacy.get_visible_pages_for_user({"id": "trainer", "isAdmin": False, "systemRole": "Trainer"}))
+
+    def test_spaarpot_is_visible_for_admin_users(self):
+        self.assertIn("spaarpot", legacy.get_visible_pages_for_user({"id": "admin", "isAdmin": True}))
+        self.assertNotIn(
+            "spaarpot",
+            legacy.get_visible_pages_for_user({"id": "trainer", "isAdmin": False, "systemRole": "Trainer"}),
+        )
+
+    def test_spaarpot_quarter_summary_uses_moneybird_payment_dates(self):
+        invoices = [
+            {
+                "id": "1",
+                "invoice_id": "2026-0001",
+                "payments": [
+                    {"payment_date": "2026-01-15", "price": "100.00"},
+                    {"payment_date": "2026-03-20", "price": "50.00"},
+                    {"payment_date": "2026-04-01", "price": "200.00"},
+                    {"payment_date": "2026-04-02", "price": "-25.00"},
+                ],
+            },
+            {
+                "id": "2",
+                "invoice_id": "2025-0009",
+                "payments": [{"payment_date": "2025-12-31", "price": "80.00"}],
+            },
+        ]
+
+        entries = legacy.build_spaarpot_payment_entries(invoices)
+        summary = legacy.build_spaarpot_quarter_summary(entries, 2026)
+
+        self.assertEqual(len(entries), 4)
+        self.assertEqual(summary["quarters"][0]["income"], 150.0)
+        self.assertEqual(summary["quarters"][0]["reserve"], 13.5)
+        self.assertEqual(summary["quarters"][1]["income"], 200.0)
+        self.assertEqual(summary["quarters"][1]["reserve"], 18.0)
+        self.assertEqual(summary["income"], 350.0)
+        self.assertEqual(summary["reserve"], 31.5)
+
+    def test_spaarpot_quarter_summary_includes_moneybird_stripe_mutations(self):
+        invoices = [
+            {
+                "id": "1",
+                "invoice_id": "2026-0001",
+                "payments": [{"payment_date": "2026-01-15", "price": "100.00"}],
+            }
+        ]
+        financial_mutations = [
+            {
+                "id": "mutation-1",
+                "code": "STR-1001",
+                "date": "2026-02-10",
+                "amount": "-250.00",
+                "contra_account_name": "STRIPE",
+                "message": "Stripe payout",
+                "payments": [{"invoice_type": "ExternalSalesInvoice"}],
+            },
+            {
+                "id": "mutation-2",
+                "code": "BANK-1002",
+                "date": "2026-02-11",
+                "amount": "75.00",
+                "contra_account_name": "Andere klant",
+                "message": "Losse betaling",
+                "payments": [],
+            },
+            {
+                "id": "mutation-3",
+                "code": "STR-1002",
+                "date": "2026-04-14",
+                "amount": "929.84",
+                "contra_account_name": "STRIPE TECHNOLOGY EUROPE, LIMITED",
+                "message": "",
+                "payments": [],
+            },
+            {
+                "id": "mutation-4",
+                "code": "STR-1003",
+                "date": "2026-02-12",
+                "amount": "-50.00",
+                "contra_account_name": "STRIPE",
+                "message": "Stripe gekoppeld aan verkoopfactuur",
+                "payments": [{"invoice_type": "SalesInvoice"}],
+            },
+        ]
+
+        entries = legacy.build_spaarpot_payment_entries(invoices, financial_mutations)
+        summary = legacy.build_spaarpot_quarter_summary(entries, 2026)
+
+        self.assertEqual(len(entries), 3)
+        self.assertEqual(summary["quarters"][0]["income"], 350.0)
+        self.assertEqual(summary["quarters"][0]["reserve"], 31.5)
+        self.assertEqual(summary["quarters"][1]["income"], 929.84)
+        self.assertEqual(summary["quarters"][1]["reserve"], 83.69)
+        self.assertIn("Stripe STR-1001", [entry["invoiceId"] for entry in entries])
+        self.assertIn("Stripe STR-1002", [entry["invoiceId"] for entry in entries])
+        self.assertNotIn("Stripe STR-1003", [entry["invoiceId"] for entry in entries])
+
+    def test_spaarpot_page_renders_moneybird_quarters(self):
+        moneybird = {
+            "invoices": [
+                {
+                    "id": "1",
+                    "invoice_id": "2026-0001",
+                    "contact": {"company_name": "Voetbal Ouder", "bank_account": "NL91ABNA0417164300"},
+                    "payments": [{"payment_date": "2026-01-15", "price": "100.00"}],
+                }
+            ],
+            "financialMutations": [
+                {
+                    "id": "mutation-1",
+                    "code": "STR-1001",
+                    "date": "2026-01-20",
+                    "amount": "-50.00",
+                    "contra_account_name": "STRIPE",
+                    "message": "Stripe payout",
+                    "payments": [{"invoice_type": "ExternalSalesInvoice"}],
+                }
+            ],
+            "message": None,
+        }
+
+        with patch.object(legacy, "get_current_user", return_value={"id": "admin", "isAdmin": True}), patch.object(
+            legacy,
+            "fetch_moneybird_summary",
+            return_value=moneybird,
+        ), patch.object(legacy, "fetch_orders_non_blocking") as fetch_orders_non_blocking:
+            response = Client().get("/spaarpot?year=2026", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        fetch_orders_non_blocking.assert_not_called()
+        content = response.content.decode("utf-8")
+        self.assertIn("Spaarpot", content)
+        self.assertIn("JAN-FEB-MAA", content)
+        self.assertIn('href="/spaarpot?year=2026&quarter=1"', content)
+        self.assertIn('href="/spaarpot?year=2026&quarter=4"', content)
+        self.assertIn("2026-0001", content)
+        self.assertIn("Voetbal Ouder - NL91ABNA0417164300", content)
+        self.assertIn("Stripe STR-1001", content)
+        self.assertIn("STRIPE", content)
+        self.assertIn("€ 13,50", content)
 
     def test_football_days_new_page_renders_for_authenticated_user(self):
         response = self.build_authenticated_client().get("/voetbaldagen/nieuw", secure=True)
@@ -208,6 +528,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Importeer afbeelding", content)
         self.assertIn('id="footballProgramImportModal"', content)
         self.assertIn('id="confirmFootballProgramImport"', content)
+        self.assertIn('data-reuse-playbook="fieldLayout"', content)
 
     def test_football_days_new_page_saves_and_redirects_to_created_playbook(self):
         response = self.build_authenticated_client().post(
@@ -330,6 +651,126 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["counts"][str(playbook_id)], 5)
+
+    def test_amateur_clubs_page_uses_same_playbook_flow_with_own_storage(self):
+        response = self.build_authenticated_client().post(
+            "/samenwerkende-amateurclubs/nieuw",
+            {
+                "csrf_token": self.TEST_CSRF_TOKEN,
+                "title": "Test draaiboek samenwerkende amateurclub",
+                "event_date": "2026-05-08",
+                "cycle_number": "4",
+                "cycle_start_date": "2026-09-01",
+                "cycle_end_date": "2026-12-18",
+                "cycle_no_training_dates": "2026-10-19 - Herfstvakantie\n2026-10-21 - Geen veld beschikbaar",
+                "location": "Sportpark Samen",
+                "staff_name": ["Test Trainer"],
+                "staff_role": ["Trainer"],
+                "staff_setup_task": ["Veld uitzetten"],
+                "program_start": ["17:00"],
+                "program_end": ["18:00"],
+                "program_activity": ["Teamtraining"],
+                "contingencies": "Regenplan klaarzetten.",
+            },
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertRegex(response["Location"], r"^/samenwerkende-amateurclubs/\d+\?success=")
+        created_id = int(response["Location"].split("/samenwerkende-amateurclubs/", 1)[1].split("?", 1)[0])
+        self.assertIsNone(legacy.load_football_days_playbook(created_id))
+        created_playbook = legacy.load_football_days_playbook(created_id, "samenwerkende-amateurclubs")
+        self.assertEqual(created_playbook["title"], "Test draaiboek samenwerkende amateurclub")
+        self.assertEqual(created_playbook["playbookType"], "samenwerkende-amateurclubs")
+        self.assertEqual(created_playbook["cycleNumber"], "4")
+        self.assertEqual(created_playbook["cycleStartDate"], "2026-09-01")
+        self.assertEqual(created_playbook["cycleEndDate"], "2026-12-18")
+        self.assertEqual(
+            [row["date"] for row in created_playbook["cycleNoTrainingDates"]],
+            ["2026-10-19", "2026-10-21"],
+        )
+        self.assertEqual(
+            [row["description"] for row in created_playbook["cycleNoTrainingDates"]],
+            ["Herfstvakantie", "Geen veld beschikbaar"],
+        )
+
+        overview = self.build_authenticated_client().get("/samenwerkende-amateurclubs", secure=True)
+        content = overview.content.decode("utf-8")
+        self.assertEqual(overview.status_code, 200)
+        self.assertIn("Samenwerkende Amateurclubs", content)
+        self.assertIn("Cyclus 4: 2026-09-01 t/m 2026-12-18", content)
+        self.assertIn("/api/samenwerkende-amateurclubs/registration-counts", content)
+        self.assertIn(f'action="/samenwerkende-amateurclubs/{created_id}/dupliceren"', content)
+
+        export_data = legacy.normalize_football_days_export_payload(created_playbook, "samenwerkende-amateurclubs")
+        self.assertEqual(export_data["cycleNumber"], "4")
+        self.assertEqual(export_data["coverTitle"], "Test draaiboek samenwerkende amateurclub")
+        self.assertEqual(
+            legacy.football_days_pdf_filename({**export_data, "title": "HWS - SJO Almen/Harfsen - Cyclus 4"}),
+            "HWS - SJO Almen-Harfsen - Cyclus 4.pdf",
+        )
+        self.assertIn("CYCLUS 4", export_data["coverMeta"])
+        self.assertEqual(
+            [row["date"] for row in export_data["cycleNoTrainingDates"]],
+            ["2026-10-19", "2026-10-21"],
+        )
+
+    def test_amateur_club_playbook_can_be_duplicated_from_overview_tile(self):
+        playbook_id = legacy.save_football_days_playbook(
+            {
+                "playbookType": "samenwerkende-amateurclubs",
+                "title": "Test draaiboek dupliceren",
+                "cycleNumber": "5",
+                "cycleStartDate": "2026-09-01",
+                "cycleEndDate": "2026-12-18",
+                "location": "SV Voorbeeld",
+                "staff": [{"name": "Test Trainer", "role": "Trainer", "setupTask": "Veld klaarzetten"}],
+                "program": [{"startTime": "17:00", "endTime": "18:00", "activity": "Teamtraining"}],
+                "fieldTrainings": [{"name": "Training 1", "date": "2026-09-03", "fieldLayout": []}],
+                "cycleNoTrainingDates": [{"date": "2026-10-19", "description": "Herfstvakantie"}],
+                "contingencies": "Binnen trainen.",
+            },
+            playbook_type="samenwerkende-amateurclubs",
+        )
+
+        response = self.build_authenticated_client().post(
+            f"/samenwerkende-amateurclubs/{playbook_id}/dupliceren",
+            {"csrf_token": self.TEST_CSRF_TOKEN},
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertRegex(response["Location"], r"^/samenwerkende-amateurclubs/\d+\?success=")
+        duplicate_id = int(response["Location"].split("/samenwerkende-amateurclubs/", 1)[1].split("?", 1)[0])
+        self.assertNotEqual(duplicate_id, playbook_id)
+        duplicate = legacy.load_football_days_playbook(duplicate_id, "samenwerkende-amateurclubs")
+        self.assertEqual(duplicate["title"], "Kopie van Test draaiboek dupliceren")
+        self.assertEqual(duplicate["cycleNumber"], "5")
+        self.assertEqual(duplicate["location"], "SV Voorbeeld")
+        self.assertEqual(duplicate["staff"], [{"name": "Test Trainer", "role": "Trainer", "setupTask": "Veld klaarzetten"}])
+        self.assertEqual([row["date"] for row in duplicate["cycleNoTrainingDates"]], ["2026-10-19"])
+
+    def test_amateur_club_training_dates_are_sorted_for_cycle_pdf(self):
+        trainings = [
+            {"name": "Training 3", "date": "2026-10-15"},
+            {"name": "Training zonder datum", "date": ""},
+            {"name": "Training 1", "date": "2026-09-03"},
+            {"name": "Training 2", "date": "2026-09-17"},
+        ]
+
+        sorted_trainings = legacy.sorted_football_cycle_trainings(trainings)
+
+        self.assertEqual(
+            [training["name"] for training in sorted_trainings],
+            ["Training 1", "Training 2", "Training 3", "Training zonder datum"],
+        )
+
+    def test_no_training_dates_are_normalized_for_cycle_pdf(self):
+        dates = legacy.normalize_football_no_training_dates("2026-10-21 - Geen veld\n2026-10-19 - Herfstvakantie, 2026-10-21 dubbel")
+
+        self.assertEqual([row["date"] for row in dates], ["2026-10-19", "2026-10-21"])
+        self.assertEqual([row["description"] for row in dates], ["Herfstvakantie", "Geen veld"])
+        self.assertEqual(dates[0]["dateLabel"], "Maandag 19 oktober 2026")
 
     def test_registrations_page_only_loads_products_for_overview(self):
         catalog_payload = {

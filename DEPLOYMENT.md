@@ -57,6 +57,10 @@ BUNNY_IMAGE_PUBLIC_BASE=https://<pull-zone>.b-cdn.net
 BUNNY_IMAGE_BASE_PATH=content
 BUNNY_IMAGE_MAX_UPLOAD_MB=15
 BUNNY_IMAGE_ALLOWED_TYPES=image/jpeg,image/png,image/webp,image/avif
+BUNNY_VIDEO_PUBLIC_BASE=https://<pull-zone>.b-cdn.net
+BUNNY_VIDEO_BASE_PATH=exercise-videos
+BUNNY_VIDEO_MAX_UPLOAD_MB=5000
+BUNNY_VIDEO_ALLOWED_TYPES=video/mp4,video/webm,video/quicktime
 ```
 
 Optioneel:

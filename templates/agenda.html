@@ -10,6 +10,7 @@
         <p class="welcome-line">Voeg trainingen toe en houd je planning overzichtelijk bij.</p>
       </div>
       <div class="agenda-header-actions">
+        <button type="button" id="openAgendaBulkModal" class="subtle-button subtle-button-strong">Meerdere trainingen</button>
         <button type="button" id="openAgendaModal" class="refresh-button">+ Nieuwe Training</button>
       </div>
     </div>
@@ -83,6 +84,25 @@
       </div>
     </div>
 
+    <div class="agenda-color-legend" aria-label="Legenda agendakleuren">
+      <div class="agenda-legend-group">
+        <span class="agenda-legend-label">Type</span>
+        {% for option in agenda_training_type_options %}
+          <span class="agenda-legend-item">
+            <span class="agenda-legend-swatch agenda-legend-fill {{ option.className }}"></span>
+            {{ option.label }}
+          </span>
+        {% endfor %}
+      </div>
+      <div class="agenda-legend-group">
+        <span class="agenda-legend-label">Club</span>
+        <span class="agenda-legend-item"><span class="agenda-legend-swatch agenda-legend-border agenda-event-club-wwna"></span>WWNA</span>
+        <span class="agenda-legend-item"><span class="agenda-legend-swatch agenda-legend-border agenda-event-club-vv-gorssel"></span>VV Gorssel</span>
+        <span class="agenda-legend-item"><span class="agenda-legend-swatch agenda-legend-border agenda-event-club-vv-oeken"></span>VV Oeken</span>
+        <span class="agenda-legend-item"><span class="agenda-legend-swatch agenda-legend-border agenda-event-club-abs"></span>ABS</span>
+      </div>
+    </div>
+
     {% if agenda_view == "month" %}
       <div class="agenda-board" data-agenda-school-region="{{ agenda_school_region }}">
         <div class="agenda-month-board" data-agenda-plan-surface>
@@ -122,7 +142,22 @@
                   </div>
                   <div class="agenda-month-events">
                     {% for event in month_events.get(day.key, []) %}
-                      <article class="agenda-month-event">
+                      <article
+                        class="agenda-month-event {{ event.trainingTypeClass }} {{ event.clubClass }}"
+                        role="button"
+                        tabindex="0"
+                        data-agenda-edit-event
+                        data-event-id="{{ event.id }}"
+                        data-event-title="{{ event.title }}"
+                        data-event-date="{{ event.date }}"
+                        data-event-time="{{ event.time }}"
+                        data-event-end-time="{{ event.endTime }}"
+                        data-event-location="{{ event.location }}"
+                        data-event-training-type="{{ event.trainingType }}"
+                        data-event-trainer-ids="{% for trainer in event.trainers %}{{ trainer.id }}{% if not loop.last %},{% endif %}{% endfor %}"
+                        data-event-notes="{{ event.notes }}"
+                        data-event-signature="{{ event.signature }}"
+                      >
                         <span class="agenda-month-event-dot"></span>
                         <span class="agenda-month-event-text">{{ event.time }} {{ event.title }}</span>
                       </article>
@@ -175,14 +210,24 @@
 
           {% for event in calendar_events %}
             <article
-              class="agenda-event"
-              style="--day-index: {{ event.dayIndex }}; --event-top: {{ event.top }}px; --event-height: {{ event.height }}px;"
+              class="agenda-event {{ event.trainingTypeClass }} {{ event.clubClass }}{% if event.isDenseText %} agenda-event-dense-text{% endif %}"
+              style="--day-index: {{ event.dayIndex }}; --event-top: {{ event.top }}px; --event-height: {{ event.height }}px; --overlap-index: {{ event.overlapIndex }}; --overlap-count: {{ event.overlapCount }}; --overlap-font-scale: {{ event.overlapFontScale }}; --agenda-font-scale: {{ event.fontScale }};"
+              role="button"
+              tabindex="0"
+              data-agenda-edit-event
+              data-event-id="{{ event.id }}"
+              data-event-title="{{ event.title }}"
+              data-event-date="{{ event.date }}"
+              data-event-time="{{ event.time }}"
+              data-event-end-time="{{ event.endTime }}"
+              data-event-location="{{ event.location }}"
+              data-event-training-type="{{ event.trainingType }}"
+              data-event-trainer-ids="{% for trainer in event.trainers %}{{ trainer.id }}{% if not loop.last %},{% endif %}{% endfor %}"
+              data-event-notes="{{ event.notes }}"
+              data-event-signature="{{ event.signature }}"
             >
               <p class="agenda-event-time">{{ event.time }} - {{ event.endTime }}</p>
               <p class="agenda-event-title">{{ event.title }}</p>
-              {% if event.location %}
-                <p class="agenda-event-location">{{ event.location }}</p>
-              {% endif %}
             </article>
           {% endfor %}
         </div>
@@ -227,6 +272,7 @@
                   data-agenda-summary-label="{{ item.label }}"
                   data-agenda-summary-weekday="{{ detail.label }}"
                   data-agenda-summary-copy="{{ detail.copyText }}"
+                  data-agenda-summary-dates="{% for day in detail.days %}{{ day.date }}{% if not loop.last %},{% endif %}{% endfor %}"
                 >
                   <span>{{ detail.label }}</span>
                   <span class="compact-stat-value">{{ detail.count }}</span>
@@ -276,8 +322,32 @@
         </label>
 
         <label class="field">
-          <span>Locatie</span>
-          <input type="text" name="location" placeholder="Bijvoorbeeld: Sportpark Harfsen">
+          <span>Type training</span>
+          <select name="training_type" required>
+            <option value="">Selecteer type</option>
+            {% for option in agenda_training_type_options %}
+              <option value="{{ option.value }}">{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Club</span>
+          <select name="location" required>
+            <option value="">Selecteer club</option>
+            {% for club in agenda_club_options %}
+              <option value="{{ club }}">{{ club }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Trainer(s)</span>
+          <select name="trainer_ids" multiple size="4">
+            {% for trainer in agenda_trainer_options %}
+              <option value="{{ trainer.id }}">{{ trainer.name }}</option>
+            {% endfor %}
+          </select>
         </label>
 
         <label class="field">
@@ -287,6 +357,205 @@
 
         <div class="agenda-form-actions">
           <button type="submit" class="subtle-button subtle-button-strong">Training toevoegen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="agendaBulkModal" class="agenda-modal" hidden>
+    <div class="agenda-modal-backdrop" data-close-bulk-modal="1"></div>
+    <div class="agenda-modal-dialog agenda-bulk-dialog">
+      <div class="agenda-modal-header">
+        <h2>Meerdere Trainingen Toevoegen</h2>
+        <button type="button" class="subtle-button" id="closeAgendaBulkModal">Sluiten</button>
+      </div>
+
+      <form class="agenda-form" method="post" action="/agenda" id="agendaBulkForm">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <input type="hidden" name="action" value="bulk_add_trainings">
+        <input type="hidden" name="view" value="{{ agenda_view }}">
+        <input type="hidden" name="summary_filter" value="{{ agenda_summary_filter }}">
+        <input type="hidden" name="week" value="{{ week_offset }}">
+        <input type="hidden" name="month" value="{{ month_offset }}">
+        <label class="field">
+          <span>Titel</span>
+          <input type="text" name="title" placeholder="Bijvoorbeeld: Training samenwerkende amateurclubs" required>
+        </label>
+
+        <div class="agenda-form-grid">
+          <label class="field">
+            <span>Starttijd</span>
+            <input type="time" name="time" required>
+          </label>
+
+          <label class="field">
+            <span>Eindtijd</span>
+            <input type="time" name="end_time">
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Club</span>
+          <select name="location" required>
+            <option value="">Selecteer club</option>
+            {% for club in agenda_club_options %}
+              <option value="{{ club }}">{{ club }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Type training</span>
+          <select name="training_type" required>
+            <option value="">Selecteer type</option>
+            {% for option in agenda_training_type_options %}
+              <option value="{{ option.value }}">{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Trainer(s)</span>
+          <select name="trainer_ids" multiple size="4">
+            {% for trainer in agenda_trainer_options %}
+              <option value="{{ trainer.id }}">{{ trainer.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Notities</span>
+          <textarea name="notes" rows="3" placeholder="Extra details over deze reeks"></textarea>
+        </label>
+
+        <section class="agenda-bulk-picker" aria-label="Datums kiezen uit dagplanning">
+          <div class="agenda-bulk-picker-head">
+            <div>
+              <p class="panel-title">Datums uit tegels</p>
+              <p class="feature-list-subtitle">Kies een titel uit de tegels om de bijbehorende reeks te gebruiken.</p>
+            </div>
+            <p class="agenda-bulk-selected-count" id="agendaBulkSelectedCount">0 geselecteerd</p>
+          </div>
+
+          <div class="agenda-bulk-select-panel">
+            <label class="field">
+              <span>Titel</span>
+              <select id="agendaBulkDateSelect" data-agenda-bulk-date-select required>
+                <option value="">Selecteer titel uit tegels</option>
+                {% for item in agenda_day_plan_summary %}
+                  {% if item.details %}
+                    <optgroup label="{{ item.label }}">
+                      {% for detail in item.details %}
+                        <option
+                          value="{{ item.label }} - {{ detail.label }}"
+                          data-agenda-bulk-option-dates="{% for day in detail.days %}{{ day.date }}{% if not loop.last %},{% endif %}{% endfor %}"
+                        >
+                          {{ item.label }} - {{ detail.label }} ({{ detail.count }})
+                        </option>
+                      {% endfor %}
+                    </optgroup>
+                  {% endif %}
+                {% endfor %}
+              </select>
+            </label>
+            <div id="agendaBulkDateFields" hidden></div>
+          </div>
+        </section>
+
+        <div class="agenda-form-actions">
+          <button type="submit" class="subtle-button subtle-button-strong">Trainingen toevoegen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="agendaEditModal" class="agenda-modal" hidden>
+    <div class="agenda-modal-backdrop" data-close-edit-modal="1"></div>
+    <div class="agenda-modal-dialog">
+      <div class="agenda-modal-header">
+        <h2>Afspraak Wijzigen</h2>
+        <button type="button" class="subtle-button" id="closeAgendaEditModal">Sluiten</button>
+      </div>
+
+      <form class="agenda-form" method="post" action="/agenda" id="agendaEditForm">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <input type="hidden" name="view" value="{{ agenda_view }}">
+        <input type="hidden" name="summary_filter" value="{{ agenda_summary_filter }}">
+        <input type="hidden" name="week" value="{{ week_offset }}">
+        <input type="hidden" name="month" value="{{ month_offset }}">
+        <input type="hidden" name="training_id" id="agendaEditTrainingId">
+        <input type="hidden" name="original_signature" id="agendaEditOriginalSignature">
+
+        <div class="agenda-edit-scope">
+          <label class="agenda-edit-scope-option">
+            <input type="radio" name="update_scope" value="single" checked>
+            <span>Alleen deze afspraak</span>
+          </label>
+          <label class="agenda-edit-scope-option">
+            <input type="radio" name="update_scope" value="matching">
+            <span>Alle tegelijk ingeplande afspraken</span>
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Titel</span>
+          <input type="text" name="title" id="agendaEditTitle" required>
+        </label>
+
+        <div class="agenda-form-grid">
+          <label class="field">
+            <span>Datum</span>
+            <input type="date" name="date" id="agendaEditDate" required>
+          </label>
+
+          <label class="field">
+            <span>Starttijd</span>
+            <input type="time" name="time" id="agendaEditTime" required>
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Eindtijd</span>
+          <input type="time" name="end_time" id="agendaEditEndTime">
+        </label>
+
+        <label class="field">
+          <span>Type training</span>
+          <select name="training_type" id="agendaEditTrainingType" required>
+            <option value="">Selecteer type</option>
+            {% for option in agenda_training_type_options %}
+              <option value="{{ option.value }}">{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Club</span>
+          <select name="location" id="agendaEditLocation" required>
+            <option value="">Selecteer club</option>
+            {% for club in agenda_club_options %}
+              <option value="{{ club }}">{{ club }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Trainer(s)</span>
+          <select name="trainer_ids" id="agendaEditTrainerIds" multiple size="4">
+            {% for trainer in agenda_trainer_options %}
+              <option value="{{ trainer.id }}">{{ trainer.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Notities</span>
+          <textarea name="notes" id="agendaEditNotes" rows="4"></textarea>
+        </label>
+
+        <div class="agenda-form-actions agenda-edit-actions">
+          <button type="submit" name="action" value="delete_training" class="subtle-button action-danger" data-agenda-delete-training formnovalidate>Verwijderen</button>
+          <button type="submit" name="action" value="update_training" class="subtle-button subtle-button-strong">Afspraak opslaan</button>
         </div>
       </form>
     </div>

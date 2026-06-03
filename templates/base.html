@@ -17,7 +17,7 @@
   </head>
   <body>
     <div class="app-layout">
-      <aside class="sidebar">
+      <aside class="sidebar" id="appSidebar">
         <div class="brand-panel">
           <div class="brand-mark">
             <img src="../static/assets/hws-logo.png" alt="HWS Voetbalschool logo">
@@ -25,6 +25,11 @@
           <div class="brand-copy">
             <p class="brand-subtitle">WORKSPACE</p>
           </div>
+          <button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Sidebar inklappen" aria-expanded="true" aria-controls="appSidebar">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M15 6l-6 6 6 6"></path>
+            </svg>
+          </button>
         </div>
 
         <nav class="sidebar-nav" aria-label="Hoofdmenu">
@@ -71,6 +76,19 @@
             <span>Voetbaldagen</span>
           </a>
           {% endif %}
+          {% if 'samenwerkende-amateurclubs' in visible_pages %}
+          <a class="nav-item {% if active_page == 'samenwerkende-amateurclubs' %}nav-item-active{% endif %}" href="/samenwerkende-amateurclubs">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M7 20v-7M17 20v-7M4.5 20h15"></path>
+                <path d="M5 12.5 12 6l7 6.5"></path>
+                <path d="M9 20v-5h6v5"></path>
+                <path d="M4 8.5l3-2.8M20 8.5l-3-2.8"></path>
+              </svg>
+            </span>
+            <span>Samenwerkende Amateurclubs</span>
+          </a>
+          {% endif %}
           {% if 'voorstellen-maker' in visible_pages %}
           <a class="nav-item {% if active_page == 'voorstellen-maker' %}nav-item-active{% endif %}" href="/voorstellen-maker">
             <span class="nav-icon" aria-hidden="true">
@@ -83,8 +101,21 @@
             <span>Voorstellen Maker</span>
           </a>
           {% endif %}
-          {% if 'oefeningen-bibliotheek' in visible_pages %}
-          <a class="nav-item {% if active_page == 'oefeningen-bibliotheek' %}nav-item-active{% endif %}" href="/oefeningen-bibliotheek">
+          {% if 'overeenkomsten' in visible_pages %}
+          <a class="nav-item {% if active_page == 'overeenkomsten' %}nav-item-active{% endif %}" href="/overeenkomsten">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M7 4.5h7l5 5V19a1 1 0 0 1-1 1H7a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path>
+                <path d="M14 4.5V10h5"></path>
+                <path d="M8.5 13h7M8.5 16h5"></path>
+                <path d="M9 19.5h4"></path>
+              </svg>
+            </span>
+            <span>Overeenkomsten</span>
+          </a>
+          {% endif %}
+          {% if 'oefenstof' in visible_pages %}
+          <a class="nav-item {% if active_page == 'oefenstof' or active_page == 'oefeningen-bibliotheek' or active_page == 'trainingen' or active_page == 'exercise-videos' %}nav-item-active{% endif %}" href="/oefenstof">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none">
                 <rect x="4" y="5" width="16" height="14" rx="2"></rect>
@@ -92,7 +123,7 @@
                 <circle cx="12" cy="12" r="2.5"></circle>
               </svg>
             </span>
-            <span>Oefeningen Bibliotheek</span>
+            <span>Oefenstof</span>
           </a>
           {% endif %}
           {% if 'orders' in visible_pages %}
@@ -126,6 +157,18 @@
               </svg>
             </span>
             <span>Omzet</span>
+          </a>
+          {% endif %}
+          {% if 'spaarpot' in visible_pages %}
+          <a class="nav-item {% if active_page == 'spaarpot' %}nav-item-active{% endif %}" href="/spaarpot">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M5 9.5h14v8.5a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"></path>
+                <path d="M7.5 9.5V7a4.5 4.5 0 0 1 9 0v2.5"></path>
+                <path d="M9 14h6"></path>
+              </svg>
+            </span>
+            <span>Spaarpot</span>
           </a>
           {% endif %}
           {% if 'trainer-fees' in visible_pages %}

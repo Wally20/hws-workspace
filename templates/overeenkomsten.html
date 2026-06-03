@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Overeenkomsten | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header football-days-header">
+    <div>
+      <h1>Overeenkomsten</h1>
+      <p class="welcome-line">Maak per club een overeenkomst op basis van het standaard Word-template.</p>
+    </div>
+    <div class="football-days-actions">
+      <a href="/overeenkomsten/nieuw" class="refresh-button">Nieuw</a>
+    </div>
+  </header>
+
+  {% if success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+  {% endif %}
+
+  <section class="football-playbook-grid">
+    {% for contract in contracts %}
+      <article class="summary-card old-function-tile football-playbook-tile">
+        <a href="/overeenkomsten/{{ contract.id }}" class="football-playbook-link">
+          <div class="feature-record-head">
+            <div>
+              <h2>{{ contract.clubName }}</h2>
+              <p class="feature-record-meta">
+                {{ contract.season or "Geen seizoen" }}
+                {% if contract.startDate %} · vanaf {{ contract.startDate }}{% endif %}
+              </p>
+            </div>
+            <span class="pill">{{ contract.trainingCount or 0 }} trainingen</span>
+          </div>
+          <div class="compact-stat-list">
+            <div class="compact-stat-row">
+              <span>Tarief</span>
+              <span class="compact-stat-value">€{{ contract.pricePerTraining or "-" }}</span>
+            </div>
+            <div class="compact-stat-row">
+              <span>Totaal</span>
+              <span class="compact-stat-value">€{{ contract.totalAmount or "-" }}</span>
+            </div>
+            <div class="compact-stat-row">
+              <span>Schema regels</span>
+              <span class="compact-stat-value">{{ contract.trainingLines|length }}</span>
+            </div>
+          </div>
+        </a>
+      </article>
+    {% else %}
+      <article class="summary-card old-function-tile">
+        <div class="empty-state">Er zijn nog geen overeenkomsten opgeslagen.</div>
+      </article>
+    {% endfor %}
+  </section>
+{% endblock %}

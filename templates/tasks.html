@@ -22,7 +22,7 @@
         <input type="hidden" name="action" value="create">
         <label class="field">
           <span>Taak</span>
-          <input type="text" name="title" placeholder="Bijvoorbeeld: Trainingsmateriaal klaarzetten" required>
+          <textarea name="title" rows="4" placeholder="Bijvoorbeeld: Trainingsmateriaal klaarzetten" required></textarea>
         </label>
         <label class="field">
           <span>Deadline</span>
@@ -52,7 +52,7 @@
           <article class="feature-record-card old-function-card task-record-card {% if task.isDone %}task-record-card-done{% endif %}">
             <div class="task-record-main">
               <div>
-                <h2>{{ task.title }}</h2>
+                <h2 class="task-record-title">{{ task.title }}</h2>
                 <p class="feature-record-meta">Deadline: {{ task.dueDate }}</p>
               </div>
               <span class="pill">{{ "Afgerond" if task.isDone else "Open" }}</span>

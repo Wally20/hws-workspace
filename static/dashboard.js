@@ -47,6 +47,9 @@ function updateEventTile(productSummary) {
   if (!compactStatList || !Array.isArray(productSummary)) {
     return;
   }
+  if (eventEditor && !eventEditor.hidden) {
+    return;
+  }
 
   compactStatList.innerHTML = "";
   productSummary.forEach((product) => {

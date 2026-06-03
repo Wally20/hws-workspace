@@ -54,6 +54,7 @@
   const addProgramImportPreviewRowButton = document.getElementById("addFootballImportPreviewRow");
   const confirmProgramImportButton = document.getElementById("confirmFootballProgramImport");
   const exportButton = document.getElementById("exportFootballDaysPdf");
+  const includeStaffSetupTasksInput = document.getElementById("includeStaffSetupTasks");
   const previousPlaybooksElement = document.getElementById("footballPreviousPlaybooks");
   const productSearchInput = document.getElementById("footballProductSearch");
   const productResults = document.getElementById("footballProductResults");
@@ -64,33 +65,90 @@
   const registrationCount = document.getElementById("footballRegistrationCount");
   const fieldBoard = document.getElementById("footballFieldBoard");
   const fieldLayoutInput = document.getElementById("footballFieldLayoutInput");
+  const fieldTrainingsInput = document.getElementById("footballFieldTrainingsInput");
+  const fieldTrainingNameInput = document.getElementById("footballFieldTrainingName");
+  const fieldTrainingDateInput = document.getElementById("footballFieldTrainingDate");
+  const fieldTrainingTabs = document.getElementById("footballFieldTrainingTabs");
+  const fieldPeriodLabelInput = document.getElementById("footballFieldPeriodLabel");
+  const fieldPeriodStartInput = document.getElementById("footballFieldPeriodStart");
+  const fieldPeriodEndInput = document.getElementById("footballFieldPeriodEnd");
+  const fieldPeriodTabs = document.getElementById("footballFieldPeriodTabs");
+  const addFieldPeriodButton = document.getElementById("addFootballFieldPeriod");
+  const duplicateFieldPeriodButton = document.getElementById("duplicateFootballFieldPeriod");
+  const removeFieldPeriodButton = document.getElementById("removeFootballFieldPeriod");
+  const addFieldTrainingButton = document.getElementById("addFootballFieldTraining");
+  const duplicateFieldTrainingButton = document.getElementById("duplicateFootballFieldTraining");
+  const removeFieldTrainingButton = document.getElementById("removeFootballFieldTraining");
   const addFieldBlockButton = document.getElementById("addFootballFieldBlock");
+  const pasteFieldBlockButton = document.getElementById("pasteFootballFieldBlock");
+  const addFieldArrowButton = document.getElementById("addFootballFieldArrow");
   const centerFieldBlocksButton = document.getElementById("centerFootballFieldBlocks");
   const clearFieldBlocksButton = document.getElementById("clearFootballFieldBlocks");
   const fieldBlockCount = document.getElementById("footballFieldBlockCount");
   const fieldBlockModal = document.getElementById("footballFieldBlockModal");
   const fieldBlockNameInput = document.getElementById("footballFieldBlockName");
   const fieldBlockColorInput = document.getElementById("footballFieldBlockColor");
+  const copyFieldBlockButton = document.getElementById("copyFootballFieldBlock");
   const fieldColorSwatches = document.getElementById("footballFieldColorSwatches");
+  const fieldArrowModal = document.getElementById("footballFieldArrowModal");
+  const fieldArrowColorInput = document.getElementById("footballFieldArrowColor");
+  const fieldArrowWidthInput = document.getElementById("footballFieldArrowWidth");
+  const saveFieldArrowButton = document.getElementById("saveFootballFieldArrow");
+  const deleteFieldArrowButton = document.getElementById("deleteFootballFieldArrow");
   const fieldExerciseSearchInput = document.getElementById("footballFieldExerciseSearch");
   const fieldExerciseSearchFeedback = document.getElementById("footballFieldExerciseSearchFeedback");
   const fieldExerciseList = document.getElementById("footballFieldExerciseList");
   const fieldExerciseCategoryFilter = document.getElementById("footballFieldExerciseCategoryFilter");
   const fieldExerciseKindFilter = document.getElementById("footballFieldExerciseKindFilter");
+  const fieldExerciseAgeFilter = document.getElementById("footballFieldExerciseAgeFilter");
   const fieldExerciseDurationFilter = document.getElementById("footballFieldExerciseDurationFilter");
   const clearFieldExerciseFiltersButton = document.getElementById("clearFootballFieldExerciseFilters");
+  const openFieldWizardButton = document.getElementById("openFootballFieldWizard");
+  const fieldWizardModal = document.getElementById("footballFieldWizardModal");
+  const fieldWizardAge = document.getElementById("footballFieldWizardAge");
+  const fieldWizardAgeOptions = fieldWizardAge?.querySelector("[data-field-wizard-age-options]");
+  const fieldWizardMatchRowsInput = document.getElementById("footballFieldWizardMatchRows");
+  const fieldWizardFeedback = document.getElementById("footballFieldWizardFeedback");
+  const fieldWizardRows = document.getElementById("footballFieldWizardRows");
+  const fillFieldTrainingsButton = document.getElementById("fillFootballFieldTrainings");
+  const sameExerciseExportInput = document.getElementById("footballFieldSameExerciseExport");
   const saveFieldBlockButton = document.getElementById("saveFootballFieldBlock");
   const deleteFieldBlockButton = document.getElementById("deleteFootballFieldBlock");
   const exerciseLibraryElement = document.getElementById("footballExerciseLibrary");
+  const footballDaysForm = document.getElementById("footballDaysForm");
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
+  const playbookType = footballDaysForm?.dataset.playbookType || "voetbaldagen";
+  const supportsFieldTrainings = playbookType === "samenwerkende-amateurclubs" && Boolean(fieldTrainingsInput);
+  const defaultPlaybookTitle = footballDaysForm?.dataset.defaultTitle || "Draaiboek Voetbaldagen";
+  const pdfCoverTitle = footballDaysForm?.dataset.coverTitle || "HWS VOETBALDAG";
+  const introSubject = footballDaysForm?.dataset.introSubject || "voetbaldag";
+  const exportPdfApi = footballDaysForm?.dataset.exportPdfApi || "/api/voetbaldagen/export-pdf";
+  const fallbackPdfFilename = footballDaysForm?.dataset.fallbackPdfFilename || "voetbaldag-draaiboek.pdf";
   let previousPlaybooks = [];
   let exerciseLibrary = [];
   let fieldLayout = [];
+  let fieldTrainings = [];
+  let footballAutosaveTimer = 0;
+  let footballAutosaveController = null;
+  let footballAutosaveToast = null;
+  let footballAutosaveToastTimer = 0;
+  let activeFieldTrainingId = "";
+  let activeFieldPeriodId = "";
   let activeFieldBlockId = "";
+  let activeFieldArrowId = "";
+  let copiedFieldBlock = null;
   let selectedFieldExercise = null;
   let fieldPointerState = null;
+  let fieldOpenModalTimer = 0;
   let productSearchTimer = null;
   let draggedProgramRow = null;
+  let draggedFieldTrainingId = "";
+  const fieldWizardSameExerciseValue = "__same_exercise__";
+
+  const updateStaffSetupTaskVisibility = () => {
+    const isVisible = includeStaffSetupTasksInput?.checked ?? true;
+    staffRows?.classList.toggle("football-staff-table-no-setup-tasks", !isVisible);
+  };
 
   if (previousPlaybooksElement) {
     try {
@@ -142,6 +200,34 @@
     return numberMatch ? `${Number.parseInt(numberMatch[0], 10)} minuten` : rawDuration;
   };
 
+  const normalizeAgeGroup = (value) => String(value || "").trim().toUpperCase().replace(/^JO/, "O").replace(/[^A-Z0-9]/g, "");
+
+  const getExerciseAgeGroups = (exercise) =>
+    Array.isArray(exercise?.ageGroups)
+      ? exercise.ageGroups.map(normalizeAgeGroup).filter(Boolean).filter((age, index, items) => items.indexOf(age) === index)
+      : [];
+
+  const exerciseMatchesAge = (exercise, age) => {
+    const ageGroups = getExerciseAgeGroups(exercise);
+    return Boolean(ageGroups.length) && (!age || ageGroups.includes(normalizeAgeGroup(age)));
+  };
+
+  const exerciseMatchesAnyAge = (exercise, ages) => {
+    const normalizedAges = Array.isArray(ages) ? ages.map(normalizeAgeGroup).filter(Boolean) : [];
+    const ageGroups = getExerciseAgeGroups(exercise);
+    return Boolean(ageGroups.length) && (!normalizedAges.length || normalizedAges.some((age) => ageGroups.includes(age)));
+  };
+
+  const getSelectedFieldWizardAges = () =>
+    fieldWizardAge
+      ? [...fieldWizardAge.querySelectorAll('input[type="checkbox"]:checked')]
+          .map((option) => normalizeAgeGroup(option.value))
+          .filter(Boolean)
+      : [];
+
+  const formatAgeList = (ages) =>
+    ages.length > 2 ? `${ages.slice(0, -1).join(", ")} en ${ages[ages.length - 1]}` : ages.join(" en ");
+
   const populateSelectOptions = (select, values, defaultLabel) => {
     if (!select) {
       return;
@@ -175,7 +261,9 @@
       new Set(exerciseLibrary.map((exercise) => String(exercise.trainingExercise || "").trim())),
       "Alle soorten"
     );
+    populateSelectOptions(fieldExerciseAgeFilter, new Set(exerciseLibrary.flatMap(getExerciseAgeGroups)), "Alle leeftijden");
     populateSelectOptions(fieldExerciseDurationFilter, new Set(exerciseLibrary.map(getExerciseDurationLabel)), "Alle duren");
+    populateFieldWizardAgeOptions(new Set(exerciseLibrary.flatMap(getExerciseAgeGroups)));
   };
   populateExerciseFilters();
 
@@ -189,14 +277,21 @@
   };
 
   const makeBlockId = () => `field-block-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const makeArrowId = () => `field-arrow-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const makeFieldPeriodId = () => `field-period-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   const normalizeFieldBlock = (block = {}, index = 0) => {
     const width = clamp(Number.parseFloat(block.width) || 20, 8, 100);
     const height = clamp(Number.parseFloat(block.height) || 14, 6, 100);
+    const parsedX = Number.parseFloat(block.x);
+    const parsedY = Number.parseFloat(block.y);
+    const fallbackX = 8 + (index % 4) * 8;
+    const fallbackY = 8 + (index % 3) * 7;
     return {
+      type: "block",
       id: String(block.id || makeBlockId()),
-      x: clamp(Number.parseFloat(block.x) || 8 + (index % 4) * 8, 0, 100 - width),
-      y: clamp(Number.parseFloat(block.y) || 8 + (index % 3) * 7, 0, 100 - height),
+      x: clamp(Number.isFinite(parsedX) ? parsedX : fallbackX, 0, 100 - width),
+      y: clamp(Number.isFinite(parsedY) ? parsedY : fallbackY, 0, 100 - height),
       width,
       height,
       title: String(block.title || "").trim(),
@@ -204,21 +299,238 @@
       exerciseTitle: String(block.exerciseTitle || "").trim(),
       exerciseKind: String(block.exerciseKind || "").trim(),
       category: String(block.category || "").trim(),
+      exerciseAgeGroups: Array.isArray(block.exerciseAgeGroups)
+        ? block.exerciseAgeGroups.map(normalizeAgeGroup).filter(Boolean).filter((age, ageIndex, ages) => ages.indexOf(age) === ageIndex)
+        : [],
+      sameExerciseExport: Boolean(block.sameExerciseExport),
+      sameExerciseKey: String(block.sameExerciseKey || "").trim(),
       color: normalizeBlockColor(block.color),
     };
   };
 
-  const syncFieldLayoutInput = () => {
-    if (fieldLayoutInput) {
-      fieldLayoutInput.value = JSON.stringify(fieldLayout.map((block, index) => normalizeFieldBlock(block, index)));
+  const normalizeArrowColor = (value) => (/^#[0-9a-f]{6}$/i.test(String(value || "").trim()) ? String(value).trim().toUpperCase() : "#FFFFFF");
+
+  const normalizeFieldArrow = (arrow = {}, index = 0) => {
+    const parsedX1 = Number.parseFloat(arrow.x1);
+    const parsedY1 = Number.parseFloat(arrow.y1);
+    const parsedX2 = Number.parseFloat(arrow.x2);
+    const parsedY2 = Number.parseFloat(arrow.y2);
+    const strokeWidth = clamp(Number.parseFloat(arrow.strokeWidth) || Number.parseFloat(arrow.width) || 5, 2, 12);
+    const fallbackY = 24 + (index % 4) * 12;
+    return {
+      type: "arrow",
+      id: String(arrow.id || makeArrowId()),
+      x1: clamp(Number.isFinite(parsedX1) ? parsedX1 : 22, 0, 100),
+      y1: clamp(Number.isFinite(parsedY1) ? parsedY1 : fallbackY, 0, 100),
+      x2: clamp(Number.isFinite(parsedX2) ? parsedX2 : 58, 0, 100),
+      y2: clamp(Number.isFinite(parsedY2) ? parsedY2 : fallbackY + 10, 0, 100),
+      color: normalizeArrowColor(arrow.color),
+      strokeWidth,
+    };
+  };
+
+  const normalizeFieldItem = (item = {}, index = 0) =>
+    item.type === "arrow" || String(item.id || "").startsWith("field-arrow-")
+      ? normalizeFieldArrow(item, index)
+      : normalizeFieldBlock(item, index);
+
+  const makeTrainingId = () => `training-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  const normalizeTrainingAgeGroups = (value) =>
+    Array.isArray(value)
+      ? value.map(normalizeAgeGroup).filter(Boolean).filter((age, index, items) => items.indexOf(age) === index)
+      : [];
+
+  const normalizeFieldPeriod = (period = {}, index = 0, fallbackLayout = []) => ({
+    id: String(period.id || makeFieldPeriodId()),
+    label: String(period.label || period.name || `Plattegrond ${index + 1}`).trim() || `Plattegrond ${index + 1}`,
+    startTime: String(period.startTime || period.start || "").trim(),
+    endTime: String(period.endTime || period.end || "").trim(),
+    fieldLayout: Array.isArray(period.fieldLayout) ? period.fieldLayout.map(normalizeFieldItem) : fallbackLayout.map(normalizeFieldItem),
+  });
+
+  const getExerciseExportKey = (block = {}) => {
+    const exerciseId = Number.parseInt(block.exerciseId, 10) || 0;
+    if (exerciseId) {
+      return `exercise:${exerciseId}`;
     }
-    if (fieldBlockCount) {
-      fieldBlockCount.textContent = String(fieldLayout.length);
+    const exerciseTitle = normalizeSearchText(block.exerciseTitle || "");
+    return exerciseTitle ? `title:${exerciseTitle}` : "";
+  };
+
+  const normalizeFieldTraining = (training = {}, index = 0) => {
+    const legacyLayout = Array.isArray(training.fieldLayout) ? training.fieldLayout.map(normalizeFieldItem) : [];
+    const fieldPeriods = (Array.isArray(training.fieldPeriods) && training.fieldPeriods.length
+      ? training.fieldPeriods.map((period, periodIndex) => normalizeFieldPeriod(period, periodIndex))
+      : [normalizeFieldPeriod({}, 0, legacyLayout)]
+    ).filter((period) => period.label || period.startTime || period.endTime || period.fieldLayout.length);
+    const periods = fieldPeriods.length ? fieldPeriods : [normalizeFieldPeriod({}, 0, legacyLayout)];
+    return {
+      id: String(training.id || makeTrainingId()),
+      name: String(training.name || training.title || `Training ${index + 1}`).trim() || `Training ${index + 1}`,
+      date: String(training.date || "").trim(),
+      ageGroups: normalizeTrainingAgeGroups(training.ageGroups),
+      fieldPeriods: periods,
+      fieldLayout: periods[0]?.fieldLayout || legacyLayout,
+    };
+  };
+
+  const getFieldBlocks = () => fieldLayout.filter((item) => item.type !== "arrow");
+  const getFieldArrows = () => fieldLayout.filter((item) => item.type === "arrow");
+
+  const clearScheduledFieldModal = () => {
+    if (fieldOpenModalTimer) {
+      window.clearTimeout(fieldOpenModalTimer);
+      fieldOpenModalTimer = 0;
     }
   };
 
+  const syncFieldLayoutInput = () => {
+    if (fieldLayoutInput) {
+      fieldLayoutInput.value = JSON.stringify(fieldLayout.map((item, index) => normalizeFieldItem(item, index)));
+    }
+    if (supportsFieldTrainings) {
+      syncActiveFieldTraining();
+      syncFieldTrainingsInput();
+    }
+    if (fieldBlockCount) {
+      const blockCount = getFieldBlocks().length;
+      const arrowCount = getFieldArrows().length;
+      fieldBlockCount.textContent = arrowCount ? `${blockCount} / ${arrowCount}` : String(blockCount);
+    }
+  };
+
+  const syncFieldTrainingsInput = () => {
+    if (fieldTrainingsInput) {
+      fieldTrainingsInput.value = JSON.stringify(fieldTrainings.map((training, index) => normalizeFieldTraining(training, index)));
+    }
+  };
+
+  const showFootballAutosaveToast = (message, state = "saved") => {
+    if (!footballAutosaveToast) {
+      footballAutosaveToast = document.createElement("div");
+      footballAutosaveToast.className = "football-autosave-toast";
+      footballAutosaveToast.setAttribute("role", "status");
+      footballAutosaveToast.setAttribute("aria-live", "polite");
+      document.body.append(footballAutosaveToast);
+    }
+    window.clearTimeout(footballAutosaveToastTimer);
+    footballAutosaveToast.dataset.state = state;
+    footballAutosaveToast.textContent = message;
+    footballAutosaveToast.dataset.visible = "true";
+    if (state !== "saving") {
+      footballAutosaveToastTimer = window.setTimeout(() => {
+        if (footballAutosaveToast) {
+          footballAutosaveToast.dataset.visible = "false";
+        }
+      }, 2600);
+    }
+  };
+
+  const autosaveFootballDaysForm = async () => {
+    if (!footballDaysForm) {
+      return false;
+    }
+    syncActiveFieldTraining();
+    syncFieldLayoutInput();
+    syncFieldTrainingsInput();
+    if (footballAutosaveController) {
+      footballAutosaveController.abort();
+    }
+    footballAutosaveController = new AbortController();
+    showFootballAutosaveToast("Opslaan...", "saving");
+    try {
+      const response = await fetch(footballDaysForm.action || window.location.href, {
+        method: "POST",
+        body: new FormData(footballDaysForm),
+        credentials: "same-origin",
+        redirect: "follow",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          ...(csrfToken ? { "X-CSRFToken": csrfToken } : {}),
+        },
+        signal: footballAutosaveController.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`Autosave failed with status ${response.status}`);
+      }
+      if (response.redirected) {
+        const redirectedUrl = new URL(response.url);
+        if (redirectedUrl.origin === window.location.origin) {
+          footballDaysForm.action = `${redirectedUrl.pathname}${redirectedUrl.search}`;
+          if (window.location.pathname !== redirectedUrl.pathname) {
+            window.history.replaceState({}, "", `${redirectedUrl.pathname}${redirectedUrl.search}`);
+          }
+        }
+      }
+      showFootballAutosaveToast("Opgeslagen", "saved");
+      return true;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        return false;
+      }
+      console.error("Automatisch opslaan mislukt", error);
+      showFootballAutosaveToast("Opslaan mislukt", "error");
+      return false;
+    }
+  };
+
+  const scheduleFootballDaysAutosave = (delay = 500) => {
+    if (!footballDaysForm) {
+      return;
+    }
+    window.clearTimeout(footballAutosaveTimer);
+    footballAutosaveTimer = window.setTimeout(() => {
+      autosaveFootballDaysForm();
+    }, delay);
+  };
+
+  const getActiveFieldTraining = () =>
+    fieldTrainings.find((training) => training.id === activeFieldTrainingId) || fieldTrainings[0] || null;
+
+  const getActiveFieldPeriod = (training = getActiveFieldTraining()) => {
+    if (!training) {
+      return null;
+    }
+    if (!Array.isArray(training.fieldPeriods) || !training.fieldPeriods.length) {
+      training.fieldPeriods = [normalizeFieldPeriod({}, 0, training.fieldLayout || [])];
+    }
+    return training.fieldPeriods.find((period) => period.id === activeFieldPeriodId) || training.fieldPeriods[0];
+  };
+
+  const syncActiveFieldPeriod = () => {
+    if (!supportsFieldTrainings || !activeFieldTrainingId) {
+      return;
+    }
+    const activeTraining = getActiveFieldTraining();
+    const activePeriod = getActiveFieldPeriod(activeTraining);
+    if (!activeTraining || !activePeriod) {
+      return;
+    }
+    activePeriod.label = String(fieldPeriodLabelInput?.value || activePeriod.label || "").trim() || activePeriod.label || "Plattegrond";
+    activePeriod.startTime = String(fieldPeriodStartInput?.value || "").trim();
+    activePeriod.endTime = String(fieldPeriodEndInput?.value || "").trim();
+    activePeriod.fieldLayout = fieldLayout.map((item, index) => normalizeFieldItem(item, index));
+    activeTraining.fieldLayout = activeTraining.fieldPeriods[0]?.fieldLayout || activePeriod.fieldLayout;
+  };
+
+  const syncActiveFieldTraining = () => {
+    if (!supportsFieldTrainings || !activeFieldTrainingId) {
+      return;
+    }
+    syncActiveFieldPeriod();
+    const activeTraining = getActiveFieldTraining();
+    if (!activeTraining) {
+      return;
+    }
+    activeTraining.name = String(fieldTrainingNameInput?.value || activeTraining.name || "").trim() || activeTraining.name || "Training";
+    activeTraining.date = String(fieldTrainingDateInput?.value || "").trim();
+    activeTraining.ageGroups = normalizeTrainingAgeGroups(activeTraining.ageGroups);
+    activeTraining.fieldLayout = activeTraining.fieldPeriods?.[0]?.fieldLayout || fieldLayout.map((item, index) => normalizeFieldItem(item, index));
+  };
+
   const setFieldBlockLabel = (element, block) => {
-    const title = block.title || `Blok ${fieldLayout.findIndex((item) => item.id === block.id) + 1}`;
+    const title = block.title || `Blok ${getFieldBlocks().findIndex((item) => item.id === block.id) + 1}`;
     const exercise = block.exerciseTitle || "Geen oefening";
     element.querySelector("[data-field-block-title]").textContent = title;
     element.querySelector("[data-field-block-exercise]").textContent = exercise;
@@ -336,7 +648,7 @@
   const getClosestFieldDistance = (block, direction) => {
     const isHorizontal = direction === "horizontal";
     const candidates = [];
-    fieldLayout.forEach((otherBlock) => {
+    getFieldBlocks().forEach((otherBlock) => {
       if (otherBlock.id === block.id) {
         return;
       }
@@ -388,11 +700,11 @@
     const isHorizontal = direction === "horizontal";
     const threshold = 1.15;
     let closest = null;
-    fieldLayout.forEach((anchorBlock) => {
+    getFieldBlocks().forEach((anchorBlock) => {
       if (anchorBlock.id === block.id) {
         return;
       }
-      fieldLayout.forEach((referenceBlock) => {
+      getFieldBlocks().forEach((referenceBlock) => {
         if (referenceBlock.id === block.id || referenceBlock.id === anchorBlock.id) {
           return;
         }
@@ -455,7 +767,7 @@
           { value: block.y + block.height, offset: block.height },
         ];
     const anchors = [{ value: 50, source: "field-center" }];
-    fieldLayout.forEach((otherBlock) => {
+    getFieldBlocks().forEach((otherBlock) => {
       if (otherBlock.id === block.id) {
         return;
       }
@@ -544,7 +856,72 @@
     setFieldBlockLabel(element, block);
   };
 
-  const getFieldBlock = (id) => fieldLayout.find((block) => block.id === id);
+  const getFieldBlock = (id) => getFieldBlocks().find((block) => block.id === id);
+  const getFieldArrow = (id) => getFieldArrows().find((arrow) => arrow.id === id);
+
+  const updateFieldArrowElement = (element, arrow) => {
+    if (!element || !arrow) {
+      return;
+    }
+    element.dataset.fieldArrowId = arrow.id;
+    element.querySelector("[data-field-arrow-line]")?.setAttribute("x1", `${arrow.x1}`);
+    element.querySelector("[data-field-arrow-line]")?.setAttribute("y1", `${arrow.y1}`);
+    element.querySelector("[data-field-arrow-line]")?.setAttribute("x2", `${arrow.x2}`);
+    element.querySelector("[data-field-arrow-line]")?.setAttribute("y2", `${arrow.y2}`);
+    element.querySelector("[data-field-arrow-line]")?.setAttribute("stroke", arrow.color);
+    element.querySelector("[data-field-arrow-line]")?.setAttribute("stroke-width", `${arrow.strokeWidth}`);
+    element.querySelector("[data-field-arrow-start]")?.setAttribute("cx", `${arrow.x1}`);
+    element.querySelector("[data-field-arrow-start]")?.setAttribute("cy", `${arrow.y1}`);
+    element.querySelector("[data-field-arrow-end]")?.setAttribute("cx", `${arrow.x2}`);
+    element.querySelector("[data-field-arrow-end]")?.setAttribute("cy", `${arrow.y2}`);
+    element.querySelectorAll("[data-field-arrow-handle]").forEach((handle) => {
+      handle.setAttribute("fill", arrow.color);
+    });
+  };
+
+  const createFieldArrowElement = (arrow) => {
+    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    group.classList.add("football-field-arrow");
+    group.dataset.fieldArrowId = arrow.id;
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.classList.add("football-field-arrow-line");
+    line.dataset.fieldArrowLine = "1";
+    line.setAttribute("marker-end", "url(#football-field-arrow-head)");
+    const startHandle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    startHandle.classList.add("football-field-arrow-handle");
+    startHandle.dataset.fieldArrowHandle = "start";
+    startHandle.dataset.fieldArrowStart = "1";
+    startHandle.setAttribute("r", "2.5");
+    const endHandle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    endHandle.classList.add("football-field-arrow-handle");
+    endHandle.dataset.fieldArrowHandle = "end";
+    endHandle.dataset.fieldArrowEnd = "1";
+    endHandle.setAttribute("r", "2.5");
+    group.append(line, startHandle, endHandle);
+    updateFieldArrowElement(group, arrow);
+    return group;
+  };
+
+  const appendFieldArrows = () => {
+    if (!fieldBoard) {
+      return;
+    }
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.classList.add("football-field-arrows");
+    svg.setAttribute("viewBox", "0 0 100 100");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.innerHTML = `
+      <defs>
+        <marker id="football-field-arrow-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"></path>
+        </marker>
+      </defs>
+    `;
+    getFieldArrows().forEach((arrow) => {
+      svg.append(createFieldArrowElement(arrow));
+    });
+    fieldBoard.append(svg);
+  };
 
   const renderFieldBoard = () => {
     if (!fieldBoard) {
@@ -552,9 +929,10 @@
     }
     fieldBoard.innerHTML = "";
     appendFieldMarkings();
+    fieldLayout = fieldLayout.map(normalizeFieldItem);
+    appendFieldArrows();
     appendAlignmentGuides();
-    fieldLayout = fieldLayout.map(normalizeFieldBlock);
-    fieldLayout.forEach((block) => {
+    getFieldBlocks().forEach((block) => {
       const element = document.createElement("button");
       element.type = "button";
       element.className = "football-field-block";
@@ -572,14 +950,276 @@
     syncFieldLayoutInput();
   };
 
+  const renderFieldTrainingTabs = () => {
+    if (!supportsFieldTrainings || !fieldTrainingTabs) {
+      return;
+    }
+    fieldTrainingTabs.innerHTML = "";
+    fieldTrainings.forEach((training, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `subtle-button action-small${training.id === activeFieldTrainingId ? " football-field-training-tab-active" : ""}`;
+      button.dataset.fieldTrainingId = training.id;
+      button.draggable = true;
+      button.setAttribute("aria-label", `${training.name || `Training ${index + 1}`} slepen`);
+      button.title = "Sleep om de volgorde te wijzigen";
+      button.textContent = `${training.name || `Training ${index + 1}`}${training.date ? ` - ${training.date}` : ""}`;
+      fieldTrainingTabs.append(button);
+    });
+  };
+
+  const reorderFieldTraining = (sourceTrainingId, targetTrainingId) => {
+    if (!supportsFieldTrainings || !sourceTrainingId || !targetTrainingId || sourceTrainingId === targetTrainingId) {
+      return;
+    }
+    syncActiveFieldTraining();
+    const sourceIndex = fieldTrainings.findIndex((training) => training.id === sourceTrainingId);
+    const targetIndex = fieldTrainings.findIndex((training) => training.id === targetTrainingId);
+    if (sourceIndex < 0 || targetIndex < 0) {
+      return;
+    }
+    const [movedTraining] = fieldTrainings.splice(sourceIndex, 1);
+    fieldTrainings.splice(targetIndex, 0, movedTraining);
+    activeFieldTrainingId = movedTraining.id;
+    renderFieldTrainingTabs();
+    syncFieldTrainingsInput();
+  };
+
+  const getFieldPeriodTitle = (period, index) => {
+    const label = String(period?.label || `Plattegrond ${index + 1}`).trim();
+    const start = String(period?.startTime || "").trim();
+    const end = String(period?.endTime || "").trim();
+    return `${label}${start || end ? ` (${start || "--:--"}-${end || "--:--"})` : ""}`;
+  };
+
+  const renderFieldPeriodTabs = () => {
+    if (!supportsFieldTrainings || !fieldPeriodTabs) {
+      return;
+    }
+    const activeTraining = getActiveFieldTraining();
+    fieldPeriodTabs.innerHTML = "";
+    (activeTraining?.fieldPeriods || []).forEach((period, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `subtle-button action-small${period.id === activeFieldPeriodId ? " football-field-period-tab-active" : ""}`;
+      button.dataset.fieldPeriodId = period.id;
+      button.textContent = getFieldPeriodTitle(period, index);
+      fieldPeriodTabs.append(button);
+    });
+  };
+
+  const loadActiveFieldPeriod = () => {
+    const activeTraining = getActiveFieldTraining();
+    const activePeriod = getActiveFieldPeriod(activeTraining);
+    if (!activePeriod) {
+      return;
+    }
+    activeFieldPeriodId = activePeriod.id;
+    fieldLayout = (activePeriod.fieldLayout || []).map(normalizeFieldItem);
+    if (fieldPeriodLabelInput) {
+      fieldPeriodLabelInput.value = activePeriod.label || "";
+    }
+    if (fieldPeriodStartInput) {
+      fieldPeriodStartInput.value = activePeriod.startTime || "";
+    }
+    if (fieldPeriodEndInput) {
+      fieldPeriodEndInput.value = activePeriod.endTime || "";
+    }
+    renderFieldPeriodTabs();
+    renderFieldBoard();
+  };
+
+  const loadActiveFieldTraining = () => {
+    if (!supportsFieldTrainings) {
+      return;
+    }
+    const activeTraining = getActiveFieldTraining();
+    if (!activeTraining) {
+      return;
+    }
+    activeFieldTrainingId = activeTraining.id;
+    if (!Array.isArray(activeTraining.fieldPeriods) || !activeTraining.fieldPeriods.length) {
+      activeTraining.fieldPeriods = [normalizeFieldPeriod({}, 0, activeTraining.fieldLayout || [])];
+    }
+    activeFieldPeriodId = activeTraining.fieldPeriods[0]?.id || "";
+    if (fieldTrainingNameInput) {
+      fieldTrainingNameInput.value = activeTraining.name || "";
+    }
+    if (fieldTrainingDateInput) {
+      fieldTrainingDateInput.value = activeTraining.date || "";
+    }
+    renderFieldTrainingTabs();
+    loadActiveFieldPeriod();
+  };
+
+  const selectFieldTraining = (trainingId) => {
+    if (!supportsFieldTrainings || trainingId === activeFieldTrainingId) {
+      return;
+    }
+    syncActiveFieldTraining();
+    activeFieldTrainingId = trainingId;
+    loadActiveFieldTraining();
+  };
+
+  const addFieldTraining = () => {
+    if (!supportsFieldTrainings) {
+      return;
+    }
+    syncActiveFieldTraining();
+    const nextIndex = fieldTrainings.length + 1;
+    const training = normalizeFieldTraining({ id: makeTrainingId(), name: `Training ${nextIndex}`, date: "", fieldPeriods: [normalizeFieldPeriod({}, 0)] }, nextIndex - 1);
+    fieldTrainings.push(training);
+    activeFieldTrainingId = training.id;
+    loadActiveFieldTraining();
+  };
+
+  const selectFieldPeriod = (periodId) => {
+    if (!supportsFieldTrainings || periodId === activeFieldPeriodId) {
+      return;
+    }
+    syncActiveFieldPeriod();
+    activeFieldPeriodId = periodId;
+    loadActiveFieldPeriod();
+    syncFieldTrainingsInput();
+  };
+
+  const addFieldPeriod = () => {
+    if (!supportsFieldTrainings) {
+      return;
+    }
+    syncActiveFieldPeriod();
+    const activeTraining = getActiveFieldTraining();
+    if (!activeTraining) {
+      return;
+    }
+    const nextIndex = (activeTraining.fieldPeriods || []).length;
+    const period = normalizeFieldPeriod({ id: makeFieldPeriodId(), label: `Plattegrond ${nextIndex + 1}`, fieldLayout: [] }, nextIndex);
+    activeTraining.fieldPeriods.push(period);
+    activeFieldPeriodId = period.id;
+    loadActiveFieldPeriod();
+    syncFieldTrainingsInput();
+  };
+
+  const duplicateActiveFieldPeriod = () => {
+    if (!supportsFieldTrainings || !activeFieldPeriodId) {
+      return;
+    }
+    syncActiveFieldPeriod();
+    const activeTraining = getActiveFieldTraining();
+    const sourcePeriod = getActiveFieldPeriod(activeTraining);
+    if (!activeTraining || !sourcePeriod) {
+      return;
+    }
+    const nextIndex = activeTraining.fieldPeriods.length;
+    const duplicatedLayout = (sourcePeriod.fieldLayout || []).map((item, index) => {
+      if (item.type === "arrow") {
+        return normalizeFieldArrow({ ...item, id: makeArrowId() }, index);
+      }
+      return normalizeFieldBlock({ ...item, id: makeBlockId() }, index);
+    });
+    const period = normalizeFieldPeriod(
+      {
+        id: makeFieldPeriodId(),
+        label: `${String(sourcePeriod.label || `Plattegrond ${nextIndex}`).replace(/\s+kopie(?:\s+\d+)?$/i, "").trim()} kopie`,
+        startTime: sourcePeriod.startTime || "",
+        endTime: sourcePeriod.endTime || "",
+        fieldLayout: duplicatedLayout,
+      },
+      nextIndex
+    );
+    activeTraining.fieldPeriods.push(period);
+    activeFieldPeriodId = period.id;
+    loadActiveFieldPeriod();
+    syncFieldTrainingsInput();
+  };
+
+  const removeActiveFieldPeriod = () => {
+    const activeTraining = getActiveFieldTraining();
+    if (!supportsFieldTrainings || !activeTraining || activeTraining.fieldPeriods.length <= 1 || !activeFieldPeriodId) {
+      return;
+    }
+    if (!window.confirm("Deze plattegrond uit de training verwijderen?")) {
+      return;
+    }
+    const activeIndex = activeTraining.fieldPeriods.findIndex((period) => period.id === activeFieldPeriodId);
+    activeTraining.fieldPeriods = activeTraining.fieldPeriods.filter((period) => period.id !== activeFieldPeriodId);
+    activeFieldPeriodId = (activeTraining.fieldPeriods[Math.max(0, activeIndex - 1)] || activeTraining.fieldPeriods[0])?.id || "";
+    loadActiveFieldPeriod();
+    syncFieldTrainingsInput();
+  };
+
+  const getDuplicatedTrainingName = (sourceName, fallbackIndex) => {
+    const existingNames = new Set(fieldTrainings.map((training) => normalizeSearchText(training.name)));
+    const cleanName = String(sourceName || `Training ${fallbackIndex}`).replace(/\s+kopie(?:\s+\d+)?$/i, "").trim() || `Training ${fallbackIndex}`;
+    const firstCopy = `${cleanName} kopie`;
+    if (!existingNames.has(normalizeSearchText(firstCopy))) {
+      return firstCopy;
+    }
+    for (let number = 2; number < 100; number += 1) {
+      const candidate = `${cleanName} kopie ${number}`;
+      if (!existingNames.has(normalizeSearchText(candidate))) {
+        return candidate;
+      }
+    }
+    return firstCopy;
+  };
+
+  const duplicateActiveFieldTraining = () => {
+    if (!supportsFieldTrainings || !activeFieldTrainingId) {
+      return;
+    }
+    syncActiveFieldTraining();
+    const sourceTraining = fieldTrainings.find((training) => training.id === activeFieldTrainingId);
+    if (!sourceTraining) {
+      return;
+    }
+    const trainingIndex = fieldTrainings.length;
+    const duplicatedPeriods = (sourceTraining.fieldPeriods || [normalizeFieldPeriod({}, 0, sourceTraining.fieldLayout || [])]).map((period, periodIndex) => {
+      const duplicatedLayout = (period.fieldLayout || []).map((item, index) => {
+        if (item.type === "arrow") {
+          return normalizeFieldArrow({ ...item, id: makeArrowId() }, index);
+        }
+        return normalizeFieldBlock({ ...item, id: makeBlockId() }, index);
+      });
+      return normalizeFieldPeriod({ ...period, id: makeFieldPeriodId(), fieldLayout: duplicatedLayout }, periodIndex);
+    });
+    const training = normalizeFieldTraining(
+      {
+        id: makeTrainingId(),
+        name: getDuplicatedTrainingName(sourceTraining.name, trainingIndex + 1),
+        date: "",
+        ageGroups: sourceTraining.ageGroups || [],
+        fieldPeriods: duplicatedPeriods,
+      },
+      trainingIndex
+    );
+    fieldTrainings.push(training);
+    activeFieldTrainingId = training.id;
+    loadActiveFieldTraining();
+  };
+
+  const removeActiveFieldTraining = () => {
+    if (!supportsFieldTrainings || fieldTrainings.length <= 1 || !activeFieldTrainingId) {
+      return;
+    }
+    if (!window.confirm("Deze training uit de veldplattegrond verwijderen?")) {
+      return;
+    }
+    const activeIndex = fieldTrainings.findIndex((training) => training.id === activeFieldTrainingId);
+    fieldTrainings = fieldTrainings.filter((training) => training.id !== activeFieldTrainingId);
+    activeFieldTrainingId = (fieldTrainings[Math.max(0, activeIndex - 1)] || fieldTrainings[0])?.id || "";
+    loadActiveFieldTraining();
+  };
+
   const openFieldBlockModal = (blockId) => {
+    clearScheduledFieldModal();
     const block = getFieldBlock(blockId);
     if (!block || !fieldBlockModal) {
       return;
     }
     activeFieldBlockId = blockId;
     selectedFieldExercise = block.exerciseId
-      ? { id: block.exerciseId, title: block.exerciseTitle, exerciseKind: block.exerciseKind, category: block.category }
+      ? { id: block.exerciseId, title: block.exerciseTitle, exerciseKind: block.exerciseKind, category: block.category, ageGroups: block.exerciseAgeGroups || [] }
       : null;
     if (fieldBlockNameInput) {
       fieldBlockNameInput.value = block.title || "";
@@ -589,6 +1229,10 @@
     }
     if (fieldExerciseSearchInput) {
       fieldExerciseSearchInput.value = block.exerciseTitle || "";
+    }
+    if (sameExerciseExportInput) {
+      sameExerciseExportInput.checked = Boolean(block.sameExerciseExport);
+      sameExerciseExportInput.disabled = !block.exerciseId && !block.exerciseTitle;
     }
     renderFieldExercises();
     fieldBlockModal.hidden = false;
@@ -606,6 +1250,44 @@
     selectedFieldExercise = null;
   };
 
+  const openFieldArrowModal = (arrowId) => {
+    clearScheduledFieldModal();
+    const arrow = getFieldArrow(arrowId);
+    if (!arrow || !fieldArrowModal) {
+      return;
+    }
+    activeFieldArrowId = arrowId;
+    if (fieldArrowColorInput) {
+      fieldArrowColorInput.value = normalizeArrowColor(arrow.color).toLowerCase();
+    }
+    if (fieldArrowWidthInput) {
+      fieldArrowWidthInput.value = String(arrow.strokeWidth || 5);
+    }
+    fieldArrowModal.hidden = false;
+    document.body.classList.add("modal-open");
+    fieldArrowColorInput?.focus();
+  };
+
+  const closeFieldArrowModal = () => {
+    if (!fieldArrowModal) {
+      return;
+    }
+    fieldArrowModal.hidden = true;
+    document.body.classList.remove("modal-open");
+    activeFieldArrowId = "";
+  };
+
+  const saveActiveFieldArrow = () => {
+    const arrow = getFieldArrow(activeFieldArrowId);
+    if (!arrow) {
+      return;
+    }
+    arrow.color = normalizeArrowColor(fieldArrowColorInput?.value);
+    arrow.strokeWidth = clamp(Number.parseFloat(fieldArrowWidthInput?.value) || 5, 2, 12);
+    renderFieldBoard();
+    closeFieldArrowModal();
+  };
+
   const renderFieldExercises = () => {
     if (!fieldExerciseList) {
       return;
@@ -614,6 +1296,7 @@
     const queryParts = query.split(/\s+/).filter(Boolean);
     const categoryFilter = String(fieldExerciseCategoryFilter?.value || "").trim();
     const kindFilter = String(fieldExerciseKindFilter?.value || "").trim();
+    const ageFilter = normalizeAgeGroup(fieldExerciseAgeFilter?.value || "");
     const durationFilter = String(fieldExerciseDurationFilter?.value || "").trim();
     const matches = exerciseLibrary
       .filter((exercise) => {
@@ -621,6 +1304,9 @@
           return false;
         }
         if (kindFilter && String(exercise.trainingExercise || "").trim() !== kindFilter) {
+          return false;
+        }
+        if (!exerciseMatchesAge(exercise, ageFilter)) {
           return false;
         }
         if (durationFilter && getExerciseDurationLabel(exercise) !== durationFilter) {
@@ -631,6 +1317,7 @@
             exercise.title,
             exercise.category,
             exercise.trainingExercise,
+            getExerciseAgeGroups(exercise).join(" "),
             exercise.description,
             exercise.coaching,
             exercise.dimensions,
@@ -642,10 +1329,10 @@
     const visibleMatches = matches.slice(0, 80);
     fieldExerciseList.innerHTML = "";
     if (fieldExerciseSearchFeedback) {
-      const hasFilters = Boolean(queryParts.length || categoryFilter || kindFilter || durationFilter);
+      const hasFilters = Boolean(queryParts.length || categoryFilter || kindFilter || ageFilter || durationFilter);
       fieldExerciseSearchFeedback.textContent = hasFilters
         ? `${matches.length} oefeningen gevonden`
-        : `${exerciseLibrary.length} oefeningen beschikbaar`;
+        : `${exerciseLibrary.filter((exercise) => getExerciseAgeGroups(exercise).length).length} oefeningen met leeftijd beschikbaar`;
     }
     if (!matches.length) {
       const empty = document.createElement("p");
@@ -662,14 +1349,31 @@
       button.dataset.exerciseTitle = exercise.title || "";
       button.dataset.exerciseKind = exercise.trainingExercise || "";
       button.dataset.exerciseCategory = exercise.category || "";
+      button.dataset.exerciseAgeGroups = JSON.stringify(getExerciseAgeGroups(exercise));
       button.classList.toggle("football-field-exercise-option-active", Number(selectedFieldExercise?.id || 0) === Number(exercise.id || 0));
-      button.innerHTML = `<strong></strong><span></span>`;
+      button.innerHTML = `
+        <span class="football-field-exercise-preview"></span>
+        <span class="football-field-exercise-copy">
+          <strong></strong>
+          <span></span>
+        </span>
+      `;
+      const preview = button.querySelector(".football-field-exercise-preview");
+      if (exercise.fieldSvg) {
+        preview.innerHTML = exercise.fieldSvg;
+      } else {
+        preview.textContent = "Geen veldtekening";
+        preview.classList.add("football-field-exercise-preview-empty");
+      }
       button.querySelector("strong").textContent = exercise.title || "Naamloze oefening";
-      button.querySelector("span").textContent = [exercise.category, exercise.trainingExercise, getExerciseDurationLabel(exercise)]
+      button.querySelector(".football-field-exercise-copy span").textContent = [exercise.category, exercise.trainingExercise, getExerciseAgeGroups(exercise).join(", "), getExerciseDurationLabel(exercise)]
         .filter(Boolean)
         .join(" - ") || "Oefening";
       fieldExerciseList.append(button);
     });
+    if (sameExerciseExportInput) {
+      sameExerciseExportInput.disabled = !selectedFieldExercise && !String(fieldExerciseSearchInput?.value || "").trim();
+    }
   };
 
   const saveActiveFieldBlock = () => {
@@ -679,50 +1383,640 @@
     }
     block.title = String(fieldBlockNameInput?.value || "").trim();
     block.color = normalizeBlockColor(fieldBlockColorInput?.value);
-    if (selectedFieldExercise) {
+    const exerciseInputText = String(fieldExerciseSearchInput?.value || "").trim();
+    if (!exerciseInputText) {
+      block.exerciseId = 0;
+      block.exerciseTitle = "";
+      block.exerciseKind = "";
+      block.category = "";
+      block.exerciseAgeGroups = [];
+      block.sameExerciseExport = false;
+      block.sameExerciseKey = "";
+    } else if (selectedFieldExercise) {
       block.exerciseId = Number.parseInt(selectedFieldExercise.id, 10) || 0;
       block.exerciseTitle = selectedFieldExercise.title || "";
       block.exerciseKind = selectedFieldExercise.exerciseKind || "";
       block.category = selectedFieldExercise.category || "";
+      block.exerciseAgeGroups = getExerciseAgeGroups(selectedFieldExercise);
+      block.sameExerciseExport = Boolean(sameExerciseExportInput?.checked);
+      block.sameExerciseKey = block.sameExerciseExport ? getExerciseExportKey(block) : "";
+    } else {
+      block.sameExerciseExport = Boolean(sameExerciseExportInput?.checked);
+      block.sameExerciseKey = block.sameExerciseExport ? getExerciseExportKey(block) : "";
     }
     renderFieldBoard();
     closeFieldBlockModal();
   };
 
   const addFieldBlock = () => {
-    const index = fieldLayout.length;
-    fieldLayout.push(
-      normalizeFieldBlock(
-        {
-          title: `Blok ${index + 1}`,
-          x: 6 + (index % 4) * 22,
-          y: 7 + (Math.floor(index / 4) % 4) * 21,
-          width: 18,
-          height: 15,
-          color: "#D5EFD3",
-        },
-        index
-      )
+    const index = getFieldBlocks().length;
+    const block = normalizeFieldBlock(
+      {
+        title: `Blok ${index + 1}`,
+        x: 6 + (index % 4) * 22,
+        y: 7 + (Math.floor(index / 4) % 4) * 21,
+        width: 18,
+        height: 15,
+        color: "#D5EFD3",
+      },
+      index
     );
+    fieldLayout.push(block);
     renderFieldBoard();
-    openFieldBlockModal(fieldLayout[fieldLayout.length - 1].id);
+    openFieldBlockModal(block.id);
+  };
+
+  const copyActiveFieldBlock = () => {
+    const block = getFieldBlock(activeFieldBlockId);
+    if (!block) {
+      return;
+    }
+    copiedFieldBlock = { ...block };
+    if (pasteFieldBlockButton instanceof HTMLButtonElement) {
+      pasteFieldBlockButton.disabled = false;
+    }
+  };
+
+  const getCopiedFieldBlockTitle = (sourceTitle, fallbackIndex) => {
+    const existingTitles = new Set(getFieldBlocks().map((block) => normalizeSearchText(block.title)));
+    const rawTitle = String(sourceTitle || "").trim();
+    const title = rawTitle || `Blok ${fallbackIndex + 1}`;
+    const numberedMatch = title.match(/^(.*?)(\d+)$/);
+    if (numberedMatch) {
+      const prefix = numberedMatch[1];
+      const startNumber = Number.parseInt(numberedMatch[2], 10) + 1;
+      for (let number = startNumber; number < startNumber + 100; number += 1) {
+        const candidate = `${prefix}${number}`.trim();
+        if (!existingTitles.has(normalizeSearchText(candidate))) {
+          return candidate;
+        }
+      }
+    }
+    const cleanBase = title.replace(/\s+kopie(?:\s+\d+)?$/i, "").trim() || `Blok ${fallbackIndex + 1}`;
+    const firstCopy = `${cleanBase} kopie`;
+    if (!existingTitles.has(normalizeSearchText(firstCopy))) {
+      return firstCopy;
+    }
+    for (let number = 2; number < 100; number += 1) {
+      const candidate = `${cleanBase} kopie ${number}`;
+      if (!existingTitles.has(normalizeSearchText(candidate))) {
+        return candidate;
+      }
+    }
+    return `${cleanBase} kopie`;
+  };
+
+  const createCopiedFieldBlock = (sourceBlock, { openModal = true } = {}) => {
+    if (!sourceBlock) {
+      return null;
+    }
+    const index = getFieldBlocks().length;
+    const width = Number(sourceBlock.width || 18);
+    const height = Number(sourceBlock.height || 15);
+    const block = normalizeFieldBlock(
+      {
+        ...sourceBlock,
+        id: makeBlockId(),
+        title: getCopiedFieldBlockTitle(sourceBlock.title, index),
+        x: clamp(Number(sourceBlock.x || 0) + 4, 0, 100 - width),
+        y: clamp(Number(sourceBlock.y || 0) + 4, 0, 100 - height),
+      },
+      index
+    );
+    fieldLayout.push(block);
+    renderFieldBoard();
+    if (openModal) {
+      openFieldBlockModal(block.id);
+    }
+    return block;
+  };
+
+  const pasteFieldBlock = () => {
+    createCopiedFieldBlock(copiedFieldBlock);
+  };
+
+  const getCopiedFieldArrowOffset = (sourceArrow) => {
+    const xValues = [Number(sourceArrow.x1 || 0), Number(sourceArrow.x2 || 0)];
+    const yValues = [Number(sourceArrow.y1 || 0), Number(sourceArrow.y2 || 0)];
+    const minX = Math.min(...xValues);
+    const maxX = Math.max(...xValues);
+    const minY = Math.min(...yValues);
+    const maxY = Math.max(...yValues);
+    return {
+      x: maxX <= 96 ? 4 : minX >= 4 ? -4 : 0,
+      y: maxY <= 96 ? 4 : minY >= 4 ? -4 : 0,
+    };
+  };
+
+  const createCopiedFieldArrow = (sourceArrow) => {
+    if (!sourceArrow) {
+      return null;
+    }
+    const offset = getCopiedFieldArrowOffset(sourceArrow);
+    const arrow = normalizeFieldArrow({
+      ...sourceArrow,
+      id: makeArrowId(),
+      x1: clamp(Number(sourceArrow.x1 || 0) + offset.x, 0, 100),
+      y1: clamp(Number(sourceArrow.y1 || 0) + offset.y, 0, 100),
+      x2: clamp(Number(sourceArrow.x2 || 0) + offset.x, 0, 100),
+      y2: clamp(Number(sourceArrow.y2 || 0) + offset.y, 0, 100),
+    });
+    fieldLayout.push(arrow);
+    renderFieldBoard();
+    return arrow;
+  };
+
+  const addFieldArrow = () => {
+    const index = getFieldArrows().length;
+    const arrow = normalizeFieldArrow({}, index);
+    fieldLayout.push(arrow);
+    renderFieldBoard();
+    openFieldArrowModal(arrow.id);
   };
 
   const centerFieldBlocks = () => {
-    if (!fieldLayout.length) {
+    const blocks = getFieldBlocks();
+    if (!blocks.length) {
       return;
     }
-    const minX = Math.min(...fieldLayout.map((block) => block.x));
-    const minY = Math.min(...fieldLayout.map((block) => block.y));
-    const maxX = Math.max(...fieldLayout.map((block) => block.x + block.width));
-    const maxY = Math.max(...fieldLayout.map((block) => block.y + block.height));
+    const minX = Math.min(...blocks.map((block) => block.x));
+    const minY = Math.min(...blocks.map((block) => block.y));
+    const maxX = Math.max(...blocks.map((block) => block.x + block.width));
+    const maxY = Math.max(...blocks.map((block) => block.y + block.height));
     const offsetX = 50 - (minX + (maxX - minX) / 2);
     const offsetY = 50 - (minY + (maxY - minY) / 2);
-    fieldLayout.forEach((block) => {
+    blocks.forEach((block) => {
       block.x = clamp(block.x + offsetX, 0, 100 - block.width);
       block.y = clamp(block.y + offsetY, 0, 100 - block.height);
     });
     renderFieldBoard();
+  };
+
+  const setFieldWizardOpen = (isOpen) => {
+    if (!fieldWizardModal) {
+      return;
+    }
+    fieldWizardModal.hidden = !isOpen;
+    document.body.classList.toggle("modal-open", isOpen);
+  };
+
+  const getFieldWizardCategoryOptions = () =>
+    [...new Set(exerciseLibrary.map((exercise) => String(exercise.category || "").trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, "nl", { numeric: true, sensitivity: "base" }));
+
+  const getFieldWizardExerciseOptions = (category = "") => {
+    const ages = getSelectedFieldWizardAges();
+    return exerciseLibrary
+      .filter((exercise) => {
+        if (!exerciseMatchesAnyAge(exercise, ages)) {
+          return false;
+        }
+        if (category && String(exercise.category || "").trim() !== category) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => String(a.title || "").localeCompare(String(b.title || ""), "nl", { numeric: true, sensitivity: "base" }));
+  };
+
+  function updateFieldWizardFeedback() {
+    if (!fieldWizardFeedback) {
+      return;
+    }
+    const ages = getSelectedFieldWizardAges();
+    const count = exerciseLibrary.filter((exercise) => exerciseMatchesAnyAge(exercise, ages)).length;
+    if (!ages.length) {
+      fieldWizardFeedback.textContent = `${count} oefeningen met leeftijdscategorie beschikbaar. Kies een of meer leeftijden.`;
+      return;
+    }
+    fieldWizardFeedback.textContent = `${count} oefeningen beschikbaar voor ${formatAgeList(ages)}.`;
+  }
+
+  function populateFieldWizardAgeOptions(values) {
+    if (!fieldWizardAgeOptions) {
+      return;
+    }
+    const selectedAges = new Set(getSelectedFieldWizardAges());
+    fieldWizardAgeOptions.innerHTML = "";
+    [...values]
+      .filter(Boolean)
+      .sort((a, b) => String(a).localeCompare(String(b), "nl", { numeric: true, sensitivity: "base" }))
+      .forEach((value) => {
+        const normalizedValue = normalizeAgeGroup(value);
+        const label = document.createElement("label");
+        label.className = "football-field-wizard-age-option";
+        label.innerHTML = `
+          <input type="checkbox" value="">
+          <span></span>
+        `;
+        const input = label.querySelector("input");
+        input.value = normalizedValue;
+        input.checked = selectedAges.has(normalizedValue);
+        label.querySelector("span").textContent = normalizedValue;
+        fieldWizardAgeOptions.append(label);
+      });
+    updateFieldWizardFeedback();
+  }
+
+  const getFieldWizardRowLabel = (training, period, block, fallbackIndex = 0) => {
+    const parts = [];
+    if (training?.name) {
+      parts.push(training.name);
+    }
+    if (period?.label) {
+      parts.push(period.label);
+    }
+    parts.push(getFieldWizardBlockDisplayTitle(block, fallbackIndex));
+    return parts.filter(Boolean).join(" - ");
+  };
+
+  const getFieldWizardBlockExerciseNumber = (block) => {
+    const title = String(block?.title || "").trim();
+    const exerciseMatch = title.match(/\bO\s*([1-4])\b/i);
+    if (exerciseMatch) {
+      return Number.parseInt(exerciseMatch[1], 10);
+    }
+    const fieldMatch = title.match(/\bVeld\s*([1-4])\b/i);
+    return fieldMatch ? Number.parseInt(fieldMatch[1], 10) : 0;
+  };
+
+  const getFieldWizardBlockSortKey = (block, fallbackIndex = 0) => {
+    const exerciseNumber = getFieldWizardBlockExerciseNumber(block);
+    return {
+      exerciseNumber: exerciseNumber || 99,
+      title: String(block?.title || "").trim(),
+      fallbackIndex,
+    };
+  };
+
+  const compareFieldWizardBlockOrder = (a, b) =>
+    a.sortKey.exerciseNumber - b.sortKey.exerciseNumber
+    || a.sortKey.title.localeCompare(b.sortKey.title, "nl", { numeric: true, sensitivity: "base" })
+    || a.sortKey.fallbackIndex - b.sortKey.fallbackIndex;
+
+  const getFieldWizardBlockDisplayTitle = (block, fallbackIndex = 0) => {
+    const title = String(block?.title || "").trim();
+    const fieldMatch = title.match(/^Veld\s*([1-4])(\b.*)?$/i);
+    if (fieldMatch) {
+      return `O${Number.parseInt(fieldMatch[1], 10)}${fieldMatch[2] || ""}`.trim();
+    }
+    return title || `Blok ${fallbackIndex + 1}`;
+  };
+
+  const getFieldWizardTargets = () => {
+    if (supportsFieldTrainings) {
+      syncActiveFieldTraining();
+    }
+    const trainings = supportsFieldTrainings && fieldTrainings.length
+      ? fieldTrainings
+      : [{ id: activeFieldTrainingId || "active-training", name: "Training", fieldPeriods: [normalizeFieldPeriod({}, 0, fieldLayout)] }];
+    return trainings.map((training, trainingIndex) => {
+      const normalizedTraining = normalizeFieldTraining(training, trainingIndex);
+      const periods = Array.isArray(normalizedTraining.fieldPeriods) && normalizedTraining.fieldPeriods.length
+        ? normalizedTraining.fieldPeriods
+        : [normalizeFieldPeriod({}, 0, normalizedTraining.fieldLayout || [])];
+      return {
+        training,
+        trainingIndex,
+        periods: periods.map((period, periodIndex) => {
+          const layout = Array.isArray(period.fieldLayout) ? period.fieldLayout.map(normalizeFieldItem) : [];
+          const blocks = layout
+            .filter((item) => item.type !== "arrow")
+            .map((block, blockIndex) => ({ block, sortKey: getFieldWizardBlockSortKey(block, blockIndex) }))
+            .sort(compareFieldWizardBlockOrder)
+            .map(({ block }) => block);
+          return {
+            period,
+            periodIndex,
+            blocks,
+            sortKey: blocks.length
+              ? getFieldWizardBlockSortKey(blocks[0], periodIndex)
+              : { exerciseNumber: 99, title: String(period?.label || ""), fallbackIndex: periodIndex },
+          };
+        }).sort(compareFieldWizardBlockOrder),
+      };
+    });
+  };
+
+  const getFieldWizardSourceOptions = (row) => {
+    const container = row.closest(".football-field-wizard-training") || fieldWizardRows;
+    return [...(container?.querySelectorAll("[data-wizard-block-id]") || [])]
+      .filter((candidate) => candidate !== row)
+      .map((candidate) => ({
+        value: candidate.dataset.wizardBlockId || "",
+        label: candidate.dataset.wizardLabel || candidate.querySelector(".football-field-wizard-block")?.textContent || "",
+      }))
+      .filter((option) => option.value && option.label);
+  };
+
+  const populateFieldWizardExerciseSelect = (row) => {
+    const select = row?.querySelector("[data-wizard-exercise]");
+    if (!select) {
+      return;
+    }
+    const currentValue = select.value;
+    const category = String(row.querySelector("[data-wizard-category]")?.value || "").trim();
+    if (category === fieldWizardSameExerciseValue) {
+      select.innerHTML = '<option value="">Kies gekoppelde oefening</option>';
+      getFieldWizardSourceOptions(row).forEach((source) => {
+        const option = document.createElement("option");
+        option.value = source.value;
+        option.textContent = source.label;
+        select.append(option);
+      });
+      select.value = [...select.options].some((option) => option.value === currentValue) ? currentValue : "";
+      return;
+    }
+    select.innerHTML = '<option value="">Willekeurig uit categorie</option>';
+    getFieldWizardExerciseOptions(category).forEach((exercise) => {
+      const option = document.createElement("option");
+      option.value = String(exercise.id || "");
+      option.textContent = exercise.title || "Naamloze oefening";
+      select.append(option);
+    });
+    select.value = [...select.options].some((option) => option.value === currentValue) ? currentValue : "";
+  };
+
+  const refreshFieldWizardExerciseSelects = () => {
+    fieldWizardRows?.querySelectorAll("[data-wizard-block-id]").forEach(populateFieldWizardExerciseSelect);
+  };
+
+  const renderFieldWizardRows = () => {
+    if (!fieldWizardRows) {
+      return;
+    }
+    const targetGroups = getFieldWizardTargets();
+    const categoryOptions = getFieldWizardCategoryOptions();
+    fieldWizardRows.innerHTML = "";
+    if (!targetGroups.some((group) => group.periods.some((period) => period.blocks.length))) {
+      const empty = document.createElement("p");
+      empty.className = "football-field-empty";
+      empty.textContent = "Voeg eerst blokken toe aan de veldplattegrond.";
+      fieldWizardRows.append(empty);
+      return;
+    }
+    fieldWizardRows.style.setProperty("--wizard-training-count", String(Math.max(1, targetGroups.length)));
+    const grid = document.createElement("div");
+    grid.className = "football-field-wizard-training-grid";
+    targetGroups.forEach((group) => {
+      const column = document.createElement("section");
+      column.className = "football-field-wizard-training";
+      column.dataset.wizardTrainingId = group.training.id || `training-${group.trainingIndex + 1}`;
+      const heading = document.createElement("h3");
+      heading.textContent = group.training.name || `Training ${group.trainingIndex + 1}`;
+      column.append(heading);
+      group.periods.forEach(({ period, periodIndex, blocks }) => {
+        if (!blocks.length) {
+          return;
+        }
+        const periodTitle = document.createElement("p");
+        periodTitle.className = "football-field-wizard-period";
+        periodTitle.textContent = period.label || `Plattegrond ${periodIndex + 1}`;
+        column.append(periodTitle);
+        blocks.forEach((block, index) => {
+          const row = document.createElement("div");
+          row.className = "football-field-wizard-row";
+          row.dataset.wizardTrainingId = group.training.id || "";
+          row.dataset.wizardPeriodId = period.id || "";
+          row.dataset.wizardBlockId = block.id;
+          row.dataset.wizardLabel = getFieldWizardRowLabel(group.training, period, block, index);
+          row.innerHTML = `
+            <span class="football-field-wizard-block"></span>
+            <label>
+              <span>Categorie oefening</span>
+              <select data-wizard-category>
+                <option value="">Kies categorie</option>
+                <option value="${fieldWizardSameExerciseValue}">Zelfde oefening</option>
+              </select>
+            </label>
+            <label>
+              <span>Vaste oefening</span>
+              <select data-wizard-exercise>
+                <option value="">Willekeurig uit categorie</option>
+              </select>
+            </label>
+          `;
+          row.querySelector(".football-field-wizard-block").textContent = getFieldWizardBlockDisplayTitle(block, index);
+          const select = row.querySelector("[data-wizard-category]");
+          categoryOptions.forEach((category) => {
+            const option = document.createElement("option");
+            option.value = category;
+            option.textContent = category;
+            select.append(option);
+          });
+          select.value = categoryOptions.includes(block.category) ? block.category : "";
+          select.addEventListener("change", () => populateFieldWizardExerciseSelect(row));
+          populateFieldWizardExerciseSelect(row);
+          column.append(row);
+        });
+      });
+      grid.append(column);
+    });
+    fieldWizardRows.append(grid);
+  };
+
+  const openFieldWizard = () => {
+    if (!supportsFieldTrainings || !fieldWizardModal) {
+      return;
+    }
+    renderFieldWizardRows();
+    updateFieldWizardFeedback();
+    setFieldWizardOpen(true);
+    fieldWizardAge?.querySelector('input[type="checkbox"]')?.focus();
+  };
+
+  const getWizardExerciseUniqueKey = (exercise) => {
+    const exerciseId = Number.parseInt(exercise?.id, 10) || 0;
+    if (exerciseId) {
+      return `exercise:${exerciseId}`;
+    }
+    const title = normalizeSearchText(exercise?.title || "");
+    return title ? `title:${title}` : "";
+  };
+
+  const getWizardMatchedRowKey = (block = {}) => {
+    const title = String(block.title || "").trim();
+    if (!/\brij\s*[12]\b/i.test(title)) {
+      return "";
+    }
+    const baseTitle = title
+      .replace(/\s*[-–—]?\s*\brij\s*[12]\b/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    return normalizeSearchText(baseTitle || title);
+  };
+
+  const findExerciseForWizardRow = (category, usedExerciseKeys) => {
+    const ages = getSelectedFieldWizardAges();
+    const matches = exerciseLibrary.filter((exercise) => {
+      if (!exerciseMatchesAnyAge(exercise, ages)) {
+        return false;
+      }
+      if (category && String(exercise.category || "").trim() !== category) {
+        return false;
+      }
+      return true;
+    });
+    const unusedMatches = matches.filter((exercise) => {
+      const exerciseKey = getWizardExerciseUniqueKey(exercise);
+      return exerciseKey && !usedExerciseKeys.has(exerciseKey);
+    });
+    if (!unusedMatches.length) {
+      return null;
+    }
+    return unusedMatches[Math.floor(Math.random() * unusedMatches.length)];
+  };
+
+  const getWizardFixedExercise = (exerciseId) => {
+    const normalizedId = Number.parseInt(exerciseId, 10) || 0;
+    if (!normalizedId) {
+      return null;
+    }
+    return exerciseLibrary.find((exercise) => Number(exercise.id || 0) === normalizedId) || null;
+  };
+
+  const applyWizardExerciseToBlock = (block, exercise) => {
+    block.exerciseId = Number.parseInt(exercise.id, 10) || 0;
+    block.exerciseTitle = exercise.title || "";
+    block.exerciseKind = exercise.trainingExercise || "";
+    block.category = exercise.category || "";
+    block.exerciseAgeGroups = getExerciseAgeGroups(exercise);
+    block.sameExerciseKey = block.sameExerciseExport ? getExerciseExportKey(block) : "";
+  };
+
+  const fillFieldTrainingsFromWizard = () => {
+    if (!fieldWizardRows) {
+      return;
+    }
+    const ages = getSelectedFieldWizardAges();
+    if (!ages.length) {
+      if (fieldWizardFeedback) {
+        fieldWizardFeedback.textContent = "Kies eerst minimaal een leeftijd waarvoor deze training is.";
+      }
+      fieldWizardAge?.querySelector('input[type="checkbox"]')?.focus();
+      return;
+    }
+    syncActiveFieldTraining();
+    const wizardChoiceList = [...fieldWizardRows.querySelectorAll("[data-wizard-block-id]")]
+      .map((row) => ({
+        blockId: String(row.dataset.wizardBlockId || ""),
+        category: String(row.querySelector("[data-wizard-category]")?.value || "").trim(),
+        exerciseId: String(row.querySelector("[data-wizard-exercise]")?.value || "").trim(),
+        sameBlockId: String(row.querySelector("[data-wizard-category]")?.value || "").trim() === fieldWizardSameExerciseValue
+          ? String(row.querySelector("[data-wizard-exercise]")?.value || "").trim()
+          : "",
+      }));
+    const wizardChoices = new Map(wizardChoiceList.map((choice) => [choice.blockId, choice]));
+    if (!wizardChoiceList.some((choice) => choice.category || choice.exerciseId || choice.sameBlockId)) {
+      if (fieldWizardFeedback) {
+        fieldWizardFeedback.textContent = "Kies per blok eerst een categorie of een vaste oefening.";
+      }
+      return;
+    }
+    let filledCount = 0;
+    const missingBlocks = [];
+    const shouldMatchRows = Boolean(fieldWizardMatchRowsInput?.checked);
+    const trainingsToFill = supportsFieldTrainings && fieldTrainings.length
+      ? fieldTrainings
+      : [{ id: activeFieldTrainingId || "active-training", name: "Training", fieldLayout }];
+    trainingsToFill.forEach((training, trainingIndex) => {
+      const usedExerciseKeys = new Set();
+      const matchedRowExercises = new Map();
+      const resolvedExercises = new Map();
+      training.ageGroups = ages;
+      const periods = Array.isArray(training.fieldPeriods) && training.fieldPeriods.length
+        ? training.fieldPeriods
+        : [normalizeFieldPeriod({}, 0, training.fieldLayout || [])];
+      const resolveExerciseForItem = (item, blockIndex, resolving = new Set()) => {
+        const choice = wizardChoices.get(item.id) || {};
+        if (!choice.category && !choice.exerciseId && !choice.sameBlockId) {
+          return null;
+        }
+        if (choice.sameBlockId) {
+          if (resolvedExercises.has(choice.sameBlockId)) {
+            return resolvedExercises.get(choice.sameBlockId);
+          }
+          if (resolving.has(choice.sameBlockId)) {
+            return null;
+          }
+          const sourceItem = periods
+            .flatMap((period) => (Array.isArray(period.fieldLayout) ? period.fieldLayout : []))
+            .map(normalizeFieldItem)
+            .find((candidate) => candidate.id === choice.sameBlockId && candidate.type !== "arrow");
+          if (!sourceItem) {
+            return null;
+          }
+          resolving.add(item.id);
+          const sourceExercise = resolveExerciseForItem(sourceItem, blockIndex, resolving);
+          resolving.delete(item.id);
+          if (sourceExercise) {
+            resolvedExercises.set(choice.sameBlockId, sourceExercise);
+          }
+          return sourceExercise;
+        }
+        const matchedRowKey = shouldMatchRows ? getWizardMatchedRowKey(item) : "";
+        const matchedRowExercise = matchedRowKey ? matchedRowExercises.get(matchedRowKey) : null;
+        const exercise = matchedRowExercise || (choice.exerciseId
+          ? getWizardFixedExercise(choice.exerciseId)
+          : findExerciseForWizardRow(choice.category, usedExerciseKeys));
+        const exerciseKey = getWizardExerciseUniqueKey(exercise);
+        if (!exercise || !exerciseKey || (!matchedRowExercise && usedExerciseKeys.has(exerciseKey))) {
+          return null;
+        }
+        if (!matchedRowExercise) {
+          usedExerciseKeys.add(exerciseKey);
+        }
+        if (matchedRowKey && !matchedRowExercise) {
+          matchedRowExercises.set(matchedRowKey, exercise);
+        }
+        resolvedExercises.set(item.id, exercise);
+        return exercise;
+      };
+      periods.forEach((period, periodIndex) => {
+        const layout = Array.isArray(period.fieldLayout) ? period.fieldLayout.map(normalizeFieldItem) : [];
+        let blockIndex = 0;
+        layout.forEach((item) => {
+          if (item.type === "arrow") {
+            return;
+          }
+          const choice = wizardChoices.get(item.id) || {};
+          blockIndex += 1;
+          if (!choice.category && !choice.exerciseId && !choice.sameBlockId) {
+            return;
+          }
+          const exercise = resolveExerciseForItem(item, blockIndex);
+          if (!exercise) {
+            missingBlocks.push(`${training.name || `Training ${trainingIndex + 1}`} - ${period.label || `Plattegrond ${periodIndex + 1}`} - ${item.title || `Blok ${blockIndex}`}`);
+            return;
+          }
+          applyWizardExerciseToBlock(item, exercise);
+          filledCount += 1;
+        });
+        period.fieldLayout = layout;
+      });
+      training.fieldPeriods = periods;
+      training.fieldLayout = periods[0]?.fieldLayout || [];
+    });
+    if (supportsFieldTrainings) {
+      const activeTraining = fieldTrainings.find((training) => training.id === activeFieldTrainingId) || fieldTrainings[0];
+      activeFieldPeriodId = activeTraining?.fieldPeriods?.[0]?.id || activeFieldPeriodId;
+      fieldLayout = (getActiveFieldPeriod(activeTraining)?.fieldLayout || activeTraining?.fieldLayout || []).map(normalizeFieldItem);
+      syncFieldTrainingsInput();
+    } else {
+      fieldLayout = trainingsToFill[0].fieldLayout || fieldLayout;
+    }
+    renderFieldBoard();
+    if (fieldWizardFeedback) {
+      fieldWizardFeedback.textContent = missingBlocks.length
+        ? `${filledCount} blokken ingevuld. Geen unieke passende oefening voor: ${missingBlocks.join(", ")}.`
+        : `${filledCount} blokken in alle trainingen ingevuld en opgeslagen in de veldplattegrond.`;
+    }
+    if (filledCount) {
+      scheduleFootballDaysAutosave(250);
+    }
+    if (filledCount && !missingBlocks.length) {
+      setFieldWizardOpen(false);
+    }
   };
 
   const refreshProgramRow = (row) => {
@@ -759,8 +2053,9 @@
     const row = staffTemplate.content.firstElementChild.cloneNode(true);
     row.querySelector('input[name="staff_name"]').value = member.name || "";
     row.querySelector('input[name="staff_role"]').value = member.role || "";
-    row.querySelector('input[name="staff_setup_task"]').value = member.setupTask || "";
+    row.querySelector('[name="staff_setup_task"]').value = member.setupTask || "";
     staffRows.appendChild(row);
+    updateStaffSetupTaskVisibility();
     return row;
   };
 
@@ -1174,17 +2469,18 @@
 
         .football-pdf-cover-card {
           width: min(190mm, 78%);
-          padding: 17mm 20mm;
+          padding: 23mm 20mm 9mm;
           border: 0.7mm solid rgba(255, 255, 255, 0.34);
           background: rgba(255, 255, 255, 0.18);
           backdrop-filter: blur(2px);
+          transform: translateY(12mm);
         }
 
         .football-pdf-cover-logo {
-          width: 64mm;
-          height: 64mm;
+          width: 92mm;
+          height: 92mm;
           object-fit: contain;
-          margin: 0 auto 8mm;
+          margin: 0 auto 18mm;
         }
 
         .football-pdf-cover-title {
@@ -1217,6 +2513,14 @@
         .football-pdf-intro-panel {
           width: fit-content;
           max-width: 210mm;
+          margin: 19mm auto 0;
+          padding: 11mm 13mm;
+          border-color: rgba(255, 255, 255, 0.58);
+          background: rgba(255, 255, 255, 0.78);
+        }
+
+        .football-pdf-contingency-panel {
+          width: min(210mm, 100%);
           margin: 19mm auto 0;
           padding: 11mm 13mm;
           border-color: rgba(255, 255, 255, 0.58);
@@ -1264,6 +2568,60 @@
           color: #5f5f5f;
           font-size: 4.4mm;
           line-height: 1.2;
+          font-weight: 400;
+        }
+
+        .football-pdf-training-dates-panel {
+          width: min(210mm, 100%);
+          margin: 15mm auto 0;
+          padding: 9mm 11mm;
+          border-color: rgba(255, 255, 255, 0.58);
+          background: rgba(255, 255, 255, 0.78);
+        }
+
+        .football-pdf-training-dates-list {
+          display: grid;
+          gap: 2mm;
+        }
+
+        .football-pdf-training-dates-section + .football-pdf-training-dates-section {
+          margin-top: 8mm;
+        }
+
+        .football-pdf-training-dates-heading {
+          margin: 0 0 3mm;
+          color: #303030;
+          font-size: 3.6mm;
+          line-height: 1.1;
+          font-weight: 900;
+          text-transform: uppercase;
+        }
+
+        .football-pdf-training-date-row {
+          display: grid;
+          grid-template-columns: 74mm 1fr;
+          gap: 7mm;
+          align-items: center;
+          min-height: 12mm;
+          padding: 2.6mm 4.8mm;
+          background: rgba(255, 255, 255, 0.58);
+        }
+
+        .football-pdf-training-date-row:nth-child(even) {
+          background: rgba(255, 255, 255, 0.46);
+        }
+
+        .football-pdf-training-date-row strong {
+          color: #171717;
+          font-size: 3.8mm;
+          line-height: 1.18;
+          font-weight: 700;
+        }
+
+        .football-pdf-training-date-row span {
+          color: #5f5f5f;
+          font-size: 3.8mm;
+          line-height: 1.18;
           font-weight: 400;
         }
 
@@ -1398,10 +2756,12 @@
         }
 
         .football-pdf-program-activity {
+          align-self: center;
           color: #ffffff;
           font-size: 5.2mm;
           line-height: 1.18;
           font-weight: 700;
+          overflow-wrap: anywhere;
         }
 
         .football-pdf-program-list-compact .football-pdf-program-activity {
@@ -1410,11 +2770,9 @@
         }
 
         .football-pdf-program-list-dense .football-pdf-program-activity {
-          font-size: 3.7mm;
-          line-height: 1.05;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+          font-size: 3.25mm;
+          line-height: 1.02;
+          overflow-wrap: anywhere;
         }
 
         .football-pdf-staff-list {
@@ -1431,6 +2789,11 @@
           align-items: center;
           padding: 2.8mm 5mm;
           border-radius: 1.5mm;
+        }
+
+        .football-pdf-staff-list-no-setup-tasks .football-pdf-staff-head,
+        .football-pdf-staff-list-no-setup-tasks .football-pdf-staff-row {
+          grid-template-columns: 42% 1fr;
         }
 
         .football-pdf-staff-head {
@@ -1464,6 +2827,28 @@
         .football-pdf-contingency {
           padding: 8mm 9mm;
         }
+
+        .football-pdf-contingency-entry {
+          margin: 0 0 6mm;
+          color: #171717;
+          font-size: 5mm;
+          line-height: 1.38;
+          font-weight: 400;
+        }
+
+        .football-pdf-contingency-entry:last-child {
+          margin-bottom: 0;
+        }
+
+        .football-pdf-contingency-entry strong {
+          display: block;
+          margin-bottom: 1.4mm;
+          color: #303030;
+          font-size: 3.5mm;
+          line-height: 1.1;
+          font-weight: 900;
+          text-transform: uppercase;
+        }
       }
     `;
     document.head.append(style);
@@ -1479,12 +2864,38 @@
     if (!year || !month || !day) {
       return value;
     }
-    return new Intl.DateTimeFormat("nl-NL", {
+    const formatted = new Intl.DateTimeFormat("nl-NL", {
       weekday: "long",
       day: "numeric",
       month: "long",
       year: "numeric",
     }).format(new Date(year, month - 1, day));
+    return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+  };
+
+  const parseDateList = (value) => {
+    const dates = [];
+    const seen = new Set();
+    const text = String(value || "");
+    const matches = [...text.matchAll(/\d{4}-\d{2}-\d{2}/g)];
+    matches.forEach((match, index) => {
+      const date = match[0];
+      if (seen.has(date)) {
+        return;
+      }
+      const nextStart = matches[index + 1]?.index ?? text.length;
+      const description = text
+        .slice((match.index ?? 0) + date.length, nextStart)
+        .replace(/^[\s,;:-–—]+|[\s,;:-–—]+$/g, "")
+        .trim();
+      seen.add(date);
+      dates.push({
+        date,
+        dateLabel: formatDate(date),
+        description: description || "Geen training",
+      });
+    });
+    return dates.sort((left, right) => left.date.localeCompare(right.date));
   };
 
   const cleanClubName = (value) => {
@@ -1492,6 +2903,7 @@
       .replace(/\|.*/g, "")
       .replace(/\bdraaiboek\b/gi, "")
       .replace(/\bvoetbaldag(?:en)?\b/gi, "")
+      .replace(/\bsamenwerkende\s+amateurclubs?\b/gi, "")
       .replace(/\bhws\b/gi, "")
       .replace(/\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b/g, "")
       .replace(/\s{2,}/g, " ")
@@ -1500,49 +2912,76 @@
   };
 
   const collectPlaybookData = () => {
-    const title = getValue('input[name="title"]') || "Draaiboek Voetbaldagen";
+    syncActiveFieldTraining();
+    const title = getValue('input[name="title"]') || defaultPlaybookTitle;
     const eventDate = getValue('input[name="event_date"]');
+    const cycleNumber = getValue('input[name="cycle_number"]');
+    const cycleStartDate = getValue('input[name="cycle_start_date"]');
+    const cycleEndDate = getValue('input[name="cycle_end_date"]');
+    const cycleNoTrainingDatesText = getValue('textarea[name="cycle_no_training_dates"]');
+    const cycleNoTrainingDates = parseDateList(cycleNoTrainingDatesText);
     const location = getValue('input[name="location"]');
     const productId = getValue('input[name="ecwid_product_id"]');
     const productName = getValue('input[name="ecwid_product_name"]');
     const productSku = getValue('input[name="ecwid_product_sku"]');
-    const clubName = cleanClubName(title || productName || location);
+    const clubName = cleanClubName(productName || location || title);
     const currentRegistrationCount = String(registrationCount?.textContent || "0").trim();
+    const includeStaff = document.querySelector('input[name="include_staff"][value="1"]')?.checked ?? true;
+    const includeStaffSetupTasks = includeStaffSetupTasksInput?.checked ?? true;
+    const includeProgram = document.querySelector('input[name="include_program"][value="1"]')?.checked ?? true;
+    const cycleDateRangeLabel = cycleStartDate || cycleEndDate ? `${formatDate(cycleStartDate)} t/m ${formatDate(cycleEndDate)}` : "cyclus nog in te vullen";
+    const cycleCoverLabel = cycleNumber ? `CYCLUS ${cycleNumber}` : "CYCLUS";
 
     const staff = [...document.querySelectorAll("[data-football-staff-row]")]
       .map((row) => ({
         name: String(row.querySelector('input[name="staff_name"]')?.value || "").trim(),
         role: String(row.querySelector('input[name="staff_role"]')?.value || "").trim(),
-        setupTask: String(row.querySelector('input[name="staff_setup_task"]')?.value || "").trim(),
+        setupTask: String(row.querySelector('[name="staff_setup_task"]')?.value || "").trim(),
       }))
       .filter((member) => member.name || member.role || member.setupTask);
 
     const program = [...document.querySelectorAll("[data-football-program-row]")]
       .map((row) => {
         const activity = String(row.querySelector('input[name="program_activity"]')?.value || "").trim();
+        const selectedIcon = String(row.querySelector("[data-activity-icon]")?.dataset.activityIcon || "").trim();
         return {
           startTime: String(row.querySelector('input[name="program_start"]')?.value || "").trim(),
           endTime: String(row.querySelector('input[name="program_end"]')?.value || "").trim(),
           activity,
-          icon: inferIcon(activity),
+          icon: iconSvgs[selectedIcon] ? selectedIcon : inferIcon(activity),
         };
       })
       .filter((item) => item.activity || item.startTime || item.endTime);
 
     return {
+      playbookType,
       title,
       eventDate,
       eventDateLabel: formatDate(eventDate),
+      cycleNumber,
+      cycleCoverLabel,
+      cycleStartDate,
+      cycleEndDate,
+      cycleStartDateLabel: formatDate(cycleStartDate),
+      cycleEndDateLabel: formatDate(cycleEndDate),
+      cycleDateRangeLabel,
+      cycleNoTrainingDates,
+      cycleNoTrainingDatesText,
       location,
       productId,
       productName,
       productSku,
       clubName,
-      coverTitle: "HWS VOETBALDAG",
-      coverMeta: `${clubName.toUpperCase()} | ${currentRegistrationCount} AANMELDINGEN`,
+      coverTitle: playbookType === "samenwerkende-amateurclubs" ? title : pdfCoverTitle,
+      introSubject,
+      coverMeta: playbookType === "samenwerkende-amateurclubs" ? `${clubName.toUpperCase()} | ${cycleCoverLabel} | ${cycleDateRangeLabel}` : `${clubName.toUpperCase()} | ${currentRegistrationCount} AANMELDINGEN`,
+      includeStaff,
+      includeStaffSetupTasks,
+      includeProgram,
       staff,
       program,
       fieldLayout,
+      fieldTrainings,
       contingencies: getValue('textarea[name="contingencies"]'),
       registrationCount: currentRegistrationCount,
     };
@@ -1597,7 +3036,7 @@
     logo.src = pdfLogo;
     logo.alt = "HWS Voetbalschool";
     card.append(logo);
-    card.append(makeElement("h1", "football-pdf-cover-title", data.coverTitle));
+    card.append(makeElement("h1", "football-pdf-cover-title", String(data.coverTitle || "").toUpperCase()));
     card.append(makeElement("p", "football-pdf-cover-meta", data.coverMeta));
     content.append(card);
     return page;
@@ -1606,11 +3045,13 @@
   const createIntroPage = (data, background) => {
     const { page, content } = createPage(background, "Inleiding");
     const panel = makeElement("div", "football-pdf-panel football-pdf-intro-panel");
+    const isAmateurClubPlaybook = data.playbookType === "samenwerkende-amateurclubs";
+    const dateText = isAmateurClubPlaybook ? `voor ${(data.cycleCoverLabel || "de cyclus").toLowerCase()}: ${data.cycleDateRangeLabel}` : `op ${data.eventDateLabel}`;
     panel.append(
       makeElement(
         "p",
         "football-pdf-copy",
-        `In dit draaiboek vind je alle informatie voor de voetbaldag bij ${data.clubName} op ${data.eventDateLabel}.`
+        `In dit draaiboek vind je alle informatie voor de ${data.introSubject || "voetbaldag"} bij ${data.clubName} ${dateText}.`
       ),
       makeElement(
         "p",
@@ -1619,17 +3060,69 @@
       )
     );
     const details = makeElement("div", "football-pdf-detail-grid");
-    [
+    const detailRows = isAmateurClubPlaybook ? [
+      ["Club", data.clubName],
+      ["Cyclus", data.cycleNumber || "Nog in te vullen"],
+      ["Start cyclus", data.cycleStartDateLabel],
+      ["Einde cyclus", data.cycleEndDateLabel],
+    ] : [
       ["Club", data.clubName],
       ["Datum", data.eventDateLabel],
       ["Locatie", data.location || "Nog in te vullen"],
       ["Aanmeldingen", data.registrationCount || "0"],
-    ].forEach(([label, value]) => {
+    ];
+    detailRows.forEach(([label, value]) => {
       const item = makeElement("div", "football-pdf-detail");
       item.append(makeElement("span", "", label), makeElement("strong", "", value));
       details.append(item);
     });
     panel.append(details);
+    content.append(panel);
+    return page;
+  };
+
+  const getSortedCycleTrainings = (trainings = []) =>
+    trainings
+      .filter((training) => training && typeof training === "object")
+      .map((training, index) => ({ training, index }))
+      .sort((left, right) => {
+        const leftDate = String(left.training.date || "").trim();
+        const rightDate = String(right.training.date || "").trim();
+        const leftHasDate = /^\d{4}-\d{2}-\d{2}$/.test(leftDate);
+        const rightHasDate = /^\d{4}-\d{2}-\d{2}$/.test(rightDate);
+        if (leftHasDate && rightHasDate && leftDate !== rightDate) {
+          return leftDate.localeCompare(rightDate);
+        }
+        if (leftHasDate !== rightHasDate) {
+          return leftHasDate ? -1 : 1;
+        }
+        return left.index - right.index;
+      })
+      .map(({ training }) => training);
+
+  const createTrainingDatesPage = (data, background) => {
+    const { page, content } = createPage(background, "Trainingsdata");
+    const panel = makeElement("div", "football-pdf-panel football-pdf-training-dates-panel");
+    const appendTrainingDateSection = (title, rows, getName) => {
+      if (!rows.length) {
+        return;
+      }
+      const section = makeElement("div", "football-pdf-training-dates-section");
+      section.append(makeElement("h3", "football-pdf-training-dates-heading", title));
+      const list = makeElement("div", "football-pdf-training-dates-list");
+      rows.forEach((rowData, index) => {
+        const row = makeElement("div", "football-pdf-training-date-row");
+        row.append(
+          makeElement("strong", "", formatDate(rowData.date)),
+          makeElement("span", "", getName(rowData, index))
+        );
+        list.append(row);
+      });
+      section.append(list);
+      panel.append(section);
+    };
+    appendTrainingDateSection("Trainingen datum", getSortedCycleTrainings(data.fieldTrainings), (training, index) => training.name || `Training ${index + 1}`);
+    appendTrainingDateSection("Geen training datum", data.cycleNoTrainingDates || [], (row) => row.description || "Geen training");
     content.append(panel);
     return page;
   };
@@ -1646,29 +3139,35 @@
   const createStaffPage = (data, background) => {
     const { page, content } = createPage(background, "Taakverdeling");
     const list = makeElement("div", "football-pdf-staff-list");
+    if (!data.includeStaffSetupTasks) {
+      list.classList.add("football-pdf-staff-list-no-setup-tasks");
+    }
     const headRow = makeElement("div", "football-pdf-staff-head");
-    ["Naam", "Rol", "Taak bij uitzetten"].forEach((label) => headRow.append(makeElement("span", "", label)));
+    const labels = data.includeStaffSetupTasks ? ["Naam", "Rol", "Taak bij uitzetten"] : ["Naam", "Rol"];
+    labels.forEach((label) => headRow.append(makeElement("span", "", label)));
     list.append(headRow);
     const rows = data.staff.length ? data.staff : [{ name: "Nog in te vullen", role: "", setupTask: "" }];
     rows.forEach((member) => {
       const row = makeElement("div", "football-pdf-staff-row");
       row.append(
         makeElement("span", "football-pdf-staff-name", member.name || "-"),
-        makeElement("span", "", member.role || "-"),
-        makeElement("span", "", member.setupTask || "-")
+        makeElement("span", "", member.role || "-")
       );
+      if (data.includeStaffSetupTasks) {
+        row.append(makeElement("span", "", member.setupTask || "-"));
+      }
       list.append(row);
     });
     content.append(list);
     return page;
   };
 
-  const createProgramPage = (rows, background) => {
+  const createProgramPage = (rows, background, layoutRowCount = rows.length) => {
     const { page, content } = createPage(background, "Programma");
     const list = makeElement("div", "football-pdf-program-list");
-    if (rows.length > 12) {
+    if (layoutRowCount > 12) {
       list.classList.add("football-pdf-program-list-dense");
-    } else if (rows.length > 9) {
+    } else if (layoutRowCount > 9) {
       list.classList.add("football-pdf-program-list-compact");
     }
     rows.forEach((item) => {
@@ -1688,9 +3187,10 @@
   const createProgramPages = (data, backgrounds, startIndex) => {
     const rows = data.program.length ? data.program : [{ startTime: "", endTime: "", activity: "Nog in te vullen", icon: "clock" }];
     const chunkSize = rows.length <= 14 ? 14 : 12;
+    const layoutRowCount = rows.length > chunkSize ? chunkSize : rows.length;
     const pages = [];
     for (let index = 0; index < rows.length; index += chunkSize) {
-      pages.push(createProgramPage(rows.slice(index, index + chunkSize), backgrounds[(startIndex + pages.length) % backgrounds.length]));
+      pages.push(createProgramPage(rows.slice(index, index + chunkSize), backgrounds[(startIndex + pages.length) % backgrounds.length], layoutRowCount));
     }
     return pages;
   };
@@ -1713,22 +3213,17 @@
   };
 
   const createContingenciesPage = (data, background) => {
-    const { page, content } = createPage(background, "Onvoorzien");
-    const table = makeElement("table", "football-pdf-table");
-    table.classList.add("football-pdf-contingency");
-    const thead = makeElement("thead");
-    const headRow = makeElement("tr");
-    ["Situatie", "Afspraak of oplossing"].forEach((label) => appendCell(headRow, "th", label));
-    thead.append(headRow);
-    const tbody = makeElement("tbody");
+    const { page, content } = createPage(background, "Onvoorziene omstandigheden");
+    const panel = makeElement("div", "football-pdf-panel football-pdf-contingency-panel");
     createContingencyRows(data.contingencies).forEach(([scenario, solution]) => {
-      const row = makeElement("tr");
-      appendCell(row, "td", scenario);
-      appendCell(row, "td", solution);
-      tbody.append(row);
+      const entry = makeElement("p", "football-pdf-contingency-entry");
+      if (scenario && !/^(scenario|algemeen)$/i.test(scenario)) {
+        entry.append(makeElement("strong", "", scenario));
+      }
+      entry.append(document.createTextNode(solution || "Nog in te vullen"));
+      panel.append(entry);
     });
-    table.append(thead, tbody);
-    content.append(table);
+    content.append(panel);
     return page;
   };
 
@@ -1742,12 +3237,20 @@
     removePrintRoot();
     const data = collectPlaybookData();
     const backgrounds = shuffle(pdfBackgrounds);
+    const shouldShowTrainingDates =
+      data.playbookType === "samenwerkende-amateurclubs" &&
+      ((Array.isArray(data.fieldTrainings) && data.fieldTrainings.length > 1) ||
+        (Array.isArray(data.cycleNoTrainingDates) && data.cycleNoTrainingDates.length > 0));
+    const afterIntroPages = shouldShowTrainingDates ? [createTrainingDatesPage(data, backgrounds[2])] : [];
+    const staffBackgroundIndex = shouldShowTrainingDates ? 3 : 2;
+    const programBackgroundStartIndex = shouldShowTrainingDates ? 4 : 3;
     printRoot = makeElement("div", "football-pdf-export");
     printRoot.append(
       createCoverPage(data, backgrounds[0]),
       createIntroPage(data, backgrounds[1]),
-      createStaffPage(data, backgrounds[2]),
-      ...createProgramPages(data, backgrounds, 3),
+      ...afterIntroPages,
+      createStaffPage(data, backgrounds[staffBackgroundIndex]),
+      ...createProgramPages(data, backgrounds, programBackgroundStartIndex),
       createContingenciesPage(data, backgrounds[4])
     );
     document.body.append(printRoot);
@@ -1760,7 +3263,7 @@
       return decodeURIComponent(filenameStar[1].replace(/"/g, ""));
     }
     const filename = disposition.match(/filename="?([^";]+)"?/i);
-    return filename ? filename[1] : "voetbaldag-draaiboek.pdf";
+    return filename ? filename[1] : fallbackPdfFilename;
   };
 
   const downloadBlob = (blob, filename) => {
@@ -1782,7 +3285,7 @@
     exportButton.disabled = true;
     exportButton.textContent = "PDF maken...";
     try {
-      const response = await fetch("/api/voetbaldagen/export-pdf", {
+      const response = await fetch(exportPdfApi, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1855,6 +3358,12 @@
     if (event.key === "Escape" && fieldBlockModal && !fieldBlockModal.hidden) {
       closeFieldBlockModal();
     }
+    if (event.key === "Escape" && fieldArrowModal && !fieldArrowModal.hidden) {
+      closeFieldArrowModal();
+    }
+    if (event.key === "Escape" && fieldWizardModal && !fieldWizardModal.hidden) {
+      setFieldWizardOpen(false);
+    }
   });
 
   programRows?.addEventListener("dragstart", (event) => {
@@ -1924,16 +3433,113 @@
 
   if (fieldLayoutInput) {
     try {
-      fieldLayout = JSON.parse(fieldLayoutInput.value || "[]").map(normalizeFieldBlock);
+      fieldLayout = JSON.parse(fieldLayoutInput.value || "[]").map(normalizeFieldItem);
     } catch (error) {
       fieldLayout = [];
     }
   }
+  if (supportsFieldTrainings) {
+    try {
+      fieldTrainings = JSON.parse(fieldTrainingsInput.value || "[]").map(normalizeFieldTraining);
+    } catch (error) {
+      fieldTrainings = [];
+    }
+    if (!fieldTrainings.length) {
+      fieldTrainings = [normalizeFieldTraining({ name: "Training 1", fieldLayout }, 0)];
+    }
+    activeFieldTrainingId = fieldTrainings[0].id;
+    loadActiveFieldTraining();
+  }
+  if (pasteFieldBlockButton instanceof HTMLButtonElement) {
+    pasteFieldBlockButton.disabled = true;
+  }
 
   addFieldBlockButton?.addEventListener("click", addFieldBlock);
+  addFieldTrainingButton?.addEventListener("click", addFieldTraining);
+  duplicateFieldTrainingButton?.addEventListener("click", duplicateActiveFieldTraining);
+  removeFieldTrainingButton?.addEventListener("click", removeActiveFieldTraining);
+  addFieldPeriodButton?.addEventListener("click", addFieldPeriod);
+  duplicateFieldPeriodButton?.addEventListener("click", duplicateActiveFieldPeriod);
+  removeFieldPeriodButton?.addEventListener("click", removeActiveFieldPeriod);
+  fieldTrainingNameInput?.addEventListener("input", () => {
+    syncActiveFieldTraining();
+    renderFieldTrainingTabs();
+    syncFieldTrainingsInput();
+  });
+  fieldTrainingDateInput?.addEventListener("input", () => {
+    syncActiveFieldTraining();
+    renderFieldTrainingTabs();
+    syncFieldTrainingsInput();
+  });
+  [fieldPeriodLabelInput, fieldPeriodStartInput, fieldPeriodEndInput].forEach((input) => {
+    input?.addEventListener("input", () => {
+      syncActiveFieldPeriod();
+      renderFieldPeriodTabs();
+      syncFieldTrainingsInput();
+    });
+  });
+  fieldTrainingTabs?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-field-training-id]");
+    if (button && !draggedFieldTrainingId) {
+      selectFieldTraining(button.dataset.fieldTrainingId || "");
+    }
+  });
+  fieldTrainingTabs?.addEventListener("dragstart", (event) => {
+    const button = event.target.closest("[data-field-training-id]");
+    if (!button) {
+      return;
+    }
+    draggedFieldTrainingId = button.dataset.fieldTrainingId || "";
+    button.classList.add("football-field-training-tab-dragging");
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", draggedFieldTrainingId);
+  });
+  fieldTrainingTabs?.addEventListener("dragover", (event) => {
+    const button = event.target.closest("[data-field-training-id]");
+    if (!button || !draggedFieldTrainingId || button.dataset.fieldTrainingId === draggedFieldTrainingId) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    fieldTrainingTabs.querySelectorAll(".football-field-training-tab-drop-target").forEach((tab) => {
+      tab.classList.remove("football-field-training-tab-drop-target");
+    });
+    button.classList.add("football-field-training-tab-drop-target");
+  });
+  fieldTrainingTabs?.addEventListener("dragleave", (event) => {
+    const button = event.target.closest("[data-field-training-id]");
+    if (button && !button.contains(event.relatedTarget)) {
+      button.classList.remove("football-field-training-tab-drop-target");
+    }
+  });
+  fieldTrainingTabs?.addEventListener("drop", (event) => {
+    const button = event.target.closest("[data-field-training-id]");
+    if (!button || !draggedFieldTrainingId) {
+      return;
+    }
+    event.preventDefault();
+    button.classList.remove("football-field-training-tab-drop-target");
+    reorderFieldTraining(draggedFieldTrainingId, button.dataset.fieldTrainingId || "");
+  });
+  fieldTrainingTabs?.addEventListener("dragend", () => {
+    fieldTrainingTabs.querySelectorAll(".football-field-training-tab-dragging, .football-field-training-tab-drop-target").forEach((tab) => {
+      tab.classList.remove("football-field-training-tab-dragging", "football-field-training-tab-drop-target");
+    });
+    window.setTimeout(() => {
+      draggedFieldTrainingId = "";
+    }, 0);
+  });
+  fieldPeriodTabs?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-field-period-id]");
+    if (button) {
+      selectFieldPeriod(button.dataset.fieldPeriodId || "");
+    }
+  });
+  pasteFieldBlockButton?.addEventListener("click", pasteFieldBlock);
+  addFieldArrowButton?.addEventListener("click", addFieldArrow);
   centerFieldBlocksButton?.addEventListener("click", centerFieldBlocks);
   clearFieldBlocksButton?.addEventListener("click", () => {
-    if (!fieldLayout.length || !window.confirm("Alle blokken van de veldplattegrond verwijderen?")) {
+    if (!fieldLayout.length || !window.confirm("Alle blokken en pijlen van de veldplattegrond verwijderen?")) {
       return;
     }
     fieldLayout = [];
@@ -1941,7 +3547,32 @@
   });
 
   fieldBoard?.addEventListener("pointerdown", (event) => {
+    clearScheduledFieldModal();
     const target = event.target instanceof Element ? event.target : null;
+    const arrowElement = target?.closest("[data-field-arrow-id]");
+    if (arrowElement) {
+      const arrow = getFieldArrow(arrowElement.dataset.fieldArrowId || "");
+      if (!arrow) {
+        return;
+      }
+      const boardBox = fieldBoard.getBoundingClientRect();
+      const handle = target.closest("[data-field-arrow-handle]");
+      fieldPointerState = {
+        id: arrow.id,
+        mode: handle ? `arrow-${handle.dataset.fieldArrowHandle}` : "arrow-move",
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startArrow: { ...arrow },
+        boardWidth: boardBox.width || 1,
+        boardHeight: boardBox.height || 1,
+        moved: false,
+      };
+      arrowElement.classList.add("football-field-arrow-active");
+      hideFieldAlignmentGuides();
+      event.preventDefault();
+      return;
+    }
     const blockElement = target?.closest("[data-field-block-id]");
     if (!blockElement) {
       return;
@@ -1974,14 +3605,36 @@
     if (!fieldPointerState) {
       return;
     }
-    const block = getFieldBlock(fieldPointerState.id);
-    if (!block) {
-      return;
-    }
     const deltaX = ((event.clientX - fieldPointerState.startClientX) / fieldPointerState.boardWidth) * 100;
     const deltaY = ((event.clientY - fieldPointerState.startClientY) / fieldPointerState.boardHeight) * 100;
     if (Math.abs(deltaX) > 0.2 || Math.abs(deltaY) > 0.2) {
       fieldPointerState.moved = true;
+    }
+    if (fieldPointerState.mode.startsWith("arrow")) {
+      const arrow = getFieldArrow(fieldPointerState.id);
+      if (!arrow) {
+        return;
+      }
+      const start = fieldPointerState.startArrow;
+      if (fieldPointerState.mode === "arrow-move") {
+        arrow.x1 = clamp(start.x1 + deltaX, 0, 100);
+        arrow.y1 = clamp(start.y1 + deltaY, 0, 100);
+        arrow.x2 = clamp(start.x2 + deltaX, 0, 100);
+        arrow.y2 = clamp(start.y2 + deltaY, 0, 100);
+      } else if (fieldPointerState.mode === "arrow-start") {
+        arrow.x1 = clamp(start.x1 + deltaX, 0, 100);
+        arrow.y1 = clamp(start.y1 + deltaY, 0, 100);
+      } else if (fieldPointerState.mode === "arrow-end") {
+        arrow.x2 = clamp(start.x2 + deltaX, 0, 100);
+        arrow.y2 = clamp(start.y2 + deltaY, 0, 100);
+      }
+      updateFieldArrowElement(fieldBoard.querySelector(`[data-field-arrow-id="${arrow.id}"]`), arrow);
+      syncFieldLayoutInput();
+      return;
+    }
+    const block = getFieldBlock(fieldPointerState.id);
+    if (!block) {
+      return;
     }
     const start = fieldPointerState.startBlock;
     if (fieldPointerState.mode === "move") {
@@ -2023,10 +3676,14 @@
     if (!fieldPointerState) {
       return;
     }
-    const blockId = fieldPointerState.id;
-    const shouldOpen = !fieldPointerState.moved && fieldPointerState.mode === "move";
+    const itemId = fieldPointerState.id;
+    const isArrow = fieldPointerState.mode.startsWith("arrow");
+    const shouldOpen = !fieldPointerState.moved && (fieldPointerState.mode === "move" || fieldPointerState.mode === "arrow-move");
     fieldBoard?.querySelectorAll(".football-field-block-active").forEach((element) => {
       element.classList.remove("football-field-block-active");
+    });
+    fieldBoard?.querySelectorAll(".football-field-arrow-active").forEach((element) => {
+      element.classList.remove("football-field-arrow-active");
     });
     hideFieldAlignmentGuides();
     if (event?.target?.releasePointerCapture) {
@@ -2035,12 +3692,52 @@
     fieldPointerState = null;
     syncFieldLayoutInput();
     if (shouldOpen) {
-      openFieldBlockModal(blockId);
+      fieldOpenModalTimer = window.setTimeout(() => {
+        fieldOpenModalTimer = 0;
+        if (isArrow) {
+          openFieldArrowModal(itemId);
+        } else {
+          openFieldBlockModal(itemId);
+        }
+      }, 240);
     }
   };
 
   fieldBoard?.addEventListener("pointerup", finishFieldPointer);
   fieldBoard?.addEventListener("pointercancel", finishFieldPointer);
+  fieldBoard?.addEventListener("dblclick", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const arrowElement = target?.closest("[data-field-arrow-id]");
+    if (arrowElement) {
+      const arrow = getFieldArrow(arrowElement.dataset.fieldArrowId || "");
+      if (!arrow) {
+        return;
+      }
+      clearScheduledFieldModal();
+      fieldBoard?.querySelectorAll(".football-field-arrow-active").forEach((element) => {
+        element.classList.remove("football-field-arrow-active");
+      });
+      fieldPointerState = null;
+      createCopiedFieldArrow(arrow);
+      event.preventDefault();
+      return;
+    }
+    const blockElement = target?.closest("[data-field-block-id]");
+    if (!blockElement || target?.closest("[data-field-resize]")) {
+      return;
+    }
+    const block = getFieldBlock(blockElement.dataset.fieldBlockId || "");
+    if (!block) {
+      return;
+    }
+    clearScheduledFieldModal();
+    fieldBoard?.querySelectorAll(".football-field-block-active").forEach((element) => {
+      element.classList.remove("football-field-block-active");
+    });
+    fieldPointerState = null;
+    createCopiedFieldBlock(block, { openModal: false });
+    event.preventDefault();
+  });
 
   fieldBlockModal?.addEventListener("click", (event) => {
     if (event.target.closest("[data-close-football-field-modal]")) {
@@ -2048,7 +3745,36 @@
     }
   });
 
-  fieldExerciseSearchInput?.addEventListener("input", renderFieldExercises);
+  fieldArrowModal?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-close-football-field-arrow-modal]")) {
+      closeFieldArrowModal();
+    }
+  });
+
+  fieldWizardModal?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-close-football-field-wizard]")) {
+      setFieldWizardOpen(false);
+    }
+  });
+
+  openFieldWizardButton?.addEventListener("click", openFieldWizard);
+  fieldWizardAge?.addEventListener("change", () => {
+    updateFieldWizardFeedback();
+    refreshFieldWizardExerciseSelects();
+  });
+  fillFieldTrainingsButton?.addEventListener("click", fillFieldTrainingsFromWizard);
+
+  fieldExerciseSearchInput?.addEventListener("input", () => {
+    const exerciseInputText = String(fieldExerciseSearchInput?.value || "").trim();
+    if (!exerciseInputText || normalizeSearchText(exerciseInputText) !== normalizeSearchText(selectedFieldExercise?.title || "")) {
+      selectedFieldExercise = null;
+    }
+    if (sameExerciseExportInput && !exerciseInputText) {
+      sameExerciseExportInput.checked = false;
+      sameExerciseExportInput.disabled = true;
+    }
+    renderFieldExercises();
+  });
   fieldExerciseSearchInput?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") {
       return;
@@ -2061,7 +3787,7 @@
     firstOption.click();
   });
 
-  [fieldExerciseCategoryFilter, fieldExerciseKindFilter, fieldExerciseDurationFilter].forEach((select) => {
+  [fieldExerciseCategoryFilter, fieldExerciseKindFilter, fieldExerciseAgeFilter, fieldExerciseDurationFilter].forEach((select) => {
     select?.addEventListener("change", renderFieldExercises);
   });
 
@@ -2071,6 +3797,9 @@
     }
     if (fieldExerciseKindFilter) {
       fieldExerciseKindFilter.value = "";
+    }
+    if (fieldExerciseAgeFilter) {
+      fieldExerciseAgeFilter.value = "";
     }
     if (fieldExerciseDurationFilter) {
       fieldExerciseDurationFilter.value = "";
@@ -2096,18 +3825,29 @@
       title: option.dataset.exerciseTitle || "",
       exerciseKind: option.dataset.exerciseKind || "",
       category: option.dataset.exerciseCategory || "",
+      ageGroups: JSON.parse(option.dataset.exerciseAgeGroups || "[]"),
     };
     if (fieldExerciseSearchInput) {
       fieldExerciseSearchInput.value = selectedFieldExercise.title;
+    }
+    if (sameExerciseExportInput) {
+      sameExerciseExportInput.disabled = false;
     }
     renderFieldExercises();
   });
 
   saveFieldBlockButton?.addEventListener("click", saveActiveFieldBlock);
+  copyFieldBlockButton?.addEventListener("click", copyActiveFieldBlock);
   deleteFieldBlockButton?.addEventListener("click", () => {
-    fieldLayout = fieldLayout.filter((block) => block.id !== activeFieldBlockId);
+    fieldLayout = fieldLayout.filter((item) => item.id !== activeFieldBlockId);
     renderFieldBoard();
     closeFieldBlockModal();
+  });
+  saveFieldArrowButton?.addEventListener("click", saveActiveFieldArrow);
+  deleteFieldArrowButton?.addEventListener("click", () => {
+    fieldLayout = fieldLayout.filter((item) => item.id !== activeFieldArrowId);
+    renderFieldBoard();
+    closeFieldArrowModal();
   });
 
   productSearchInput?.addEventListener("input", () => {
@@ -2162,6 +3902,7 @@
   });
 
   clearProductButton?.addEventListener("click", clearProduct);
+  includeStaffSetupTasksInput?.addEventListener("change", updateStaffSetupTaskVisibility);
 
   document.querySelectorAll("[data-reuse-playbook]").forEach((select) => {
     select.addEventListener("change", () => {
@@ -2176,6 +3917,17 @@
       if (section === "program") {
         replaceRows(programRows, "[data-football-program-row]", playbook.program || [], appendProgramRow);
       }
+      if (section === "fieldLayout") {
+        if (supportsFieldTrainings) {
+          syncActiveFieldTraining();
+          fieldTrainings = (playbook.fieldTrainings?.length ? playbook.fieldTrainings : [{ name: "Training 1", fieldLayout: playbook.fieldLayout || [] }]).map(normalizeFieldTraining);
+          activeFieldTrainingId = fieldTrainings[0]?.id || "";
+          loadActiveFieldTraining();
+        } else {
+          fieldLayout = (playbook.fieldLayout || []).map((item, index) => normalizeFieldItem(item, index));
+          renderFieldBoard();
+        }
+      }
       if (section === "contingencies") {
         const textarea = document.querySelector('textarea[name="contingencies"]');
         if (textarea) {
@@ -2187,7 +3939,13 @@
   });
 
   document.querySelectorAll("[data-football-program-row]").forEach(bindProgramRow);
+  footballDaysForm?.addEventListener("submit", () => {
+    syncActiveFieldTraining();
+    syncFieldLayoutInput();
+    syncFieldTrainingsInput();
+  });
   refreshRemoveButtons(staffRows, "[data-football-staff-row]");
   refreshRemoveButtons(programRows, "[data-football-program-row]");
+  updateStaffSetupTaskVisibility();
   renderFieldBoard();
 })();

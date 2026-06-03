@@ -28,6 +28,11 @@ const saveExerciseEdit = document.querySelector("#saveExerciseEdit");
 const exerciseDetailLayout = document.querySelector("#exerciseDetailLayout");
 const exerciseFilterEmpty = document.querySelector("#exerciseFilterEmpty");
 const exerciseSearchInput = document.querySelector("#exerciseSearchInput");
+const exerciseAgeFieldset = document.querySelector("#exerciseAgeFieldset");
+const exerciseAgeInputs = Array.from(document.querySelectorAll("[data-exercise-age-input]"));
+const previousExercise = document.querySelector("#previousExercise");
+const nextExercise = document.querySelector("#nextExercise");
+const exerciseNavPosition = document.querySelector("#exerciseNavPosition");
 const exerciseById = new Map();
 let activeExercise = null;
 let activeFilter = "all";
@@ -35,12 +40,14 @@ let activeSearch = "";
 let activeMedia = "field";
 let activeInlineEdit = false;
 let activeFieldOverlayEditing = false;
-let activeFieldTool = "player";
+let activeFieldTool = "select";
 let selectedFieldItemId = null;
 let fieldDragState = null;
 const canEditExercises = exerciseModal?.dataset.canEdit === "true";
 const DEFAULT_FIELD_VIEWBOX = [0, 0, 100, 70];
 const FIELD_TOOL_DEFAULTS = {
+  select: { color: "#111111", size: 100 },
+  "field-image": { color: "#111111", size: 100 },
   player: { color: "#1F5EFF", size: 100 },
   "big-cone": { color: "#FF6B00", size: 125 },
   "small-cone": { color: "#FFD400", size: 85 },
@@ -339,6 +346,7 @@ function buildExerciseSearchText(exercise) {
   return normalizeFilterValue([
     exercise?.title,
     exercise?.category,
+    normalizeExerciseAgeGroups(exercise?.ageGroups).join(" "),
     exercise?.trainingExercise,
     exercise?.description,
     exercise?.coaching,
@@ -347,6 +355,46 @@ function buildExerciseSearchText(exercise) {
     exercise?.dimensions,
     exercise?.materials,
   ].join(" "));
+}
+
+function normalizeExerciseAgeGroups(ageGroups) {
+  if (!Array.isArray(ageGroups)) {
+    return [];
+  }
+  const allowed = new Set(["O8", "O9", "O10", "O11", "O12", "O13", "O14", "O15"]);
+  return ageGroups
+    .map((age) => String(age || "").trim().toUpperCase().replace(/^JO/, "O"))
+    .filter((age, index, items) => allowed.has(age) && items.indexOf(age) === index);
+}
+
+function renderAgeBadges(container, ageGroups) {
+  if (!container) {
+    return;
+  }
+  const normalized = normalizeExerciseAgeGroups(ageGroups);
+  container.replaceChildren();
+  if (!normalized.length) {
+    container.hidden = true;
+    return;
+  }
+  normalized.forEach((age) => {
+    const badge = document.createElement("span");
+    badge.className = "exercise-age-badge";
+    badge.textContent = age;
+    container.append(badge);
+  });
+  container.hidden = false;
+}
+
+function setAgeInputs(ageGroups) {
+  const selected = new Set(normalizeExerciseAgeGroups(ageGroups));
+  exerciseAgeInputs.forEach((input) => {
+    input.checked = selected.has(input.value);
+  });
+}
+
+function getSelectedAgeGroups() {
+  return normalizeExerciseAgeGroups(exerciseAgeInputs.filter((input) => input.checked).map((input) => input.value));
 }
 
 function getExerciseSearchText(tile) {
@@ -414,6 +462,49 @@ function applyExerciseFilter(category = activeFilter) {
     exerciseFilterEmpty.textContent = activeSearch ? "Geen oefeningen gevonden voor deze zoekopdracht." : "Geen oefeningen in deze categorie.";
     exerciseFilterEmpty.hidden = visibleCount > 0;
   }
+  updateExerciseNavigation();
+}
+
+function getVisibleExerciseIds() {
+  const visibleIds = Array.from(document.querySelectorAll("#exerciseTileGrid .exercise-tile"))
+    .filter((tile) => !tile.hidden && !tile.classList.contains("exercise-tile-hidden"))
+    .map((tile) => String(tile.dataset.exerciseId || ""))
+    .filter(Boolean);
+  if (visibleIds.length || activeSearch || activeFilter !== "all") {
+    return visibleIds;
+  }
+  return Array.from(document.querySelectorAll("#exerciseTileGrid .exercise-tile"))
+    .map((tile) => String(tile.dataset.exerciseId || ""))
+    .filter(Boolean);
+}
+
+function updateExerciseNavigation() {
+  if (!activeExercise || !previousExercise || !nextExercise) {
+    return;
+  }
+  const visibleIds = getVisibleExerciseIds();
+  const activeIndex = visibleIds.indexOf(String(activeExercise.id));
+  const hasPrevious = activeIndex > 0;
+  const hasNext = activeIndex >= 0 && activeIndex < visibleIds.length - 1;
+  previousExercise.disabled = !hasPrevious;
+  nextExercise.disabled = !hasNext;
+  if (exerciseNavPosition) {
+    exerciseNavPosition.textContent = activeIndex >= 0 ? `${activeIndex + 1} van ${visibleIds.length}` : "";
+  }
+}
+
+function navigateExercise(direction) {
+  if (!activeExercise) {
+    return;
+  }
+  const visibleIds = getVisibleExerciseIds();
+  const activeIndex = visibleIds.indexOf(String(activeExercise.id));
+  const nextIndex = activeIndex + direction;
+  if (activeIndex < 0 || nextIndex < 0 || nextIndex >= visibleIds.length) {
+    updateExerciseNavigation();
+    return;
+  }
+  openExercise(exerciseById.get(visibleIds[nextIndex]));
 }
 
 function syncExerciseCategory(exercise, category) {
@@ -444,6 +535,7 @@ function syncExerciseTile(exercise) {
   if (titleNode) {
     titleNode.textContent = exercise.title || "Oefening";
   }
+  renderAgeBadges(tile.querySelector(`[data-exercise-tile-ages="${exercise.id}"]`), exercise.ageGroups);
   tile.dataset.exerciseSearch = buildExerciseSearchText(exercise);
   renderTilePreview(exercise);
   sortExerciseTilesByTitle();
@@ -462,8 +554,35 @@ function getFieldOverlayItems(field) {
   return Array.isArray(field?.overlayItems) ? field.overlayItems : [];
 }
 
+function getFieldImageLayer(field) {
+  const imageDataUrl = String(field?.imageDataUrl || "").trim();
+  if (!imageDataUrl.startsWith("data:image/")) {
+    return null;
+  }
+  const layer = field?.imageLayer && typeof field.imageLayer === "object" ? field.imageLayer : {};
+  return {
+    id: "__field-image-layer",
+    type: "field-image",
+    x: Number.isFinite(Number(layer.x)) ? Number(layer.x) : 50,
+    y: Number.isFinite(Number(layer.y)) ? Number(layer.y) : 50,
+    size: Number.isFinite(Number(layer.size)) ? Number(layer.size) : 100,
+    src: imageDataUrl,
+  };
+}
+
+function setFieldImageLayer(field, layer) {
+  if (!field || !layer) {
+    return;
+  }
+  field.imageLayer = {
+    x: Math.max(0, Math.min(100, Number(layer.x) || 50)),
+    y: Math.max(0, Math.min(100, Number(layer.y) || 50)),
+    size: Math.max(25, Math.min(180, Number(layer.size) || 100)),
+  };
+}
+
 function normalizeFieldToolType(type) {
-  return type === "cone" ? "small-cone" : String(type || "player");
+  return type === "cone" ? "small-cone" : String(type || "select");
 }
 
 function getOverlayItemSize(item) {
@@ -478,6 +597,9 @@ function getOverlayItemSize(item) {
 function getSelectedFieldItem() {
   if (!activeExercise?.field || !selectedFieldItemId) {
     return null;
+  }
+  if (selectedFieldItemId === "__field-image-layer") {
+    return getFieldImageLayer(activeExercise.field);
   }
   return getFieldOverlayItems(activeExercise.field).find((item) => item.id === selectedFieldItemId) || null;
 }
@@ -513,6 +635,11 @@ function applyFieldOverlayItemPosition(node, item) {
   node.style.left = `${Number(item.x) || 50}%`;
   node.style.top = `${Number(item.y) || 50}%`;
   node.style.setProperty("--overlay-size", String(getOverlayItemSize(item) / 100));
+  if (item.type === "field-image") {
+    const size = Math.max(25, Math.min(180, Number(item.size) || 100));
+    node.style.width = `${size}%`;
+    node.style.height = `${size}%`;
+  }
   if (item.type === "line" || item.type === "arrow") {
     const x = Number(item.x) || 50;
     const y = Number(item.y) || 50;
@@ -552,7 +679,21 @@ function renderFieldOverlayItem(item, editable = false) {
     node.classList.add("exercise-field-overlay-item-active");
   }
 
-  if (item.type === "line" || item.type === "arrow") {
+  let imageHandle = null;
+  if (item.type === "field-image") {
+    const image = document.createElement("img");
+    image.src = item.src || "";
+    image.alt = "Geimporteerde veldtekening";
+    image.draggable = false;
+    node.append(image);
+    if (editable) {
+      const handle = document.createElement("span");
+      handle.className = "exercise-field-overlay-image-handle";
+      handle.setAttribute("aria-hidden", "true");
+      node.append(handle);
+      imageHandle = handle;
+    }
+  } else if (item.type === "line" || item.type === "arrow") {
     node.innerHTML = item.type === "arrow" ? "<span></span><i></i>" : "<span></span>";
   } else if (item.type === "text") {
     node.textContent = item.text || "Tekst";
@@ -564,32 +705,40 @@ function renderFieldOverlayItem(item, editable = false) {
   applyFieldOverlayItemPosition(node, item);
 
   if (editable) {
-    node.title = "Sleep om te verplaatsen. Dubbelklik om te verwijderen.";
-    node.setAttribute("aria-label", `${item.type || "Item"} selecteren`);
-    node.addEventListener("pointerdown", (event) => {
-      event.stopPropagation();
-      event.preventDefault();
-      const stage = node.closest(".exercise-field-overlay-stage");
-      if (!stage) {
-        return;
-      }
-      markSelectedFieldOverlayItem(item.id);
-      const start = fieldPointerPosition(stage, event);
-      fieldDragState = {
-        itemId: item.id,
-        startX: start.x,
-        startY: start.y,
-        original: { ...item },
-        node,
-      };
-      node.setPointerCapture?.(event.pointerId);
-    });
-    node.addEventListener("dblclick", (event) => {
-      event.stopPropagation();
-      event.preventDefault();
-      markSelectedFieldOverlayItem(item.id);
-      deleteSelectedFieldItem();
-    });
+    node.title = item.type === "field-image"
+      ? "Sleep om de afbeelding te verplaatsen. Dubbelklik om te verwijderen."
+      : "Sleep om te verplaatsen. Dubbelklik om te verwijderen.";
+    node.setAttribute("aria-label", item.type === "field-image" ? "Afbeelding selecteren" : `${item.type || "Item"} selecteren`);
+    const bindSelectionEvents = (target) => {
+      target.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        const stage = node.closest(".exercise-field-overlay-stage");
+        if (!stage) {
+          return;
+        }
+        markSelectedFieldOverlayItem(item.id);
+        const start = fieldPointerPosition(stage, event);
+        fieldDragState = {
+          itemId: item.id,
+          startX: start.x,
+          startY: start.y,
+          original: { ...item },
+          node,
+        };
+        target.setPointerCapture?.(event.pointerId);
+      });
+      target.addEventListener("dblclick", (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        markSelectedFieldOverlayItem(item.id);
+        deleteSelectedFieldItem();
+      });
+    };
+    bindSelectionEvents(node);
+    if (imageHandle) {
+      bindSelectionEvents(imageHandle);
+    }
   }
 
   return node;
@@ -608,13 +757,14 @@ function createFieldPreviewWithOptions(field, label = "Veldtekening", options = 
     stage.className = "exercise-field-overlay-stage";
     if (options.editable) {
       stage.classList.add("exercise-field-overlay-stage-editing");
+      if (activeFieldTool === "select") {
+        stage.classList.add("exercise-field-overlay-stage-selecting");
+      }
     }
-    const image = document.createElement("img");
-    image.src = imageDataUrl;
-    image.alt = label;
-    image.loading = "lazy";
-    image.style.opacity = String(field?.backgroundOpacity || 1);
-    stage.append(image);
+    const imageLayer = getFieldImageLayer(field);
+    if (imageLayer) {
+      stage.append(renderFieldOverlayItem(imageLayer, Boolean(options.editable)));
+    }
     overlayItems.forEach((item) => stage.append(renderFieldOverlayItem(item, Boolean(options.editable))));
     return stage;
   }
@@ -698,6 +848,9 @@ function createFieldPreviewWithOptions(field, label = "Veldtekening", options = 
   stage.className = "exercise-field-overlay-stage exercise-field-overlay-stage-svg";
   if (options.editable) {
     stage.classList.add("exercise-field-overlay-stage-editing");
+    if (activeFieldTool === "select") {
+      stage.classList.add("exercise-field-overlay-stage-selecting");
+    }
   }
   stage.append(svg);
   overlayItems.forEach((item) => stage.append(renderFieldOverlayItem(item, Boolean(options.editable))));
@@ -773,6 +926,10 @@ function addOverlayItemFromPointer(event) {
   if (!activeFieldOverlayEditing || event.target.closest(".exercise-field-overlay-item")) {
     return;
   }
+  if (activeFieldTool === "select") {
+    markSelectedFieldOverlayItem(null);
+    return;
+  }
   const position = fieldPointerPosition(event.currentTarget, event);
   const items = ensureFieldOverlay();
   const item = createOverlayItem(activeFieldTool, position.x, position.y);
@@ -786,7 +943,9 @@ function dragOverlayItemFromPointer(event) {
     return;
   }
   const position = fieldPointerPosition(event.currentTarget, event);
-  const item = getFieldOverlayItems(activeExercise.field).find((entry) => entry.id === fieldDragState.itemId);
+  const item = fieldDragState.itemId === "__field-image-layer"
+    ? getFieldImageLayer(activeExercise.field)
+    : getFieldOverlayItems(activeExercise.field).find((entry) => entry.id === fieldDragState.itemId);
   if (!item) {
     return;
   }
@@ -797,6 +956,9 @@ function dragOverlayItemFromPointer(event) {
   if (item.type === "line" || item.type === "arrow") {
     item.x2 = Math.max(0, Math.min(100, Number(fieldDragState.original.x2 || item.x) + dx));
     item.y2 = Math.max(0, Math.min(100, Number(fieldDragState.original.y2 || item.y) + dy));
+  }
+  if (item.type === "field-image") {
+    setFieldImageLayer(activeExercise.field, item);
   }
   applyFieldOverlayItemPosition(fieldDragState.node, item);
 }
@@ -810,6 +972,9 @@ function setFieldOverlayEditing(isEditing) {
     return;
   }
   activeFieldOverlayEditing = Boolean(isEditing);
+  if (activeFieldOverlayEditing) {
+    activeFieldTool = "select";
+  }
   if (exerciseFieldOverlayEditor) {
     exerciseFieldOverlayEditor.hidden = !activeFieldOverlayEditing;
   }
@@ -846,6 +1011,8 @@ async function saveActiveFieldOverlay() {
       body: JSON.stringify({
         id: activeExercise.id,
         overlayItems: getFieldOverlayItems(activeExercise.field),
+        imageDataUrl: activeExercise.field?.imageDataUrl || "",
+        imageLayer: activeExercise.field?.imageLayer || null,
         backgroundOpacity: activeExercise.field?.backgroundOpacity || 1,
       }),
     });
@@ -873,6 +1040,13 @@ async function saveActiveFieldOverlay() {
 
 function deleteSelectedFieldItem() {
   if (!activeExercise?.field || !selectedFieldItemId) {
+    return;
+  }
+  if (selectedFieldItemId === "__field-image-layer") {
+    delete activeExercise.field.imageDataUrl;
+    delete activeExercise.field.imageLayer;
+    markSelectedFieldOverlayItem(null);
+    drawField(activeExercise.field);
     return;
   }
   activeExercise.field.overlayItems = getFieldOverlayItems(activeExercise.field).filter((item) => item.id !== selectedFieldItemId);
@@ -988,7 +1162,11 @@ function setEditMode(isEditing) {
   if (exerciseHeadingCategoryField) {
     exerciseHeadingCategoryField.hidden = !isEditing;
   }
+  if (exerciseAgeFieldset) {
+    exerciseAgeFieldset.hidden = !isEditing;
+  }
   document.querySelector("#exerciseModalCategory")?.toggleAttribute("hidden", isEditing);
+  document.querySelector("#exerciseModalAges")?.toggleAttribute("hidden", isEditing);
   if (exerciseFieldEditActions) {
     exerciseFieldEditActions.hidden = !isEditing;
   }
@@ -1024,6 +1202,8 @@ function renderExercise(exercise) {
   if (exerciseCategorySelect) {
     exerciseCategorySelect.value = exercise.category || "";
   }
+  setAgeInputs(exercise.ageGroups);
+  renderAgeBadges(document.querySelector("#exerciseModalAges"), exercise.ageGroups);
   setRichText("#exerciseDescription", exercise.description);
   setRichText("#exerciseCoaching", exercise.coaching);
   setRichText("#exerciseVariationEasier", exercise.variationEasier);
@@ -1036,6 +1216,7 @@ function renderExercise(exercise) {
     exerciseMediaToggle.hidden = !exercise.videoUrl;
   }
   setExerciseMediaMode(exercise.videoUrl && activeMedia === "video" ? "video" : "field");
+  updateExerciseNavigation();
 }
 
 function openExercise(exercise) {
@@ -1103,6 +1284,7 @@ function readExerciseEditPayload() {
       id: activeExercise?.id,
       title: getInlineEditValue("title") || activeExercise?.title || "",
       category: getActiveExerciseCategoryValue(),
+      ageGroups: getSelectedAgeGroups(),
       trainingExercise: activeExercise?.trainingExercise || "",
       description: getInlineEditValue("description"),
       coaching: getInlineEditValue("coaching"),
@@ -1116,6 +1298,7 @@ function readExerciseEditPayload() {
     id: activeExercise?.id,
     title: activeExercise?.title || "",
     category: getActiveExerciseCategoryValue(),
+    ageGroups: getSelectedAgeGroups(),
     trainingExercise: activeExercise?.trainingExercise || "",
     description: activeExercise?.description || "",
     coaching: activeExercise?.coaching || "",
@@ -1281,6 +1464,7 @@ parseExerciseData().forEach((exercise) => {
   const tile = getExerciseTile(exercise.id);
   if (tile) {
     tile.dataset.exerciseSearch = buildExerciseSearchText(exercise);
+    renderAgeBadges(tile.querySelector(`[data-exercise-tile-ages="${exercise.id}"]`), exercise.ageGroups);
   }
   renderTilePreview(exercise);
 });
@@ -1339,7 +1523,7 @@ document.querySelectorAll("[data-field-tool]").forEach((button) => {
 });
 exerciseFieldOverlayColor?.addEventListener("input", () => {
   const selected = getSelectedFieldItem();
-  if (!selected) {
+  if (!selected || selected.type === "field-image") {
     return;
   }
   selected.color = exerciseFieldOverlayColor.value || selected.color || "#111111";
@@ -1350,7 +1534,10 @@ exerciseFieldOverlaySize?.addEventListener("input", () => {
   if (!selected) {
     return;
   }
-  selected.size = Math.max(45, Math.min(220, Number(exerciseFieldOverlaySize.value) || 100));
+  selected.size = Math.max(45, Math.min(selected.type === "field-image" ? 180 : 220, Number(exerciseFieldOverlaySize.value) || 100));
+  if (selected.type === "field-image") {
+    setFieldImageLayer(activeExercise.field, selected);
+  }
   drawField(activeExercise.field);
 });
 saveExerciseFieldOverlay?.addEventListener("click", saveActiveFieldOverlay);
@@ -1367,6 +1554,8 @@ exerciseEditForm?.addEventListener("submit", saveActiveExerciseEdit);
 saveExerciseEdit?.addEventListener("click", saveActiveExerciseEdit);
 exerciseFieldImageInput?.addEventListener("change", uploadActiveExerciseFieldImage);
 deleteExercise?.addEventListener("click", deleteActiveExercise);
+previousExercise?.addEventListener("click", () => navigateExercise(-1));
+nextExercise?.addEventListener("click", () => navigateExercise(1));
 closeExerciseModal?.addEventListener("click", () => setModalOpen(false));
 document.querySelectorAll("[data-close-exercise-modal]").forEach((node) => {
   node.addEventListener("click", () => setModalOpen(false));
@@ -1379,5 +1568,15 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && exerciseModal && !exerciseModal.hidden) {
     setModalOpen(false);
+  }
+  if (!activeFieldOverlayEditing && exerciseModal && !exerciseModal.hidden && !activeInlineEdit) {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      navigateExercise(-1);
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      navigateExercise(1);
+    }
   }
 });

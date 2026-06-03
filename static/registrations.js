@@ -84,6 +84,40 @@ function scoreProductMatch(card, query) {
   return 20 - matchedWordCount;
 }
 
+function copyTextWithFallback(value) {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(value);
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = value;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.top = "-1000px";
+  textArea.style.opacity = "0";
+  document.body.appendChild(textArea);
+  textArea.select();
+  const copied = document.execCommand("copy");
+  textArea.remove();
+
+  if (!copied) {
+    return Promise.reject(new Error("Copy command failed"));
+  }
+  return Promise.resolve();
+}
+
+function getRegistrationCheckboxForOrder(orderId) {
+  if (window.CSS?.escape) {
+    return document.querySelector(`.registration-emailed-checkbox[data-order-id="${CSS.escape(orderId)}"]`);
+  }
+
+  return emailedCheckboxes.find((checkbox) => String(checkbox.dataset.orderId || "") === String(orderId));
+}
+
+function getRegistrationCheckboxesForOrder(orderId) {
+  return emailedCheckboxes.filter((checkbox) => String(checkbox.dataset.orderId || "") === String(orderId));
+}
+
 function filterProducts() {
   const query = String(productSearchInput?.value || "");
   const rankedCards = [];
@@ -116,7 +150,7 @@ async function copyRegistrationEmails() {
   }
 
   try {
-    await navigator.clipboard.writeText(emails);
+    await copyTextWithFallback(emails);
   } catch (error) {
     if (copyFeedback) {
       copyFeedback.textContent = "Kopieren lukte niet. Selecteer de adressen handmatig.";
@@ -128,10 +162,9 @@ async function copyRegistrationEmails() {
     const { allOrderIdsWithEmail } = getRegistrationEmailState();
     await updateRegistrationEmailStatus(allOrderIdsWithEmail, true);
     allOrderIdsWithEmail.forEach((orderId) => {
-      const checkbox = document.querySelector(`.registration-emailed-checkbox[data-order-id="${CSS.escape(orderId)}"]`);
-      if (checkbox instanceof HTMLInputElement) {
+      getRegistrationCheckboxesForOrder(orderId).forEach((checkbox) => {
         checkbox.checked = true;
-      }
+      });
     });
     syncRegistrationOrderUI();
     if (copyFeedback) {
@@ -151,6 +184,9 @@ function getRegistrationEmailState() {
   const pendingEmails = [];
   const allOrderIdsWithEmail = [];
   const pendingOrderIds = [];
+  const allOrderIdSet = new Set();
+  const pendingOrderIdSet = new Set();
+  const emailedOrderIdSet = new Set();
   let emailedCount = 0;
 
   registrationOrderCards.forEach((card) => {
@@ -159,8 +195,8 @@ function getRegistrationEmailState() {
     const checkbox = card.querySelector(".registration-emailed-checkbox");
     const isEmailed = checkbox instanceof HTMLInputElement ? checkbox.checked : false;
 
-    if (isEmailed) {
-      emailedCount += 1;
+    if (orderId && isEmailed) {
+      emailedOrderIdSet.add(orderId);
     }
 
     if (!email) {
@@ -172,7 +208,8 @@ function getRegistrationEmailState() {
       seenAllEmails.add(normalizedEmail);
       allEmails.push(email);
     }
-    if (orderId) {
+    if (orderId && !allOrderIdSet.has(orderId)) {
+      allOrderIdSet.add(orderId);
       allOrderIdsWithEmail.push(orderId);
     }
 
@@ -184,10 +221,13 @@ function getRegistrationEmailState() {
       seenPendingEmails.add(normalizedEmail);
       pendingEmails.push(email);
     }
-    if (orderId) {
+    if (orderId && !pendingOrderIdSet.has(orderId)) {
+      pendingOrderIdSet.add(orderId);
       pendingOrderIds.push(orderId);
     }
   });
+
+  emailedCount = emailedOrderIdSet.size;
 
   return {
     allEmails,
@@ -278,7 +318,7 @@ async function copyPendingRegistrationEmails() {
   }
 
   try {
-    await navigator.clipboard.writeText(emails);
+    await copyTextWithFallback(emails);
   } catch (error) {
     if (copyFeedback) {
       copyFeedback.textContent = "Kopieren lukte niet. Selecteer de adressen handmatig.";
@@ -289,10 +329,9 @@ async function copyPendingRegistrationEmails() {
   try {
     await updateRegistrationEmailStatus(pendingOrderIds, true);
     pendingOrderIds.forEach((orderId) => {
-      const checkbox = document.querySelector(`.registration-emailed-checkbox[data-order-id="${CSS.escape(orderId)}"]`);
-      if (checkbox instanceof HTMLInputElement) {
+      getRegistrationCheckboxesForOrder(orderId).forEach((checkbox) => {
         checkbox.checked = true;
-      }
+      });
     });
     syncRegistrationOrderUI();
     if (copyFeedback) {
@@ -319,6 +358,9 @@ async function handleRegistrationEmailedToggle(event) {
   checkbox.disabled = true;
   try {
     await updateRegistrationEmailStatus([orderId], checkbox.checked);
+    getRegistrationCheckboxesForOrder(orderId).forEach((relatedCheckbox) => {
+      relatedCheckbox.checked = checkbox.checked;
+    });
     syncRegistrationOrderUI();
     if (copyFeedback) {
       copyFeedback.textContent = checkbox.checked ? "Bestelling op gemaild gezet." : "Bestelling weer opengezet.";

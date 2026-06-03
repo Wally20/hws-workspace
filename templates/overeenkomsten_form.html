@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+
+{% block title %}Overeenkomsten | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header football-days-header">
+    <div>
+      <h1>{{ "Nieuwe overeenkomst" if page_mode == "new" else contract.clubName }}</h1>
+      <p class="welcome-line">Vul alle variabele onderdelen van de standaard overeenkomst per club in.</p>
+    </div>
+    <div class="football-days-actions">
+      <a href="/overeenkomsten" class="subtle-button">Overzicht</a>
+      {% if contract.id %}
+        <a href="/overeenkomsten/{{ contract.id }}/export-docx" class="subtle-button">Export Word</a>
+        <a href="/overeenkomsten/{{ contract.id }}/export-pdf" class="refresh-button">Export PDF</a>
+      {% endif %}
+    </div>
+  </header>
+
+  {% if success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+  {% endif %}
+  {% if error %}
+    <section class="notice trainers-notice trainers-notice-error">{{ error }}</section>
+  {% endif %}
+
+  <form method="post" action="{{ form_action }}" class="football-days-page contract-page" id="contractForm">
+    <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+
+    <section class="summary-card old-function-tile football-days-meta contract-meta">
+      <label class="field football-reuse-field contract-meta-reuse">
+        <span>Basisgegevens terughalen</span>
+        <select data-reuse-contract="meta">
+          <option value="">Kies een overeenkomst</option>
+          {% for previous in previous_contracts %}
+            <option value="{{ previous.id }}">{{ previous.clubName }}{% if previous.season %} - {{ previous.season }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>Titel</span>
+        <input type="text" name="title" value="{{ contract.title }}" placeholder="Overeenkomst van opdracht">
+      </label>
+      <label class="field">
+        <span>Club</span>
+        <input type="text" name="club_name" value="{{ contract.clubName }}" placeholder="Naam club" required>
+      </label>
+      <label class="field contract-address-field">
+        <span>Clubadres</span>
+        <input type="text" name="club_address" value="{{ contract.clubAddress }}" placeholder="Straat, postcode en plaats">
+      </label>
+      <label class="field">
+        <span>Seizoen</span>
+        <input type="text" name="season" value="{{ contract.season }}" placeholder="2026/2027">
+      </label>
+      <label class="field">
+        <span>Startdatum</span>
+        <input type="date" name="start_date" value="{{ contract.startDate }}">
+      </label>
+      <label class="field">
+        <span>Einddatum</span>
+        <input type="date" name="end_date" value="{{ contract.endDate }}">
+      </label>
+      <div class="football-days-save">
+        <button type="submit" class="subtle-button subtle-button-strong">Opslaan</button>
+      </div>
+    </section>
+
+    <section class="football-days-grid contract-grid">
+      <article class="summary-card old-function-tile football-days-panel">
+        <div class="feature-list-head">
+          <div>
+            <p class="panel-title">Trainingen</p>
+            <p class="feature-list-subtitle">Dag, tijd, team en type komen in de overeenkomst.</p>
+          </div>
+          <button type="button" class="subtle-button action-small" id="addContractLine">+ Training</button>
+        </div>
+        <label class="field football-reuse-field">
+          <span>Terughalen uit vorige overeenkomst</span>
+          <select data-reuse-contract="trainingLines">
+            <option value="">Kies een overeenkomst</option>
+            {% for previous in previous_contracts %}
+              <option value="{{ previous.id }}">{{ previous.clubName }}{% if previous.season %} - {{ previous.season }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <div class="contract-lines-table" id="contractLineRows">
+          <div class="football-table-head contract-line-head">
+            <span>Dag</span>
+            <span>Tijd</span>
+            <span>Team</span>
+            <span>Type</span>
+            <span></span>
+          </div>
+          {% for line in contract.trainingLines %}
+            <div class="football-table-row contract-line-row" data-contract-line-row>
+              <input type="text" name="line_day" value="{{ line.day }}" placeholder="Maandag">
+              <input type="text" name="line_time" value="{{ line.time }}" placeholder="18:00 - 19:00">
+              <input type="text" name="line_team" value="{{ line.team }}" placeholder="JO13-1">
+              <input type="text" name="line_training_type" value="{{ line.trainingType }}" placeholder="Techniektraining">
+              <button type="button" class="subtle-button action-small football-row-remove" data-remove-contract-row>Wis</button>
+            </div>
+          {% endfor %}
+        </div>
+        <label class="field football-reuse-field">
+          <span>Uitvoering terughalen uit vorige overeenkomst</span>
+          <select data-reuse-contract="trainingExecution">
+            <option value="">Kies een overeenkomst</option>
+            {% for previous in previous_contracts %}
+              <option value="{{ previous.id }}">{{ previous.clubName }}{% if previous.season %} - {{ previous.season }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field">
+          <span>Invulling trainingen</span>
+          <input type="text" name="training_execution_summary" value="{{ contract.trainingExecutionSummary }}" placeholder="Trainingen volgens schema">
+        </label>
+        <label class="field">
+          <span>Organisatie trainingen</span>
+          <textarea name="training_execution_details" rows="5" placeholder="Beschrijf hoe HWS de trainingen organiseert en uitvoert.">{{ contract.trainingExecutionDetails }}</textarea>
+        </label>
+      </article>
+
+      <article class="summary-card old-function-tile football-days-panel">
+        <div class="feature-list-head">
+          <div>
+            <p class="panel-title">Kosten</p>
+          </div>
+          <button type="button" class="subtle-button action-small" id="addContractCostLine">+ Kostenregel</button>
+        </div>
+        <label class="field football-reuse-field">
+          <span>Terughalen uit vorige overeenkomst</span>
+          <select data-reuse-contract="costs">
+            <option value="">Kies een overeenkomst</option>
+            {% for previous in previous_contracts %}
+              <option value="{{ previous.id }}">{{ previous.clubName }}{% if previous.season %} - {{ previous.season }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="contract-cost-table" id="contractCostRows">
+          <div class="football-table-head contract-cost-head">
+            <span>Omschrijving</span>
+            <span>Tarief</span>
+            <span>Aantal</span>
+            <span>Totaal</span>
+            <span></span>
+          </div>
+          {% for line in contract.costLines %}
+            <div class="football-table-row contract-cost-row" data-contract-cost-row>
+              <input type="text" name="cost_description" value="{{ line.description }}" placeholder="Bijvoorbeeld: Techniektraining">
+              <input type="text" name="cost_price_per_training" value="{{ line.pricePerTraining }}" placeholder="85,00" inputmode="decimal" data-contract-cost-price>
+              <input type="number" name="cost_training_count" value="{{ line.trainingCount }}" min="0" step="1" data-contract-cost-count>
+              <input type="text" name="cost_total_amount" value="{{ line.totalAmount }}" placeholder="Automatisch" inputmode="decimal" data-contract-cost-total>
+              <button type="button" class="subtle-button action-small football-row-remove" data-remove-contract-cost-row>Wis</button>
+            </div>
+          {% endfor %}
+        </div>
+        <label class="field">
+          <span>Opzegtermijn</span>
+          <input type="text" name="notice_period" value="{{ contract.noticePeriod }}" placeholder="30 dagen (schriftelijk)">
+        </label>
+      </article>
+    </section>
+
+    <section class="football-days-grid contract-grid">
+      <article class="summary-card old-function-tile football-days-panel">
+        <div class="feature-list-head">
+          <div>
+            <p class="panel-title">Materialen en faciliteiten</p>
+            <p class="feature-list-subtitle">Deze tekst komt standaard uit het Word-template.</p>
+          </div>
+        </div>
+        <div class="contract-standard-copy">
+          <p>HWS: trainingsmaterialen</p>
+          <p>Club: ballen, doelen, veld, opslag</p>
+        </div>
+        <label class="field football-reuse-field">
+          <span>Extra activiteiten terughalen</span>
+          <select data-reuse-contract="extraActivities">
+            <option value="">Kies een overeenkomst</option>
+            {% for previous in previous_contracts %}
+              <option value="{{ previous.id }}">{{ previous.clubName }}{% if previous.season %} - {{ previous.season }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field">
+          <span>Extra activiteiten</span>
+          <textarea name="extra_activities" rows="4">{{ contract.extraActivities }}</textarea>
+        </label>
+      </article>
+
+      <article class="summary-card old-function-tile football-days-panel contract-attachment-panel">
+        <div class="feature-list-head">
+          <div>
+            <p class="panel-title">Bijlage agenda</p>
+            <p class="feature-list-subtitle">Selecteer data uit de tegels bij de agenda.</p>
+          </div>
+        </div>
+        <label class="field">
+          <span>Titel bijlage</span>
+          <input type="text" name="agenda_attachment_title" value="{{ contract.agendaAttachmentTitle }}" placeholder="Bijlage trainingsdagen">
+        </label>
+        <label class="field">
+          <span>Zoeken in agenda-tegels</span>
+          <input type="search" id="contractAgendaAttachmentSearch" placeholder="Zoek op type, dag of datum">
+        </label>
+        {% set selected_attachment_keys = contract.agendaAttachmentItems|map(attribute='key')|list %}
+        <div class="contract-attachment-options" id="contractAgendaAttachmentOptions">
+          {% for option in agenda_attachment_options %}
+            <label class="contract-attachment-option" data-contract-agenda-option data-search="{{ (option.label ~ ' ' ~ option.copyText)|lower }}">
+              <input
+                type="checkbox"
+                name="agenda_attachment_keys"
+                value="{{ option.key }}"
+                {% if option.key in selected_attachment_keys %}checked{% endif %}
+              >
+              <span>
+                <strong>{{ option.label }}</strong>
+                <small>{{ option.copyText.replace('\n', ' · ') }}</small>
+              </span>
+            </label>
+          {% else %}
+            <p class="feature-list-subtitle">Er zijn nog geen agenda-tegels beschikbaar om toe te voegen.</p>
+          {% endfor %}
+        </div>
+      </article>
+
+    </section>
+
+    <section class="football-days-save football-days-save-all contract-actions">
+      {% if contract.id %}
+        <button type="submit" name="action" value="delete" class="subtle-button action-small football-field-danger" onclick="return confirm('Weet je zeker dat je deze overeenkomst wilt verwijderen?');">Verwijder</button>
+      {% endif %}
+      <button type="submit" name="action" value="save" class="refresh-button">Overeenkomst opslaan</button>
+    </section>
+  </form>
+
+  <template id="contractLineRowTemplate">
+    <div class="football-table-row contract-line-row" data-contract-line-row>
+      <input type="text" name="line_day" placeholder="Maandag">
+      <input type="text" name="line_time" placeholder="18:00 - 19:00">
+      <input type="text" name="line_team" placeholder="JO13-1">
+      <input type="text" name="line_training_type" placeholder="Techniektraining">
+      <button type="button" class="subtle-button action-small football-row-remove" data-remove-contract-row>Wis</button>
+    </div>
+  </template>
+
+  <template id="contractCostRowTemplate">
+    <div class="football-table-row contract-cost-row" data-contract-cost-row>
+      <input type="text" name="cost_description" placeholder="Bijvoorbeeld: Techniektraining">
+      <input type="text" name="cost_price_per_training" placeholder="85,00" inputmode="decimal" data-contract-cost-price>
+      <input type="number" name="cost_training_count" min="0" step="1" data-contract-cost-count>
+      <input type="text" name="cost_total_amount" placeholder="Automatisch" inputmode="decimal" data-contract-cost-total>
+      <button type="button" class="subtle-button action-small football-row-remove" data-remove-contract-cost-row>Wis</button>
+    </div>
+  </template>
+
+  <script type="application/json" id="previousContracts">{{ previous_contracts|tojson }}</script>
+  <script nonce="{{ csp_nonce }}" src="../static/overeenkomsten.js?v={{ asset_version }}" defer></script>
+{% endblock %}

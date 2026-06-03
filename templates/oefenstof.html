@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Oefenstof | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Oefenstof</h1>
+      <p class="welcome-line">Beheer oefeningen, trainingen en gekoppelde oefenvideo's op een plek.</p>
+    </div>
+  </header>
+
+  <section class="training-home-grid oefenstof-home-grid" aria-label="Oefenstof">
+    {% if 'oefeningen-bibliotheek' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/oefeningen-bibliotheek">
+        <span class="panel-title">Oefeningen bibliotheek</span>
+        <span class="feature-list-subtitle">Bekijk, importeer en bewerk alle oefeningen.</span>
+      </a>
+    {% endif %}
+
+    {% if 'trainingen' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/trainingen">
+        <span class="panel-title">Trainingen</span>
+        <span class="feature-list-subtitle">Maak trainingen met oefeningen uit de bibliotheek.</span>
+      </a>
+    {% endif %}
+
+    {% if 'exercise-videos' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/oefeningen-videos">
+        <span class="panel-title">Oefeningen Video's</span>
+        <span class="feature-list-subtitle">Upload video's en koppel ze aan oefeningen.</span>
+      </a>
+    {% endif %}
+  </section>
+{% endblock %}

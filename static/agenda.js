@@ -1,6 +1,19 @@
 const agendaModal = document.querySelector("#agendaModal");
 const openAgendaModal = document.querySelector("#openAgendaModal");
 const closeAgendaModal = document.querySelector("#closeAgendaModal");
+const agendaBulkModal = document.querySelector("#agendaBulkModal");
+const openAgendaBulkModal = document.querySelector("#openAgendaBulkModal");
+const closeAgendaBulkModal = document.querySelector("#closeAgendaBulkModal");
+const agendaBulkDateSelect = document.querySelector("[data-agenda-bulk-date-select]");
+const agendaBulkDateFields = document.querySelector("#agendaBulkDateFields");
+const agendaBulkDateInputs = document.querySelectorAll("[data-agenda-bulk-date]");
+const agendaBulkGroupToggles = document.querySelectorAll("[data-agenda-bulk-group-dates]");
+const agendaBulkSelectedCount = document.querySelector("#agendaBulkSelectedCount");
+const agendaEditModal = document.querySelector("#agendaEditModal");
+const closeAgendaEditModal = document.querySelector("#closeAgendaEditModal");
+const agendaEditEventButtons = document.querySelectorAll("[data-agenda-edit-event]");
+const agendaEditScopeInputs = document.querySelectorAll('input[name="update_scope"]');
+const agendaEditDateInput = document.querySelector("#agendaEditDate");
 const agendaPlannerEditor = document.querySelector("#agendaPlannerEditor");
 const toggleAgendaPlannerEdit = document.querySelector("#toggleAgendaPlannerEdit");
 const cancelAgendaPlannerEdit = document.querySelector("#cancelAgendaPlannerEdit");
@@ -27,6 +40,25 @@ function setModalOpen(isOpen) {
   }
 
   agendaModal.hidden = !isOpen;
+  document.body.style.overflow = isOpen ? "hidden" : "";
+}
+
+function setBulkModalOpen(isOpen) {
+  if (!agendaBulkModal) {
+    return;
+  }
+
+  agendaBulkModal.hidden = !isOpen;
+  document.body.style.overflow = isOpen ? "hidden" : "";
+  updateAgendaBulkSelectedCount();
+}
+
+function setEditModalOpen(isOpen) {
+  if (!agendaEditModal) {
+    return;
+  }
+
+  agendaEditModal.hidden = !isOpen;
   document.body.style.overflow = isOpen ? "hidden" : "";
 }
 
@@ -206,6 +238,156 @@ async function copyAgendaSummaryDays(button) {
     console.error("Dagen konden niet worden gekopieerd.", error);
     setSummaryCopyState(button, "Kopieren mislukt");
   }
+}
+
+function getAgendaBulkSelectedDates() {
+  const hiddenInputs = agendaBulkDateFields
+    ? agendaBulkDateFields.querySelectorAll('input[name="bulk_dates"]')
+    : agendaBulkDateInputs;
+  return Array.from(hiddenInputs)
+    .filter((input) => !("checked" in input) || input.checked)
+    .map((input) => input.value)
+    .filter(Boolean);
+}
+
+function updateAgendaBulkSelectedCount() {
+  if (!agendaBulkSelectedCount) {
+    return;
+  }
+
+  const selectedCount = getAgendaBulkSelectedDates().length;
+  agendaBulkSelectedCount.textContent = `${selectedCount} geselecteerd`;
+}
+
+function getDatesFromCsv(value) {
+  return String(value || "")
+    .split(",")
+    .map((dateValue) => dateValue.trim())
+    .filter(Boolean);
+}
+
+function renderAgendaBulkDateFields(dateValues) {
+  if (!agendaBulkDateFields) {
+    return;
+  }
+
+  agendaBulkDateFields.replaceChildren();
+  dateValues.forEach((dateValue) => {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "bulk_dates";
+    input.value = dateValue;
+    agendaBulkDateFields.appendChild(input);
+  });
+  updateAgendaBulkSelectedCount();
+}
+
+function selectAgendaBulkOptionByDates(dateValues) {
+  if (!agendaBulkDateSelect) {
+    return;
+  }
+
+  const normalizedDates = dateValues.join(",");
+  const matchingOption = Array.from(agendaBulkDateSelect.options).find((option) => (
+    getDatesFromCsv(option.dataset.agendaBulkOptionDates).join(",") === normalizedDates
+  ));
+  agendaBulkDateSelect.value = matchingOption ? matchingOption.value : "";
+}
+
+function setAgendaBulkDatesSelected(dateValues, shouldSelect) {
+  if (agendaBulkDateFields) {
+    const normalizedDates = shouldSelect ? dateValues : [];
+    renderAgendaBulkDateFields(normalizedDates);
+    selectAgendaBulkOptionByDates(normalizedDates);
+    return;
+  }
+
+  const selectedDates = new Set(dateValues);
+  agendaBulkDateInputs.forEach((input) => {
+    if (selectedDates.has(input.value)) {
+      input.checked = shouldSelect;
+    }
+  });
+  updateAgendaBulkSelectedCount();
+}
+
+function toggleAgendaBulkDateGroup(button) {
+  const dates = getDatesFromCsv(button.dataset.agendaBulkGroupDates);
+  if (dates.length === 0) {
+    return;
+  }
+
+  const selectedDates = new Set(getAgendaBulkSelectedDates());
+  const shouldSelect = dates.some((dateValue) => !selectedDates.has(dateValue));
+  setAgendaBulkDatesSelected(dates, shouldSelect);
+}
+
+function syncAgendaBulkDateSelect() {
+  if (!agendaBulkDateSelect) {
+    return;
+  }
+
+  const selectedOption = agendaBulkDateSelect.selectedOptions[0];
+  renderAgendaBulkDateFields(getDatesFromCsv(selectedOption?.dataset.agendaBulkOptionDates));
+}
+
+function setInputValue(selector, value) {
+  const input = document.querySelector(selector);
+  if (!input) {
+    return;
+  }
+  input.value = value || "";
+}
+
+function setSelectValue(selector, value) {
+  const select = document.querySelector(selector);
+  if (!select) {
+    return;
+  }
+  select.value = value || "";
+}
+
+function setMultiSelectValues(selector, values) {
+  const select = document.querySelector(selector);
+  const selectedValues = new Set(values);
+  if (!select) {
+    return;
+  }
+
+  Array.from(select.options).forEach((option) => {
+    option.selected = selectedValues.has(option.value);
+  });
+}
+
+function syncAgendaEditScope() {
+  if (!agendaEditDateInput) {
+    return;
+  }
+
+  const selectedScope = document.querySelector('input[name="update_scope"]:checked')?.value || "single";
+  const isMatchingScope = selectedScope === "matching";
+  agendaEditDateInput.disabled = isMatchingScope;
+  agendaEditDateInput.closest(".field")?.classList.toggle("agenda-edit-date-disabled", isMatchingScope);
+}
+
+function openAgendaEditModal(button) {
+  setInputValue("#agendaEditTrainingId", button.dataset.eventId);
+  setInputValue("#agendaEditOriginalSignature", button.dataset.eventSignature);
+  setInputValue("#agendaEditTitle", button.dataset.eventTitle);
+  setInputValue("#agendaEditDate", button.dataset.eventDate);
+  setInputValue("#agendaEditTime", button.dataset.eventTime);
+  setInputValue("#agendaEditEndTime", button.dataset.eventEndTime);
+  setSelectValue("#agendaEditTrainingType", button.dataset.eventTrainingType);
+  setSelectValue("#agendaEditLocation", button.dataset.eventLocation);
+  setMultiSelectValues("#agendaEditTrainerIds", getDatesFromCsv(button.dataset.eventTrainerIds));
+  setInputValue("#agendaEditNotes", button.dataset.eventNotes);
+
+  const singleScopeInput = document.querySelector('input[name="update_scope"][value="single"]');
+  if (singleScopeInput) {
+    singleScopeInput.checked = true;
+  }
+  syncAgendaEditScope();
+  setEditModalOpen(true);
 }
 
 function normalizeRegion(value) {
@@ -598,6 +780,9 @@ syncDayPlansInput();
 
 openAgendaModal?.addEventListener("click", () => setModalOpen(true));
 closeAgendaModal?.addEventListener("click", () => setModalOpen(false));
+openAgendaBulkModal?.addEventListener("click", () => setBulkModalOpen(true));
+closeAgendaBulkModal?.addEventListener("click", () => setBulkModalOpen(false));
+closeAgendaEditModal?.addEventListener("click", () => setEditModalOpen(false));
 toggleAgendaPlannerEdit?.addEventListener("click", () => setPlannerEditOpen(agendaPlannerEditor?.hidden));
 cancelAgendaPlannerEdit?.addEventListener("click", () => setPlannerEditOpen(false));
 
@@ -608,9 +793,55 @@ agendaPlannerForm?.addEventListener("submit", () => {
 agendaSummaryCopyButtons.forEach((button) => {
   const summaryLabel = button.dataset.agendaSummaryLabel || "deze tegel";
   const weekdayLabel = button.dataset.agendaSummaryWeekday || "deze dag";
-  button.setAttribute("aria-label", `Kopieer ${weekdayLabel} voor ${summaryLabel}`);
-  button.setAttribute("title", `Kopieer ${weekdayLabel} voor ${summaryLabel}`);
-  button.addEventListener("click", () => copyAgendaSummaryDays(button));
+  const dates = getDatesFromCsv(button.dataset.agendaSummaryDates);
+  const actionLabel = dates.length > 0 ? "Gebruik" : "Kopieer";
+  button.setAttribute("aria-label", `${actionLabel} ${weekdayLabel} voor ${summaryLabel}`);
+  button.setAttribute("title", `${actionLabel} ${weekdayLabel} voor ${summaryLabel}`);
+  button.addEventListener("click", () => {
+    if (dates.length > 0 && agendaBulkModal) {
+      setBulkModalOpen(true);
+      setAgendaBulkDatesSelected(dates, true);
+      return;
+    }
+    copyAgendaSummaryDays(button);
+  });
+});
+
+agendaBulkDateInputs.forEach((input) => {
+  input.addEventListener("change", updateAgendaBulkSelectedCount);
+});
+
+agendaBulkDateSelect?.addEventListener("change", syncAgendaBulkDateSelect);
+
+agendaBulkGroupToggles.forEach((button) => {
+  button.addEventListener("click", () => toggleAgendaBulkDateGroup(button));
+});
+
+agendaEditEventButtons.forEach((button) => {
+  button.addEventListener("click", () => openAgendaEditModal(button));
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    openAgendaEditModal(button);
+  });
+});
+
+agendaEditScopeInputs.forEach((input) => {
+  input.addEventListener("change", syncAgendaEditScope);
+});
+
+document.querySelectorAll("[data-agenda-delete-training]").forEach((button) => {
+  button.addEventListener("click", (event) => {
+    const selectedScope = document.querySelector('input[name="update_scope"]:checked')?.value || "single";
+    const message = selectedScope === "matching"
+      ? "Weet je zeker dat je alle tegelijk ingeplande afspraken wilt verwijderen?"
+      : "Weet je zeker dat je deze afspraak wilt verwijderen?";
+    if (!window.confirm(message)) {
+      event.preventDefault();
+    }
+  });
 });
 
 agendaModal?.addEventListener("click", (event) => {
@@ -624,12 +855,38 @@ agendaModal?.addEventListener("click", (event) => {
   }
 });
 
+agendaBulkModal?.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  if (target.dataset.closeBulkModal === "1") {
+    setBulkModalOpen(false);
+  }
+});
+
+agendaEditModal?.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  if (target.dataset.closeEditModal === "1") {
+    setEditModalOpen(false);
+  }
+});
+
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     setModalOpen(false);
+    setBulkModalOpen(false);
+    setEditModalOpen(false);
     setPlannerEditOpen(false);
   }
 });
+
+updateAgendaBulkSelectedCount();
 
 loadAgendaExternalLabels().catch((error) => {
   console.error("Externe agenda-labels konden niet worden geladen.", error);

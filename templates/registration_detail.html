@@ -60,18 +60,47 @@
       <span class="registrations-copy-feedback" id="registrationCopyFeedback" aria-live="polite"></span>
     </div>
 
+    <form method="post" action="{{ team_assignment_export_url }}" class="registrations-team-export-form">
+      <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+      <div class="registrations-actions-copy">
+        <p class="orders-toolbar-title">Teamindeling</p>
+        <p class="orders-toolbar-text">Verdeel alle aanmeldingen op leeftijd over groepen en download direct Excel.</p>
+      </div>
+      <label class="registrations-team-count-field">
+        <span>Aantal groepen</span>
+        <input
+          type="number"
+          name="group_count"
+          min="1"
+          max="{{ selected_product.participantCount if selected_product.participantCount > 0 else 1 }}"
+          value="{{ 4 if selected_product.participantCount >= 4 else (selected_product.participantCount if selected_product.participantCount > 0 else 1) }}"
+          required
+        >
+      </label>
+      <button
+        type="submit"
+        class="team-primary-button"
+        {% if selected_product.participantCount < 1 %}disabled{% endif %}
+      >
+        Maak teamindeling Excel
+      </button>
+    </form>
+
     <div class="registrations-orders-list">
       {% for order in selected_product.orders %}
         <article
           class="registrations-order-card {% if order.emailed %}registrations-order-card-emailed{% else %}registrations-order-card-pending{% endif %}"
           data-registration-order
           data-order-id="{{ order.id }}"
+          data-row-id="{{ order.rowId or order.id }}"
           data-email="{{ order.email }}"
         >
           <div class="registrations-order-topline">
             <div>
               <p class="registrations-order-title">{{ order.customerName }}</p>
-              <p class="registrations-order-meta">Order {{ order.orderNumber }}</p>
+              <p class="registrations-order-meta">
+                Order {{ order.orderNumber }}{% if order.participantLabel %} · {{ order.participantLabel }}{% endif %}
+              </p>
             </div>
             <label class="registrations-email-status-toggle">
               <input
@@ -94,7 +123,7 @@
             </div>
             <div>
               <span class="registrations-order-label">Aantal</span>
-              <span>{{ order.quantity }}</span>
+              <span>{{ order.quantity }}{% if order.originalQuantity and order.originalQuantity > 1 %} van {{ order.originalQuantity }}{% endif %}</span>
             </div>
             <div>
               <span class="registrations-order-label">Betaalstatus</span>

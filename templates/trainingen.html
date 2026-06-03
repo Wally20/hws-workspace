@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Trainingen | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Trainingen</h1>
+      <p class="welcome-line">Maak trainingen met oefeningen uit de bibliotheek en sla ze op voor later.</p>
+    </div>
+  </header>
+
+  {% if training_mode == "home" %}
+    <section class="training-home-grid" aria-label="Trainingen">
+      <a class="summary-card training-home-tile" href="/trainingen/opgeslagen">
+        <span class="panel-title">Opgeslagen trainingen</span>
+        <span class="training-home-count" id="trainingSavedCount">{{ trainings|length }}</span>
+        <span class="feature-list-subtitle">Bekijk de trainingen die je al hebt opgeslagen.</span>
+      </a>
+      <a class="summary-card training-home-tile" href="/trainingen/maker">
+        <span class="panel-title">Trainingen maker</span>
+        <span class="training-home-count">{{ exercises|length }}</span>
+        <span class="feature-list-subtitle">Sleep oefeningen uit de bibliotheek naar je training.</span>
+      </a>
+    </section>
+  {% endif %}
+
+  {% if training_mode == "saved" %}
+  <section class="summary-card training-saved-panel" id="trainingSavedPanel">
+    <div class="training-section-head">
+      <div>
+        <p class="panel-title">Opgeslagen trainingen</p>
+        <p class="feature-list-subtitle">Nieuw opgeslagen trainingen verschijnen hier direct.</p>
+      </div>
+      <a href="/trainingen/maker" class="refresh-button">Nieuwe training</a>
+    </div>
+    <div class="training-saved-list" id="trainingSavedList"></div>
+    <p class="training-empty" id="trainingSavedEmpty" hidden>Nog geen trainingen opgeslagen.</p>
+  </section>
+  {% endif %}
+
+  {% if training_mode == "maker" %}
+  <section class="training-maker" id="trainingMakerPanel">
+    <form class="summary-card training-builder" id="trainingBuilder">
+      <div class="training-section-head">
+        <div>
+          <p class="panel-title">Trainingen maker</p>
+        </div>
+        <button type="submit" class="refresh-button" id="saveTrainingButton">Opslaan</button>
+      </div>
+
+      <div class="training-builder-fields">
+        <label class="field">
+          <span>Datum training</span>
+          <input type="date" id="trainingDate" required>
+        </label>
+        <label class="field">
+          <span>Titel training</span>
+          <input type="text" id="trainingTitle" placeholder="Bijvoorbeeld 20260506 Techniektraining JO11" required>
+        </label>
+        <label class="field">
+          <span>Doelstelling</span>
+          <textarea id="trainingObjective" placeholder="Bijvoorbeeld passen onder druk of verbeteren van de eerste aanname"></textarea>
+        </label>
+      </div>
+
+      <div class="training-drop-zone" id="trainingDropZone">
+        <div class="training-drop-empty" id="trainingDropEmpty">Sleep hier oefeningen naartoe</div>
+        <div class="training-selected-list" id="trainingSelectedList"></div>
+      </div>
+      <p class="training-feedback" id="trainingFeedback" role="status"></p>
+    </form>
+
+    <aside class="summary-card training-library-panel">
+      <label class="field">
+        <span>Zoek oefening</span>
+        <input type="search" id="trainingExerciseSearch" placeholder="Zoek in de oefeningen bibliotheek" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>Filter</span>
+        <select id="trainingExerciseFilters" aria-label="Filter oefeningen"></select>
+      </label>
+      <div class="training-exercise-list" id="trainingExerciseList"></div>
+      <p class="training-empty" id="trainingExerciseEmpty" hidden>Geen oefeningen gevonden.</p>
+    </aside>
+  </section>
+
+  <div class="agenda-modal training-exercise-modal" id="trainingExerciseModal" hidden>
+    <div class="agenda-modal-backdrop" data-close-training-exercise></div>
+    <section class="agenda-modal-dialog training-exercise-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="trainingExerciseModalTitle">
+      <div class="agenda-modal-header">
+        <div>
+          <p class="exercise-modal-category" id="trainingExerciseModalCategory"></p>
+          <h2 id="trainingExerciseModalTitle"></h2>
+        </div>
+        <button type="button" class="team-modal-close" data-close-training-exercise aria-label="Sluiten">×</button>
+      </div>
+
+      <div class="training-exercise-modal-body">
+        <div class="training-exercise-modal-field" id="trainingExerciseModalField"></div>
+        <div class="training-exercise-modal-details">
+          <article class="exercise-detail-panel">
+            <h3>Omschrijving oefening</h3>
+            <p id="trainingExerciseModalDescription"></p>
+          </article>
+          <article class="exercise-detail-panel">
+            <h3>Coaching</h3>
+            <p id="trainingExerciseModalCoaching"></p>
+          </article>
+          <article class="exercise-detail-panel">
+            <h3>Materialen</h3>
+            <p id="trainingExerciseModalMaterials"></p>
+          </article>
+          <article class="exercise-detail-panel">
+            <h3>Afmetingen</h3>
+            <p id="trainingExerciseModalDimensions"></p>
+          </article>
+        </div>
+      </div>
+    </section>
+  </div>
+  {% endif %}
+
+  {% if training_mode != "home" %}
+  <script type="application/json" id="trainingExerciseData">{{ exercises|tojson }}</script>
+  <script type="application/json" id="trainingSavedData">{{ trainings|tojson }}</script>
+  <script nonce="{{ csp_nonce }}" src="../static/trainingen.js?v={{ asset_version }}" defer></script>
+  {% endif %}
+{% endblock %}

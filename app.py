@@ -5,6 +5,8 @@ import copy
 import re
 import sqlite3
 import shutil
+import subprocess
+import tempfile
 import threading
 import time
 import secrets
@@ -16,17 +18,18 @@ import mimetypes
 import unicodedata
 import zipfile
 from io import BytesIO
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal, InvalidOperation
 from datetime import date, datetime, time as dt_time, timedelta
-from math import ceil
+from math import atan2, ceil, cos, sin
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from xml.etree import ElementTree as XmlElementTree
 
 import requests
 from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -34,6 +37,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 ECWID_API_BASE = "https://app.ecwid.com/api/v3"
 MONEYBIRD_API_BASE = "https://moneybird.com/api/v2"
+VAT_SAVINGS_RATE = Decimal("0.09")
 RIJKSOVERHEID_SCHOOL_HOLIDAYS_API_BASE = "https://opendata.rijksoverheid.nl/v1/infotypes/schoolholidays"
 NAGER_PUBLIC_HOLIDAYS_API_BASE = "https://date.nager.at/api/v3/PublicHolidays"
 BUNDLED_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -41,6 +45,21 @@ DATA_DIR = os.getenv("DATA_DIR", BUNDLED_DATA_DIR)
 DATABASE_PATH = os.path.join(DATA_DIR, "app.db")
 DASHBOARD_EVENTS_PATH = os.path.join(DATA_DIR, "dashboard_events.json")
 AGENDA_TRAININGS_PATH = os.path.join(DATA_DIR, "agenda_trainings.json")
+CONTRACT_TEMPLATE_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "static",
+    "assets",
+    "contracts",
+    "HWS_Standaard_Overeenkomst.docx",
+)
+CONTRACT_WATERMARK_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "static",
+    "assets",
+    "contracts",
+    "HWS_watermark.png",
+)
+CONTRACT_WATERMARK_REL_ID = "rId999"
 PPTX_XML_NAMESPACES = {
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
@@ -50,11 +69,66 @@ DOCX_XML_NAMESPACES = {
     "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
     "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
     "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+    "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
 }
 PPTX_SLIDE_WIDTH = 12192000
 PPTX_SLIDE_HEIGHT = 6858000
 FOOTBALL_DAYS_PDF_WIDTH = 960
 FOOTBALL_DAYS_PDF_HEIGHT = 540
+FOOTBALL_PLAYBOOK_CONTEXTS = {
+    "voetbaldagen": {
+        "playbookType": "voetbaldagen",
+        "pageKey": "voetbaldagen",
+        "pageTitle": "Voetbaldagen",
+        "overviewDescription": "Open een opgeslagen draaiboek of maak een nieuwe voetbaldag aan.",
+        "formDescription": "Bouw het draaiboek op uit gegevens, medewerkers, programma en onvoorziene omstandigheden.",
+        "locationLabel": "Locatie",
+        "locationPlaceholder": "Sportpark, veld of club",
+        "showEcwidProduct": True,
+        "showContingencies": True,
+        "supportsSectionToggles": False,
+        "supportsFieldTrainings": False,
+        "supportsCycleDates": False,
+        "supportsStaffSetupTasks": False,
+        "defaultTitle": "Draaiboek Voetbaldagen",
+        "titlePlaceholder": "Draaiboek Voetbaldag HWS",
+        "saveAllLabel": "Alles van de voetbaldag opslaan",
+        "pdfCoverTitle": "HWS VOETBALDAG",
+        "introSubject": "voetbaldag",
+        "overviewPath": "/voetbaldagen",
+        "newPath": "/voetbaldagen/nieuw",
+        "editPathPrefix": "/voetbaldagen",
+        "registrationCountsApi": "/api/voetbaldagen/registration-counts",
+        "exportPdfApi": "/api/voetbaldagen/export-pdf",
+        "fallbackPdfFilename": "voetbaldag-draaiboek.pdf",
+    },
+    "samenwerkende-amateurclubs": {
+        "playbookType": "samenwerkende-amateurclubs",
+        "pageKey": "samenwerkende-amateurclubs",
+        "pageTitle": "Samenwerkende Amateurclubs",
+        "overviewDescription": "Open een opgeslagen draaiboek of maak een nieuw draaiboek voor een samenwerkende amateurclub aan.",
+        "formDescription": "Bouw het draaiboek op uit clubgegevens, medewerkers, programma en trainingen.",
+        "locationLabel": "Club",
+        "locationPlaceholder": "Naam van de samenwerkende amateurclub",
+        "showEcwidProduct": False,
+        "showContingencies": False,
+        "supportsSectionToggles": True,
+        "supportsFieldTrainings": True,
+        "supportsCycleDates": True,
+        "supportsStaffSetupTasks": True,
+        "defaultTitle": "Draaiboek Samenwerkende Amateurclubs",
+        "titlePlaceholder": "Draaiboek Samenwerkende Amateurclub HWS",
+        "saveAllLabel": "Alles van de samenwerkende amateurclub opslaan",
+        "pdfCoverTitle": "SAMENWERKENDE AMATEURCLUBS",
+        "introSubject": "samenwerkende amateurclub",
+        "overviewPath": "/samenwerkende-amateurclubs",
+        "newPath": "/samenwerkende-amateurclubs/nieuw",
+        "editPathPrefix": "/samenwerkende-amateurclubs",
+        "registrationCountsApi": "/api/samenwerkende-amateurclubs/registration-counts",
+        "exportPdfApi": "/api/samenwerkende-amateurclubs/export-pdf",
+        "fallbackPdfFilename": "samenwerkende-amateurclubs-draaiboek.pdf",
+    },
+}
 EXERCISE_FIELD_MIN_X = 350000
 EXERCISE_FIELD_MAX_X = 4700000
 EXERCISE_FIELD_MIN_Y = 1600000
@@ -79,6 +153,7 @@ EXERCISE_CATEGORY_OPTIONS = (
     "Partijvormen",
     "Fungames",
 )
+EXERCISE_AGE_GROUP_OPTIONS = ("O8", "O9", "O10", "O11", "O12", "O13", "O14", "O15")
 EXERCISE_CATEGORY_ALIASES = {
     "DRIBBELVORMEN": "Dribbelvormen",
     "PASS-TRAPVORMEN": "Pass-trapvormen",
@@ -94,12 +169,77 @@ EXERCISE_CATEGORY_ALIASES = {
     "FUNGAMES": "Fungames",
 }
 EXERCISE_IMPORT_PREVIEW_DIR = os.path.join(DATA_DIR, "exercise_import_previews")
+try:
+    EXERCISE_FIELD_IMAGE_MAX_UPLOAD_MB = max(1, int(os.getenv("EXERCISE_FIELD_IMAGE_MAX_UPLOAD_MB", "5") or "5"))
+except ValueError:
+    EXERCISE_FIELD_IMAGE_MAX_UPLOAD_MB = 5
+try:
+    EXERCISE_VIDEO_MAX_UPLOAD_MB = max(1, int(os.getenv("BUNNY_VIDEO_MAX_UPLOAD_MB", "5000") or "5000"))
+except ValueError:
+    EXERCISE_VIDEO_MAX_UPLOAD_MB = 5000
 AGENDA_DAY_PLAN_OPTIONS = (
     "Geen activiteit",
     "Voetbaldag",
     "Samenwerkende amateurclubs",
     "Techniektrainingen",
 )
+AGENDA_CLUB_OPTIONS = (
+    "WWNA",
+    "ABS",
+    "VV Oeken",
+    "VV Gorssel",
+)
+AGENDA_CLUB_CLASS_NAMES = {
+    "WWNA": "agenda-event-club-wwna",
+    "ABS": "agenda-event-club-abs",
+    "VV Oeken": "agenda-event-club-vv-oeken",
+    "VV Gorssel": "agenda-event-club-vv-gorssel",
+}
+AGENDA_TRAINING_TYPE_OPTIONS = (
+    {
+        "value": "voetbaldag",
+        "label": "Voetbaldag",
+        "className": "agenda-event-type-voetbaldag",
+    },
+    {
+        "value": "summercamp",
+        "label": "SummerCamp",
+        "className": "agenda-event-type-summercamp",
+    },
+    {
+        "value": "samenwerkende_amateurclub",
+        "label": "Samenwerkende amateurclub",
+        "className": "agenda-event-type-samenwerkende-amateurclub",
+    },
+    {
+        "value": "techniektraining",
+        "label": "Techniektraining",
+        "className": "agenda-event-type-techniektraining",
+    },
+    {
+        "value": "clinic",
+        "label": "Clinic",
+        "className": "agenda-event-type-clinic",
+    },
+)
+AGENDA_NO_ACTIVITY_COPY_REASONS = {
+    "2026-10-19": "herfstvakantie",
+    "2026-10-21": "herfstvakantie",
+    "2026-12-21": "winterstop",
+    "2026-12-23": "winterstop",
+    "2026-12-28": "winterstop",
+    "2026-12-30": "winterstop",
+    "2027-01-04": "winterstop",
+    "2027-01-06": "winterstop",
+    "2027-02-22": "voorjaarsvakantie",
+    "2027-02-24": "voorjaarsvakantie",
+    "2027-03-29": "Eerste Paasdag",
+    "2027-04-26": "meivakantie",
+    "2027-04-28": "meivakantie",
+    "2027-05-03": "meivakantie",
+    "2027-05-05": "meivakantie",
+    "2027-05-17": "Tweede Pinksterdag",
+}
 PROPOSAL_TYPE_OPTIONS = (
     {
         "value": "amateurclub",
@@ -167,7 +307,8 @@ ECWID_RESPONSE_FIELDS = (
     "total,count,offset,limit,"
     "items(id,orderNumber,createDate,status,paymentStatus,fulfillmentStatus,total,email,"
     "paymentMethod,shippingOption,items(productId,name,quantity,price,sku),"
-    "shippingPerson(name),billingPerson(name),extraFields,orderExtraFields(id,title,value))"
+    "shippingPerson(name,street,city,postalCode,phone),billingPerson(name,street,city,postalCode,phone),"
+    "extraFields,orderExtraFields(id,title,value))"
 )
 ECWID_PROCESSING_FULFILLMENT_STATUS = "PROCESSING"
 
@@ -175,7 +316,7 @@ app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 31536000
 ASSET_VERSION = str(int(time.time()))
 
-CACHE_TTL_SECONDS = 300
+CACHE_TTL_SECONDS = max(60, int(os.getenv("EXTERNAL_DATA_CACHE_TTL_SECONDS", "1800") or "1800"))
 LOCAL_DATA_CACHE_TTL_SECONDS = max(1, int(os.getenv("LOCAL_DATA_CACHE_TTL_SECONDS", "30") or "30"))
 AGENDA_EXTERNAL_CACHE_TTL_SECONDS = 43200
 orders_cache: Dict[str, Any] = {
@@ -256,6 +397,11 @@ ALLOWED_IMAGE_EXTENSIONS = {
     "image/webp": {".webp"},
     "image/avif": {".avif"},
 }
+ALLOWED_VIDEO_EXTENSIONS = {
+    "video/mp4": {".mp4", ".m4v"},
+    "video/webm": {".webm"},
+    "video/quicktime": {".mov"},
+}
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; "
@@ -264,6 +410,7 @@ SECURITY_HEADERS = {
         "frame-ancestors 'none'; "
         "object-src 'none'; "
         "img-src 'self' data: https:; "
+        "media-src 'self' https: blob:; "
         "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
         "font-src 'self' data:; "
@@ -641,6 +788,14 @@ def validate_image_signature(content_type: str, file_bytes: bytes) -> bool:
     return False
 
 
+def validate_video_signature(content_type: str, file_bytes: bytes) -> bool:
+    if content_type in {"video/mp4", "video/quicktime"}:
+        return len(file_bytes) > 12 and file_bytes[4:8] == b"ftyp"
+    if content_type == "video/webm":
+        return file_bytes.startswith(b"\x1a\x45\xdf\xa3")
+    return False
+
+
 def apply_security_headers(response: Any) -> Any:
     for header_name, header_value in SECURITY_HEADERS.items():
         if header_name == "Content-Security-Policy" and not is_request_secure():
@@ -730,7 +885,52 @@ def get_content_storage_config() -> Dict[str, Any]:
     }
 
 
-app.config["MAX_CONTENT_LENGTH"] = get_content_storage_config()["max_request_mb"] * 1024 * 1024
+def get_exercise_video_storage_config() -> Dict[str, Any]:
+    content_config = get_content_storage_config()
+    allowed_types_raw = get_env("BUNNY_VIDEO_ALLOWED_TYPES")
+    allowed_types = [
+        item.strip()
+        for item in allowed_types_raw.split(",")
+        if item.strip()
+    ]
+    if not allowed_types:
+        allowed_types = ["video/mp4", "video/webm", "video/quicktime"]
+
+    public_base = (get_env("BUNNY_VIDEO_PUBLIC_BASE") or content_config["public_base"]).rstrip("/")
+    base_path = get_env("BUNNY_VIDEO_BASE_PATH").strip().strip("/")
+    if not base_path:
+        base_path = "exercise-videos"
+
+    missing_config = [
+        key
+        for key, value in (
+            ("BUNNY_STORAGE_ZONE", content_config["zone"]),
+            ("BUNNY_STORAGE_ACCESS_KEY", content_config["access_key"]),
+            ("BUNNY_VIDEO_PUBLIC_BASE/BUNNY_IMAGE_PUBLIC_BASE", public_base),
+        )
+        if not value
+    ]
+
+    return {
+        "region": content_config["region"],
+        "zone": content_config["zone"],
+        "access_key": content_config["access_key"],
+        "api_access_key": content_config["api_access_key"],
+        "public_base": public_base,
+        "base_path": base_path,
+        "max_upload_mb": EXERCISE_VIDEO_MAX_UPLOAD_MB,
+        "max_request_mb": max(EXERCISE_VIDEO_MAX_UPLOAD_MB, content_config["max_request_mb"]),
+        "allowed_types": allowed_types,
+        "missing_config": missing_config,
+        "bunny_enabled": not missing_config,
+        "local_upload_root": content_config["local_upload_root"],
+    }
+
+
+app.config["MAX_CONTENT_LENGTH"] = max(
+    get_content_storage_config()["max_request_mb"],
+    get_exercise_video_storage_config()["max_request_mb"],
+) * 1024 * 1024
 
 
 def is_public_path(path: str) -> bool:
@@ -873,7 +1073,11 @@ def extract_registration_details(order: Dict[str, Any], customer_name: str = "")
             "lastName": str(existing_details.get("lastName", "") or "").strip(),
             "birthDate": str(existing_details.get("birthDate", "") or "").strip(),
             "gender": str(existing_details.get("gender", "") or "").strip(),
+            "address": str(existing_details.get("address", "") or "").strip(),
+            "postalCode": str(existing_details.get("postalCode", "") or "").strip(),
+            "city": str(existing_details.get("city", "") or "").strip(),
             "clubTeam": str(existing_details.get("clubTeam", "") or "").strip(),
+            "phone": str(existing_details.get("phone", "") or "").strip(),
             "dietaryWishes": str(existing_details.get("dietaryWishes", "") or "").strip(),
             "comments": str(existing_details.get("comments", "") or "").strip(),
         }
@@ -886,6 +1090,8 @@ def extract_registration_details(order: Dict[str, Any], customer_name: str = "")
     )
     extra_fields = normalize_order_extra_fields(order)
     fallback_first_name, fallback_last_name = split_full_name(resolved_customer_name)
+    shipping_person = order.get("shippingPerson", {}) if isinstance(order.get("shippingPerson"), dict) else {}
+    billing_person = order.get("billingPerson", {}) if isinstance(order.get("billingPerson"), dict) else {}
 
     return {
         "firstName": find_order_field_value(extra_fields, "voornaam", "first name", "firstname") or fallback_first_name,
@@ -900,7 +1106,36 @@ def extract_registration_details(order: Dict[str, Any], customer_name: str = "")
             "dob",
         ),
         "gender": find_order_field_value(extra_fields, "geslacht", "gender"),
+        "address": (
+            find_order_field_value(extra_fields, "adres", "straat", "street", "address")
+            or str(shipping_person.get("street", "") or "").strip()
+            or str(billing_person.get("street", "") or "").strip()
+        ),
+        "postalCode": (
+            find_order_field_value(extra_fields, "postcode", "postal code", "postalcode", "zip")
+            or str(shipping_person.get("postalCode", "") or "").strip()
+            or str(billing_person.get("postalCode", "") or "").strip()
+        ),
+        "city": (
+            find_order_field_value(extra_fields, "plaats", "woonplaats", "stad", "city")
+            or str(shipping_person.get("city", "") or "").strip()
+            or str(billing_person.get("city", "") or "").strip()
+        ),
         "clubTeam": find_order_field_value(extra_fields, "club/team", "club team", "club", "team"),
+        "phone": (
+            find_order_field_value(
+                extra_fields,
+                "06-nummer",
+                "06 nummer",
+                "telefoonnummer",
+                "telefoon",
+                "mobiel",
+                "phone",
+                "mobile",
+            )
+            or str(shipping_person.get("phone", "") or "").strip()
+            or str(billing_person.get("phone", "") or "").strip()
+        ),
         "dietaryWishes": find_order_field_value(extra_fields, "dieetwensen", "dieet wensen", "allergieen", "allergieën", "dietary wishes"),
         "comments": find_order_field_value(extra_fields, "opmerkingen", "opmerking", "comments", "commentaar"),
     }
@@ -1320,24 +1555,36 @@ def build_registration_product_detail(
 
             order_id = str(order.get("id", "") or "")
             known_order_ids.add(order_id)
+            item_quantity = max(int(item.get("quantity") or 0), 0)
             detail_entry["orderCount"] += 1
-            detail_entry["participantCount"] += max(int(item.get("quantity") or 0), 0)
-            detail_entry["orders"].append(
-                {
-                    "id": order_id,
-                    "orderNumber": str(order.get("orderNumber", "") or order.get("id", "")),
-                    "customerName": str(order.get("customerName", "") or "Onbekende klant"),
-                    "email": email,
-                    "status": str(order.get("status", "") or "-"),
-                    "paymentStatus": str(order.get("paymentStatus", "") or "-"),
-                    "displayDate": display_date,
-                    "displayTime": display_time,
-                    "quantity": max(int(item.get("quantity") or 0), 0),
-                    "total": float(order.get("total") or 0),
-                    "itemPrice": float(item.get("price") or 0),
-                    "registrationDetails": extract_registration_details(order, str(order.get("customerName", "") or "")),
-                }
-            )
+            detail_entry["participantCount"] += item_quantity
+            registration_details = extract_registration_details(order, str(order.get("customerName", "") or ""))
+            participant_rows = max(item_quantity, 1)
+            for participant_index in range(participant_rows):
+                detail_entry["orders"].append(
+                    {
+                        "id": order_id,
+                        "rowId": f"{order_id}:{participant_index + 1}",
+                        "orderNumber": str(order.get("orderNumber", "") or order.get("id", "")),
+                        "customerName": str(order.get("customerName", "") or "Onbekende klant"),
+                        "email": email,
+                        "status": str(order.get("status", "") or "-"),
+                        "paymentStatus": str(order.get("paymentStatus", "") or "-"),
+                        "displayDate": display_date,
+                        "displayTime": display_time,
+                        "quantity": 1,
+                        "originalQuantity": item_quantity,
+                        "participantIndex": participant_index + 1,
+                        "participantLabel": (
+                            f"Aanmelding {participant_index + 1} van {item_quantity}"
+                            if item_quantity > 1
+                            else ""
+                        ),
+                        "total": float(order.get("total") or 0),
+                        "itemPrice": float(item.get("price") or 0),
+                        "registrationDetails": registration_details,
+                    }
+                )
 
     if detail_entry is None:
         return None
@@ -1345,12 +1592,11 @@ def build_registration_product_detail(
     emailed_order_ids = load_registration_emailed_order_ids(normalized_product_key, known_order_ids)
     pending_emails: List[str] = []
     pending_email_keys: Set[str] = set()
-    emailed_order_count = 0
+    emailed_order_count = len(known_order_ids.intersection(emailed_order_ids))
 
     for order in detail_entry["orders"]:
         order["emailed"] = order["id"] in emailed_order_ids
         if order["emailed"]:
-            emailed_order_count += 1
             continue
 
         email = str(order.get("email", "") or "").strip()
@@ -1637,6 +1883,277 @@ def build_team_assignment_workbook(orders: List[Dict[str, Any]]) -> BytesIO:
     return buffer
 
 
+def parse_registration_birth_date(value: str) -> Optional[date]:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return None
+
+    normalized_value = raw_value.replace("/", "-").replace(".", "-")
+    for pattern in ("%d-%m-%Y", "%Y-%m-%d", "%d-%m-%y"):
+        try:
+            parsed = datetime.strptime(normalized_value, pattern).date()
+        except ValueError:
+            continue
+        if parsed.year > datetime.now().year:
+            parsed = parsed.replace(year=parsed.year - 100)
+        return parsed
+
+    return None
+
+
+def normalize_registration_person_name(first_name: str, last_name: str) -> str:
+    return normalize_match_text(f"{first_name} {last_name}")
+
+
+def build_registration_participant_rows(selected_product: Dict[str, Any]) -> List[Dict[str, Any]]:
+    participants: List[Dict[str, Any]] = []
+
+    for order in selected_product.get("orders", []):
+        details = order.get("registrationDetails", {}) if isinstance(order.get("registrationDetails"), dict) else {}
+        quantity = max(int(order.get("quantity") or 0), 1)
+        first_name = str(details.get("firstName", "") or "").strip()
+        last_name = str(details.get("lastName", "") or "").strip()
+        fallback_first_name, fallback_last_name = split_full_name(str(order.get("customerName", "") or ""))
+        first_name = first_name or fallback_first_name
+        last_name = last_name or fallback_last_name
+
+        for participant_index in range(quantity):
+            participant = {
+                "id": f"{order.get('id', '')}:{participant_index}",
+                "group": "",
+                "firstName": first_name,
+                "lastName": last_name,
+                "gender": str(details.get("gender", "") or "").strip(),
+                "birthDate": str(details.get("birthDate", "") or "").strip(),
+                "birthDateParsed": parse_registration_birth_date(str(details.get("birthDate", "") or "")),
+                "address": str(details.get("address", "") or "").strip(),
+                "postalCode": str(details.get("postalCode", "") or "").strip(),
+                "city": str(details.get("city", "") or "").strip(),
+                "clubTeam": str(details.get("clubTeam", "") or "").strip(),
+                "phone": str(details.get("phone", "") or "").strip(),
+                "email": str(order.get("email", "") or "").strip(),
+                "dietaryWishes": str(details.get("dietaryWishes", "") or "").strip(),
+                "comments": str(details.get("comments", "") or "").strip(),
+                "orderNumber": str(order.get("orderNumber", "") or order.get("id", "")),
+            }
+            participants.append(participant)
+
+    return participants
+
+
+def build_registration_team_clusters(participants: List[Dict[str, Any]]) -> List[List[int]]:
+    parent = list(range(len(participants)))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    club_team_indexes: Dict[str, List[int]] = {}
+    name_candidates: List[Tuple[int, str, str, str]] = []
+
+    for index, participant in enumerate(participants):
+        club_team_key = normalize_match_text(str(participant.get("clubTeam", "") or ""))
+        if club_team_key:
+            club_team_indexes.setdefault(club_team_key, []).append(index)
+
+        first_name = normalize_match_text(str(participant.get("firstName", "") or ""))
+        last_name = normalize_match_text(str(participant.get("lastName", "") or ""))
+        full_name = normalize_registration_person_name(
+            str(participant.get("firstName", "") or ""),
+            str(participant.get("lastName", "") or ""),
+        )
+        if first_name or last_name or full_name:
+            name_candidates.append((index, first_name, last_name, full_name))
+
+    for indexes in club_team_indexes.values():
+        first_index = indexes[0]
+        for index in indexes[1:]:
+            union(first_index, index)
+
+    for index, participant in enumerate(participants):
+        comments = normalize_match_text(str(participant.get("comments", "") or ""))
+        if not comments:
+            continue
+
+        comment_tokens = set(comments.split())
+        for candidate_index, first_name, last_name, full_name in name_candidates:
+            if candidate_index == index:
+                continue
+            if full_name and full_name in comments:
+                union(index, candidate_index)
+                continue
+            if first_name and last_name and first_name in comment_tokens and last_name in comment_tokens:
+                union(index, candidate_index)
+                continue
+            if first_name and len(first_name) >= 4 and first_name in comment_tokens:
+                union(index, candidate_index)
+
+    clusters_by_root: Dict[int, List[int]] = {}
+    for index in range(len(participants)):
+        clusters_by_root.setdefault(find(index), []).append(index)
+
+    def cluster_sort_key(cluster: List[int]) -> Tuple[date, str]:
+        parsed_dates = [
+            participant["birthDateParsed"]
+            for participant in (participants[index] for index in cluster)
+            if participant.get("birthDateParsed") is not None
+        ]
+        youngest_date = max(parsed_dates) if parsed_dates else date.min
+        names = " ".join(
+            normalize_registration_person_name(
+                str(participants[index].get("firstName", "") or ""),
+                str(participants[index].get("lastName", "") or ""),
+            )
+            for index in cluster
+        )
+        return youngest_date, names
+
+    return sorted(clusters_by_root.values(), key=cluster_sort_key, reverse=True)
+
+
+def assign_registration_team_groups(participants: List[Dict[str, Any]], group_count: int) -> List[Dict[str, Any]]:
+    if not participants:
+        return []
+
+    normalized_group_count = max(1, min(int(group_count or 1), len(participants)))
+    clusters = build_registration_team_clusters(participants)
+    target_sizes = [
+        len(participants) // normalized_group_count + (1 if group_index < len(participants) % normalized_group_count else 0)
+        for group_index in range(normalized_group_count)
+    ]
+    group_index = 0
+    current_group_size = 0
+
+    for cluster in clusters:
+        target_size = target_sizes[group_index] if group_index < len(target_sizes) else len(participants)
+        if (
+            group_index < normalized_group_count - 1
+            and current_group_size > 0
+            and current_group_size + len(cluster) > target_size
+        ):
+            group_index += 1
+            current_group_size = 0
+
+        group_label = f"Groep {group_index + 1}"
+        for participant_index in cluster:
+            participants[participant_index]["group"] = group_label
+        current_group_size += len(cluster)
+
+    return sorted(
+        participants,
+        key=lambda participant: (
+            int(str(participant.get("group", "Groep 999")).replace("Groep", "").strip() or 999),
+            -(participant.get("birthDateParsed") or date.min).toordinal(),
+            normalize_registration_person_name(
+                str(participant.get("firstName", "") or ""),
+                str(participant.get("lastName", "") or ""),
+            ),
+        ),
+    )
+
+
+def build_registration_team_assignment_workbook(
+    selected_product: Dict[str, Any],
+    group_count: int,
+) -> BytesIO:
+    participants = assign_registration_team_groups(
+        build_registration_participant_rows(selected_product),
+        group_count,
+    )
+    workbook = Workbook()
+    worksheet = workbook.active
+    sheet_title = re.sub(r"[\[\]\*:/\\?]", "", str(selected_product.get("name", "") or "Teamindeling")).strip()
+    worksheet.title = (sheet_title or "Teamindeling")[:31]
+
+    headers = [
+        "Groep:",
+        "Voornaam:",
+        "Achternaam:",
+        "Geslacht:",
+        "Geboortedatum:",
+        "Adres:",
+        "Postcode:",
+        "Plaats:",
+        "Club/Team:",
+        "06-nummer:",
+        "E-mailadres:",
+        "Dieetwensen:",
+        "Opmerkingen:",
+    ]
+    header_fill = PatternFill(fill_type="solid", fgColor="FF595959")
+    header_font = Font(name="Calibri", size=11, color="FFFFFFFF", bold=True)
+    thin_gray_border = Border(
+        left=Side(style="thin", color="D9D9D9"),
+        right=Side(style="thin", color="D9D9D9"),
+        top=Side(style="thin", color="D9D9D9"),
+        bottom=Side(style="thin", color="D9D9D9"),
+    )
+
+    for column_index, header in enumerate(headers, start=1):
+        cell = worksheet.cell(row=1, column=column_index, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(vertical="center", wrap_text=True)
+        cell.border = thin_gray_border
+
+    for row_index, participant in enumerate(participants, start=2):
+        values = [
+            participant["group"],
+            participant["firstName"],
+            participant["lastName"],
+            participant["gender"],
+            participant["birthDate"],
+            participant["address"],
+            participant["postalCode"],
+            participant["city"],
+            participant["clubTeam"],
+            participant["phone"],
+            participant["email"],
+            participant["dietaryWishes"],
+            participant["comments"],
+        ]
+        for column_index, value in enumerate(values, start=1):
+            cell = worksheet.cell(row=row_index, column=column_index, value=value)
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            cell.border = thin_gray_border
+
+    worksheet.freeze_panes = "A2"
+    worksheet.row_dimensions[1].height = 24.75
+    for row_index in range(2, max(2, worksheet.max_row) + 1):
+        worksheet.row_dimensions[row_index].height = 24.75
+
+    column_widths = {
+        "A": 15.5,
+        "B": 10.7,
+        "C": 12.7,
+        "D": 15.7,
+        "E": 15.5,
+        "F": 22,
+        "G": 12,
+        "H": 16,
+        "I": 22,
+        "J": 16,
+        "K": 28,
+        "L": 30.5,
+        "M": 36,
+    }
+    for column, width in column_widths.items():
+        worksheet.column_dimensions[column].width = width
+
+    buffer = BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
 def build_summary(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
     revenue = sum(
         float(order.get("total") or 0)
@@ -1715,6 +2232,36 @@ def is_cost_mutation(mutation: Dict[str, Any], ledger_account_types: Dict[str, s
         return True
 
     return has_expense_booking(mutation, ledger_account_types)
+
+
+def is_sales_invoice_payment(payment: Dict[str, Any]) -> bool:
+    invoice_type = str(payment.get("invoice_type", "")).strip()
+    return invoice_type in {"SalesInvoice", "Invoice"}
+
+
+def is_external_sales_invoice_payment(payment: Dict[str, Any]) -> bool:
+    invoice_type = str(payment.get("invoice_type", "")).strip()
+    return invoice_type == "ExternalSalesInvoice"
+
+
+def is_spaarpot_stripe_income_mutation(mutation: Dict[str, Any]) -> bool:
+    amount = decimal_from_value(mutation.get("amount"))
+    if amount == 0 or is_excluded_equity_mutation(mutation):
+        return False
+
+    mutation_text = get_mutation_search_text(mutation)
+    if "stripe" not in mutation_text:
+        return False
+
+    payments = mutation.get("payments") or []
+    if any(is_sales_invoice_payment(payment) for payment in payments):
+        return False
+
+    return amount > 0 or any(is_external_sales_invoice_payment(payment) for payment in payments)
+
+
+def get_spaarpot_stripe_mutation_amount(mutation: Dict[str, Any]) -> Decimal:
+    return abs(decimal_from_value(mutation.get("amount")))
 
 
 def build_report_summary(ecwid_summary: Dict[str, Any], moneybird_summary: Dict[str, Any]) -> Dict[str, Any]:
@@ -1918,6 +2465,8 @@ def init_db() -> None:
                 time TEXT NOT NULL,
                 end_time TEXT,
                 location TEXT,
+                training_type TEXT NOT NULL DEFAULT 'samenwerkende_amateurclub',
+                trainers_json TEXT NOT NULL DEFAULT '[]',
                 notes TEXT
             );
 
@@ -1939,8 +2488,20 @@ def init_db() -> None:
                 variation_harder TEXT,
                 dimensions TEXT,
                 materials TEXT,
+                age_groups_json TEXT NOT NULL DEFAULT '[]',
                 field_json TEXT NOT NULL DEFAULT '{}',
                 source_slide INTEGER,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS training_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                training_date TEXT,
+                objective TEXT,
+                notes TEXT,
+                exercises_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
 
@@ -1981,6 +2542,9 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 title TEXT NOT NULL,
                 event_date TEXT,
+                cycle_number TEXT,
+                cycle_start_date TEXT,
+                cycle_end_date TEXT,
                 location TEXT,
                 staff_json TEXT NOT NULL DEFAULT '[]',
                 program_json TEXT NOT NULL DEFAULT '[]',
@@ -1990,8 +2554,10 @@ def init_db() -> None:
 
             CREATE TABLE IF NOT EXISTS football_days_playbooks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                playbook_type TEXT NOT NULL DEFAULT 'voetbaldagen',
                 title TEXT NOT NULL,
                 event_date TEXT,
+                cycle_number TEXT,
                 location TEXT,
                 ecwid_product_id TEXT,
                 ecwid_product_name TEXT,
@@ -1999,7 +2565,47 @@ def init_db() -> None:
                 staff_json TEXT NOT NULL DEFAULT '[]',
                 program_json TEXT NOT NULL DEFAULT '[]',
                 field_layout_json TEXT NOT NULL DEFAULT '[]',
+                field_trainings_json TEXT NOT NULL DEFAULT '[]',
+                cycle_no_training_dates_json TEXT NOT NULL DEFAULT '[]',
                 contingencies TEXT,
+                include_staff INTEGER NOT NULL DEFAULT 1,
+                include_staff_setup_tasks INTEGER NOT NULL DEFAULT 1,
+                include_program INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS contracts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                club_name TEXT NOT NULL,
+                club_address TEXT,
+                season TEXT,
+                start_date TEXT,
+                end_date TEXT,
+                notice_period TEXT,
+                training_lines_json TEXT NOT NULL DEFAULT '[]',
+                training_execution_summary TEXT,
+                training_execution_details TEXT,
+                agenda_attachment_title TEXT,
+                agenda_attachment_items_json TEXT NOT NULL DEFAULT '[]',
+                hws_materials TEXT,
+                club_materials TEXT,
+                extra_activities TEXT,
+                cost_lines_json TEXT NOT NULL DEFAULT '[]',
+                price_per_training TEXT,
+                training_count INTEGER NOT NULL DEFAULT 0,
+                total_amount TEXT,
+                min_players TEXT,
+                weather_cancellation TEXT,
+                hws_absence TEXT,
+                liability TEXT,
+                participation_risk TEXT,
+                evaluation_moments TEXT,
+                hws_signatory TEXT,
+                club_signatory TEXT,
+                signing_date TEXT,
+                notes TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -2118,15 +2724,33 @@ def init_db() -> None:
         if "availability_days" not in existing_columns:
             connection.execute("ALTER TABLE trainer_profiles ADD COLUMN availability_days TEXT")
 
+        agenda_training_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(agenda_trainings)").fetchall()
+        }
+        if "trainers_json" not in agenda_training_columns:
+            connection.execute("ALTER TABLE agenda_trainings ADD COLUMN trainers_json TEXT NOT NULL DEFAULT '[]'")
+        if "training_type" not in agenda_training_columns:
+            connection.execute("ALTER TABLE agenda_trainings ADD COLUMN training_type TEXT NOT NULL DEFAULT 'samenwerkende_amateurclub'")
+
         football_playbook_columns = {
             row["name"]
             for row in connection.execute("PRAGMA table_info(football_days_playbooks)").fetchall()
         }
         for column_name, column_definition in (
+            ("playbook_type", "playbook_type TEXT NOT NULL DEFAULT 'voetbaldagen'"),
             ("ecwid_product_id", "ecwid_product_id TEXT"),
             ("ecwid_product_name", "ecwid_product_name TEXT"),
             ("ecwid_product_sku", "ecwid_product_sku TEXT"),
+            ("cycle_number", "cycle_number TEXT"),
+            ("cycle_start_date", "cycle_start_date TEXT"),
+            ("cycle_end_date", "cycle_end_date TEXT"),
             ("field_layout_json", "field_layout_json TEXT NOT NULL DEFAULT '[]'"),
+            ("field_trainings_json", "field_trainings_json TEXT NOT NULL DEFAULT '[]'"),
+            ("cycle_no_training_dates_json", "cycle_no_training_dates_json TEXT NOT NULL DEFAULT '[]'"),
+            ("include_staff", "include_staff INTEGER NOT NULL DEFAULT 1"),
+            ("include_staff_setup_tasks", "include_staff_setup_tasks INTEGER NOT NULL DEFAULT 1"),
+            ("include_program", "include_program INTEGER NOT NULL DEFAULT 1"),
         ):
             if column_name in football_playbook_columns:
                 continue
@@ -2135,6 +2759,23 @@ def init_db() -> None:
             except sqlite3.OperationalError as exc:
                 if "duplicate column name" not in str(exc).lower():
                     raise
+
+        contract_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(contracts)").fetchall()
+        }
+        if "cost_lines_json" not in contract_columns:
+            connection.execute("ALTER TABLE contracts ADD COLUMN cost_lines_json TEXT NOT NULL DEFAULT '[]'")
+        if "club_address" not in contract_columns:
+            connection.execute("ALTER TABLE contracts ADD COLUMN club_address TEXT")
+        if "training_execution_summary" not in contract_columns:
+            connection.execute("ALTER TABLE contracts ADD COLUMN training_execution_summary TEXT")
+        if "training_execution_details" not in contract_columns:
+            connection.execute("ALTER TABLE contracts ADD COLUMN training_execution_details TEXT")
+        if "agenda_attachment_title" not in contract_columns:
+            connection.execute("ALTER TABLE contracts ADD COLUMN agenda_attachment_title TEXT")
+        if "agenda_attachment_items_json" not in contract_columns:
+            connection.execute("ALTER TABLE contracts ADD COLUMN agenda_attachment_items_json TEXT NOT NULL DEFAULT '[]'")
 
         social_ideas_columns = {
             row["name"]
@@ -2178,6 +2819,8 @@ def init_db() -> None:
             connection.execute("ALTER TABLE exercises ADD COLUMN dimensions TEXT")
         if "materials" not in exercise_columns:
             connection.execute("ALTER TABLE exercises ADD COLUMN materials TEXT")
+        if "age_groups_json" not in exercise_columns:
+            connection.execute("ALTER TABLE exercises ADD COLUMN age_groups_json TEXT NOT NULL DEFAULT '[]'")
         if "field_json" not in exercise_columns:
             connection.execute("ALTER TABLE exercises ADD COLUMN field_json TEXT NOT NULL DEFAULT '{}'")
         if "source_slide" not in exercise_columns:
@@ -2185,6 +2828,40 @@ def init_db() -> None:
         if "updated_at" not in exercise_columns:
             connection.execute("ALTER TABLE exercises ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
             connection.execute("UPDATE exercises SET updated_at = created_at WHERE updated_at = '' AND created_at IS NOT NULL")
+        for column_name, column_definition in (
+            ("video_url", "video_url TEXT"),
+            ("video_remote_path", "video_remote_path TEXT"),
+            ("video_file_name", "video_file_name TEXT"),
+            ("video_original_name", "video_original_name TEXT"),
+            ("video_content_type", "video_content_type TEXT"),
+            ("video_file_size", "video_file_size INTEGER NOT NULL DEFAULT 0"),
+            ("video_storage_backend", "video_storage_backend TEXT"),
+            ("video_uploaded_at", "video_uploaded_at TEXT"),
+        ):
+            if column_name in exercise_columns:
+                continue
+            try:
+                connection.execute(f"ALTER TABLE exercises ADD COLUMN {column_definition}")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
+
+        training_session_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(training_sessions)").fetchall()
+        }
+        if "training_date" not in training_session_columns:
+            try:
+                connection.execute("ALTER TABLE training_sessions ADD COLUMN training_date TEXT")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
+        if "objective" not in training_session_columns:
+            try:
+                connection.execute("ALTER TABLE training_sessions ADD COLUMN objective TEXT")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
 
         proposal_columns = {
             row["name"]
@@ -2269,6 +2946,12 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_proposals_created
             ON proposals (created_at DESC, id DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_football_days_playbooks_type_date
+            ON football_days_playbooks (playbook_type, event_date, updated_at, id)
             """
         )
         connection.execute(
@@ -2394,7 +3077,7 @@ def load_dashboard_events_config() -> List[Dict[str, Any]]:
             ).fetchall()
 
         if not rows:
-            return get_default_dashboard_events()
+            return []
 
         cleaned = []
         for row in rows:
@@ -2410,7 +3093,7 @@ def load_dashboard_events_config() -> List[Dict[str, Any]]:
                 }
             )
 
-        return cleaned or get_default_dashboard_events()
+        return cleaned
 
     return get_cached_local_data("dashboard_events_config", (), loader)
 
@@ -2455,13 +3138,14 @@ def save_dashboard_events_config(events: List[Dict[str, Any]]) -> None:
                 for item in events
             ],
         )
+    clear_local_data_cache()
 
 
 def normalize_exercise_text(value: Any) -> str:
     normalized = str(value or "").replace("\r", "\n")
     normalized = re.sub(r"[ \t]+", " ", normalized)
     normalized = re.sub(r"\n{3,}", "\n\n", normalized)
-    return normalized.strip(" \n\t-")
+    return normalized.strip(" \n\t")
 
 
 def normalize_exercise_category(value: Any) -> str:
@@ -2479,6 +3163,26 @@ def normalize_exercise_category(value: Any) -> str:
         if normalized.lower() == category.lower():
             return category
     return ""
+
+
+def normalize_exercise_age_groups(value: Any) -> List[str]:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            value = parsed if isinstance(parsed, list) else value
+        except json.JSONDecodeError:
+            value = re.split(r"[,;\s]+", value)
+    if not isinstance(value, (list, tuple, set)):
+        return []
+
+    allowed_lookup = {age.upper(): age for age in EXERCISE_AGE_GROUP_OPTIONS}
+    age_groups: List[str] = []
+    for item in value:
+        normalized = normalize_exercise_text(item).upper().replace("JO", "O")
+        normalized = re.sub(r"[^A-Z0-9]", "", normalized)
+        if normalized in allowed_lookup and allowed_lookup[normalized] not in age_groups:
+            age_groups.append(allowed_lookup[normalized])
+    return age_groups
 
 
 def normalize_exercise_title_key(value: Any) -> str:
@@ -2878,10 +3582,18 @@ def load_exercises() -> List[Dict[str, Any]]:
             rows = connection.execute(
                 """
                 SELECT id, title, category, training_exercise, description, coaching,
-                       variation_easier, variation_harder, dimensions, materials, duration, field_json,
-                       source_slide, updated_at
+                       variation_easier, variation_harder, dimensions, materials, age_groups_json, duration, field_json,
+                       source_slide, updated_at, video_url, video_remote_path, video_file_name,
+                       video_original_name, video_content_type, video_file_size, video_storage_backend,
+                       video_uploaded_at
                 FROM exercises
-                ORDER BY category COLLATE NOCASE, title COLLATE NOCASE
+                ORDER BY
+                    CASE
+                        WHEN title GLOB '[A-Za-z]*' THEN 0
+                        ELSE 1
+                    END,
+                    title COLLATE NOCASE,
+                    id
                 """
             ).fetchall()
 
@@ -2903,15 +3615,73 @@ def load_exercises() -> List[Dict[str, Any]]:
                     "variationHarder": str(row["variation_harder"] or "").strip(),
                     "dimensions": str(row["dimensions"] or "").strip(),
                     "materials": str(row["materials"] or "").strip(),
+                    "ageGroups": normalize_exercise_age_groups(row["age_groups_json"]),
                     "duration": str(row["duration"] or "").strip(),
                     "field": field,
                     "sourceSlide": row["source_slide"],
                     "updatedAt": str(row["updated_at"] or "").strip(),
+                    "videoUrl": str(row["video_url"] or "").strip(),
+                    "videoRemotePath": str(row["video_remote_path"] or "").strip(),
+                    "videoFileName": str(row["video_file_name"] or "").strip(),
+                    "videoOriginalName": str(row["video_original_name"] or "").strip(),
+                    "videoContentType": str(row["video_content_type"] or "").strip(),
+                    "videoFileSize": int(row["video_file_size"] or 0),
+                    "videoStorageBackend": str(row["video_storage_backend"] or "").strip(),
+                    "videoUploadedAt": str(row["video_uploaded_at"] or "").strip(),
                 }
             )
         return exercises
 
     return get_cached_local_data("exercises", (), loader)
+
+
+def row_to_exercise(row: sqlite3.Row) -> Dict[str, Any]:
+    try:
+        field = json.loads(str(row["field_json"] or "{}"))
+    except json.JSONDecodeError:
+        field = {"viewBox": [0, 0, PPTX_SLIDE_WIDTH, PPTX_SLIDE_HEIGHT], "elements": []}
+    return {
+        "id": int(row["id"]),
+        "title": str(row["title"] or "").strip(),
+        "category": normalize_exercise_category(row["category"]),
+        "trainingExercise": str(row["training_exercise"] or "").strip(),
+        "description": str(row["description"] or "").strip(),
+        "coaching": str(row["coaching"] or "").strip(),
+        "variationEasier": str(row["variation_easier"] or "").strip(),
+        "variationHarder": str(row["variation_harder"] or "").strip(),
+        "dimensions": str(row["dimensions"] or "").strip(),
+        "materials": str(row["materials"] or "").strip(),
+        "ageGroups": normalize_exercise_age_groups(row["age_groups_json"]),
+        "duration": str(row["duration"] or "").strip(),
+        "field": field,
+        "sourceSlide": row["source_slide"],
+        "updatedAt": str(row["updated_at"] or "").strip(),
+        "videoUrl": str(row["video_url"] or "").strip(),
+        "videoRemotePath": str(row["video_remote_path"] or "").strip(),
+        "videoFileName": str(row["video_file_name"] or "").strip(),
+        "videoOriginalName": str(row["video_original_name"] or "").strip(),
+        "videoContentType": str(row["video_content_type"] or "").strip(),
+        "videoFileSize": int(row["video_file_size"] or 0),
+        "videoStorageBackend": str(row["video_storage_backend"] or "").strip(),
+        "videoUploadedAt": str(row["video_uploaded_at"] or "").strip(),
+    }
+
+
+def load_exercise_by_id(exercise_id: int) -> Optional[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        row = connection.execute(
+            """
+        SELECT id, title, category, training_exercise, description, coaching,
+               variation_easier, variation_harder, dimensions, materials, age_groups_json, duration, field_json,
+               source_slide, updated_at, video_url, video_remote_path, video_file_name,
+               video_original_name, video_content_type, video_file_size, video_storage_backend,
+               video_uploaded_at
+            FROM exercises
+            WHERE id = ?
+            """,
+            (exercise_id,),
+        ).fetchone()
+    return row_to_exercise(row) if row is not None else None
 
 
 def safe_svg_number(value: Any, default: float = 0.0) -> float:
@@ -2929,8 +3699,9 @@ def safe_svg_color(value: Any, default: str = "#111111") -> str:
 
 
 def render_exercise_field_svg(field: Any, label: str = "Veldtekening") -> str:
+    default_viewbox = [0.0, 0.0, 100.0, 70.0]
     if not isinstance(field, dict):
-        return ""
+        field = {}
     image_data_url = str(field.get("imageDataUrl") or "").strip()
     if image_data_url.startswith("data:image/"):
         label_text = html.escape(str(label or "Veldtekening"), quote=True)
@@ -2939,12 +3710,14 @@ def render_exercise_field_svg(field: Any, label: str = "Veldtekening") -> str:
 
     raw_viewbox = field.get("viewBox")
     raw_elements = field.get("elements")
-    if not isinstance(raw_viewbox, list) or len(raw_viewbox) != 4 or not isinstance(raw_elements, list) or not raw_elements:
-        return ""
+    if not isinstance(raw_viewbox, list) or len(raw_viewbox) != 4:
+        raw_viewbox = default_viewbox
+    if not isinstance(raw_elements, list):
+        raw_elements = []
 
     viewbox = [safe_svg_number(value) for value in raw_viewbox]
     if viewbox[2] <= 0 or viewbox[3] <= 0:
-        return ""
+        viewbox = default_viewbox
 
     label_text = html.escape(str(label or "Veldtekening"), quote=True)
     parts = [
@@ -2995,6 +3768,30 @@ def render_exercise_field_svg(field: Any, label: str = "Veldtekening") -> str:
     return "".join(parts)
 
 
+def normalize_exercise_field_image_upload(upload: Any) -> Tuple[Optional[Dict[str, str]], str]:
+    if upload is None or not getattr(upload, "filename", ""):
+        return None, "Kies eerst een afbeelding."
+
+    file_bytes = upload.read()
+    max_bytes = EXERCISE_FIELD_IMAGE_MAX_UPLOAD_MB * 1024 * 1024
+    if not file_bytes:
+        return None, "De afbeelding is leeg."
+    if len(file_bytes) > max_bytes:
+        return None, f"De afbeelding mag maximaal {EXERCISE_FIELD_IMAGE_MAX_UPLOAD_MB} MB zijn."
+
+    filename = str(upload.filename or "").strip().lower()
+    content_type = str(getattr(upload, "mimetype", "") or mimetypes.guess_type(filename)[0] or "").strip().lower()
+    if content_type not in ALLOWED_IMAGE_EXTENSIONS:
+        return None, "Upload een JPG-, PNG-, WebP- of AVIF-afbeelding."
+    if not any(filename.endswith(extension) for extension in ALLOWED_IMAGE_EXTENSIONS[content_type]):
+        return None, "De bestandsnaam past niet bij dit afbeeldingstype."
+    if not validate_image_signature(content_type, file_bytes):
+        return None, "Deze afbeelding kon niet worden gevalideerd."
+
+    encoded = base64.b64encode(file_bytes).decode("ascii")
+    return {"imageDataUrl": f"data:{content_type};base64,{encoded}"}, ""
+
+
 def add_exercise_field_svgs(exercises: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     enriched = []
     for exercise in exercises:
@@ -3023,6 +3820,7 @@ def replace_exercises(exercises: List[Dict[str, Any]]) -> None:
             "variation_harder",
             "dimensions",
             "materials",
+            "age_groups_json",
             "field_json",
             "source_slide",
             "updated_at",
@@ -3053,6 +3851,7 @@ def replace_exercises(exercises: List[Dict[str, Any]]) -> None:
                     normalize_exercise_text(item.get("variationHarder")),
                     normalize_exercise_text(item.get("dimensions")),
                     normalize_exercise_text(item.get("materials")),
+                    json.dumps(normalize_exercise_age_groups(item.get("ageGroups")), ensure_ascii=True),
                     json.dumps(item.get("field") or {}, ensure_ascii=True),
                     item.get("sourceSlide"),
                     now,
@@ -3085,6 +3884,7 @@ def insert_exercises(exercises: List[Dict[str, Any]]) -> int:
             "variation_harder",
             "dimensions",
             "materials",
+            "age_groups_json",
             "field_json",
             "source_slide",
             "updated_at",
@@ -3122,6 +3922,7 @@ def insert_exercises(exercises: List[Dict[str, Any]]) -> int:
                     normalize_exercise_text(item.get("variationHarder")),
                     normalize_exercise_text(item.get("dimensions")),
                     normalize_exercise_text(item.get("materials")),
+                    json.dumps(normalize_exercise_age_groups(item.get("ageGroups")), ensure_ascii=True),
                     json.dumps(item.get("field") or {}, ensure_ascii=True),
                     item.get("sourceSlide"),
                     now,
@@ -3232,7 +4033,10 @@ def update_exercise_category(exercise_id: Any, category: Any) -> bool:
             """,
             (normalized_category, utcnow_iso(), normalized_id),
         )
-    return cursor.rowcount > 0
+    if cursor.rowcount > 0:
+        clear_local_data_cache()
+        return True
+    return False
 
 
 def update_exercise(exercise_id: Any, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -3241,20 +4045,30 @@ def update_exercise(exercise_id: Any, payload: Dict[str, Any]) -> Optional[Dict[
     except (TypeError, ValueError):
         return None
 
-    title = normalize_exercise_text(payload.get("title"))[:180]
+    existing_exercise = load_exercise_by_id(normalized_id)
+    if existing_exercise is None:
+        return None
+
+    title = normalize_exercise_text(payload.get("title"))[:180] or str(existing_exercise.get("title") or "").strip()
     category = normalize_exercise_category(payload.get("category"))
+    if category not in EXERCISE_CATEGORY_OPTIONS:
+        category = normalize_exercise_category(existing_exercise.get("category"))
+    if category not in EXERCISE_CATEGORY_OPTIONS:
+        category = EXERCISE_CATEGORY_OPTIONS[0]
     if not title or category not in EXERCISE_CATEGORY_OPTIONS:
         return None
 
     cleaned = {
         "title": title,
         "category": category,
+        "trainingExercise": normalize_exercise_text(payload.get("trainingExercise", existing_exercise.get("trainingExercise"))),
         "description": normalize_exercise_text(payload.get("description")),
         "coaching": normalize_exercise_text(payload.get("coaching")),
         "variationEasier": normalize_exercise_text(payload.get("variationEasier")),
         "variationHarder": normalize_exercise_text(payload.get("variationHarder")),
         "dimensions": normalize_exercise_text(payload.get("dimensions")),
         "materials": normalize_exercise_text(payload.get("materials")),
+        "ageGroups": normalize_exercise_age_groups(payload.get("ageGroups")),
     }
 
     with get_db_connection() as connection:
@@ -3263,32 +4077,315 @@ def update_exercise(exercise_id: Any, payload: Dict[str, Any]) -> Optional[Dict[
             UPDATE exercises
             SET title = ?,
                 category = ?,
+                training_exercise = ?,
                 description = ?,
                 coaching = ?,
                 variation_easier = ?,
                 variation_harder = ?,
                 dimensions = ?,
                 materials = ?,
+                age_groups_json = ?,
                 updated_at = ?
             WHERE id = ?
             """,
             (
                 cleaned["title"],
                 cleaned["category"],
+                cleaned["trainingExercise"],
                 cleaned["description"],
                 cleaned["coaching"],
                 cleaned["variationEasier"],
                 cleaned["variationHarder"],
                 cleaned["dimensions"],
                 cleaned["materials"],
+                json.dumps(cleaned["ageGroups"], ensure_ascii=True),
                 utcnow_iso(),
                 normalized_id,
             ),
         )
     if cursor.rowcount <= 0:
         return None
-    cleaned["id"] = normalized_id
+    clear_local_data_cache()
+    return load_exercise_by_id(normalized_id)
+
+
+def update_exercise_field_image(exercise_id: Any, field: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    try:
+        normalized_id = int(exercise_id)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(field, dict) or not str(field.get("imageDataUrl") or "").startswith("data:image/"):
+        return None
+
+    exercise = load_exercise_by_id(normalized_id)
+    if exercise is None:
+        return None
+    current_field = dict(exercise.get("field") or {})
+    current_field["imageDataUrl"] = str(field.get("imageDataUrl") or "")
+    current_field["imageLayer"] = {"x": 50.0, "y": 50.0, "size": 100.0}
+    if not isinstance(current_field.get("viewBox"), list) or len(current_field.get("viewBox") or []) != 4:
+        current_field["viewBox"] = [0, 0, 100, 70]
+    if not isinstance(current_field.get("elements"), list):
+        current_field["elements"] = []
+    if not isinstance(current_field.get("overlayItems"), list):
+        current_field["overlayItems"] = []
+
+    now = utcnow_iso()
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE exercises
+            SET field_json = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (json.dumps(current_field, ensure_ascii=True), now, normalized_id),
+        )
+    if cursor.rowcount <= 0:
+        return None
+    clear_local_data_cache()
+    return load_exercise_by_id(normalized_id)
+
+
+def sanitize_exercise_field_overlay_item(item: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(item, dict):
+        return None
+    item_type = str(item.get("type") or "").strip()
+    if item_type == "cone":
+        item_type = "small-cone"
+    if item_type not in {"player", "big-cone", "small-cone", "goal", "ball", "line", "arrow", "text"}:
+        return None
+
+    def pct(value: Any, default: float = 50.0) -> float:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            numeric = default
+        return min(100.0, max(0.0, numeric))
+
+    cleaned = {
+        "id": str(item.get("id") or secrets.token_urlsafe(8))[:40],
+        "type": item_type,
+        "x": pct(item.get("x")),
+        "y": pct(item.get("y")),
+        "color": safe_svg_color(item.get("color"), "#111111"),
+    }
+    try:
+        size = float(item.get("size", 100))
+    except (TypeError, ValueError):
+        size = 100.0
+    cleaned["size"] = min(220.0, max(45.0, size))
+    if item_type in {"line", "arrow"}:
+        cleaned["x2"] = pct(item.get("x2"), cleaned["x"] + 12)
+        cleaned["y2"] = pct(item.get("y2"), cleaned["y"])
+    if item_type == "text":
+        text_value = normalize_exercise_text(item.get("text"))[:80]
+        cleaned["text"] = text_value or "Tekst"
     return cleaned
+
+
+def sanitize_exercise_field_image_layer(layer: Any) -> Optional[Dict[str, float]]:
+    if not isinstance(layer, dict):
+        return None
+
+    def pct(value: Any, default: float = 50.0) -> float:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            numeric = default
+        return min(100.0, max(0.0, numeric))
+
+    try:
+        size = float(layer.get("size", 100))
+    except (TypeError, ValueError):
+        size = 100.0
+    return {
+        "x": pct(layer.get("x")),
+        "y": pct(layer.get("y")),
+        "size": min(180.0, max(45.0, size)),
+    }
+
+
+def update_exercise_field_overlay(exercise_id: Any, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    try:
+        normalized_id = int(exercise_id)
+    except (TypeError, ValueError):
+        return None
+    exercise = load_exercise_by_id(normalized_id)
+    if exercise is None:
+        return None
+
+    field = dict(exercise.get("field") or {})
+    if not isinstance(field.get("viewBox"), list) or len(field.get("viewBox") or []) != 4:
+        field["viewBox"] = [0, 0, 100, 70]
+    if not isinstance(field.get("elements"), list):
+        field["elements"] = []
+    raw_items = payload.get("overlayItems", [])
+    if not isinstance(raw_items, list):
+        raw_items = []
+    field["overlayItems"] = [
+        item
+        for item in (sanitize_exercise_field_overlay_item(raw_item) for raw_item in raw_items[:160])
+        if item is not None
+    ]
+    image_data_url = str(payload.get("imageDataUrl", field.get("imageDataUrl") or "") or "").strip()
+    if image_data_url.startswith("data:image/"):
+        field["imageDataUrl"] = image_data_url
+        field["imageLayer"] = sanitize_exercise_field_image_layer(payload.get("imageLayer")) or sanitize_exercise_field_image_layer(field.get("imageLayer")) or {"x": 50.0, "y": 50.0, "size": 100.0}
+    else:
+        field.pop("imageDataUrl", None)
+        field.pop("imageLayer", None)
+
+    try:
+        background_opacity = float(payload.get("backgroundOpacity", field.get("backgroundOpacity", 1)))
+    except (TypeError, ValueError):
+        background_opacity = 1.0
+    field["backgroundOpacity"] = min(1.0, max(0.15, background_opacity))
+
+    now = utcnow_iso()
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE exercises
+            SET field_json = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (json.dumps(field, ensure_ascii=True), now, normalized_id),
+        )
+    if cursor.rowcount <= 0:
+        return None
+    clear_local_data_cache()
+    return load_exercise_by_id(normalized_id)
+
+
+def upload_exercise_video(exercise_id: Any, upload: Any) -> Tuple[Optional[Dict[str, Any]], str]:
+    try:
+        normalized_id = int(exercise_id)
+    except (TypeError, ValueError):
+        return None, "Kies eerst een geldige oefening."
+
+    exercise = load_exercise_by_id(normalized_id)
+    if exercise is None:
+        return None, "Oefening niet gevonden."
+    if upload is None or not getattr(upload, "filename", ""):
+        return None, "Kies eerst een video."
+
+    original_name = str(upload.filename or "").strip()
+    upload_stream = upload.stream
+    try:
+        upload_stream.seek(0, os.SEEK_END)
+        file_size = upload_stream.tell()
+        upload_stream.seek(0)
+    except (AttributeError, OSError):
+        return None, "Deze video kon niet worden gelezen."
+    config = get_exercise_video_storage_config()
+    max_bytes = config["max_upload_mb"] * 1024 * 1024
+    if file_size <= 0:
+        return None, "De video is leeg."
+    if file_size > max_bytes:
+        return None, f"De video mag maximaal {config['max_upload_mb']} MB zijn."
+
+    content_type = str(getattr(upload, "mimetype", "") or mimetypes.guess_type(original_name)[0] or "").strip().lower()
+    if content_type not in config["allowed_types"] or content_type not in ALLOWED_VIDEO_EXTENSIONS:
+        return None, "Upload een MP4-, WebM- of MOV-video."
+
+    safe_name = sanitize_upload_filename(original_name)
+    extension = os.path.splitext(safe_name)[1].lower()
+    if not extension:
+        extension = (mimetypes.guess_extension(content_type) or ".mp4").lower()
+    if extension not in ALLOWED_VIDEO_EXTENSIONS[content_type]:
+        return None, "De bestandsnaam past niet bij dit videotype."
+    signature_bytes = upload_stream.read(32)
+    upload_stream.seek(0)
+    if not validate_video_signature(content_type, signature_bytes):
+        return None, "Deze video kon niet worden gevalideerd."
+
+    unique_name = f"{int(time.time() * 1000)}-{secrets.token_hex(4)}{extension}"
+    remote_path = "/".join(
+        [
+            config["base_path"],
+            f"{exercise['id']}-{slugify_value(exercise['title'])}",
+            unique_name,
+        ]
+    )
+    upload_result = upload_content_file(remote_path, upload_stream, file_size, content_type, config=config)
+    now = utcnow_iso()
+    old_remote_path = str(exercise.get("videoRemotePath") or "").strip()
+    old_storage_backend = str(exercise.get("videoStorageBackend") or "").strip()
+
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE exercises
+            SET video_url = ?,
+                video_remote_path = ?,
+                video_file_name = ?,
+                video_original_name = ?,
+                video_content_type = ?,
+                video_file_size = ?,
+                video_storage_backend = ?,
+                video_uploaded_at = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                upload_result["url"],
+                remote_path,
+                unique_name,
+                original_name,
+                content_type,
+                file_size,
+                upload_result["storage_backend"],
+                now,
+                now,
+                normalized_id,
+            ),
+        )
+    if cursor.rowcount <= 0:
+        delete_content_file(remote_path, upload_result["storage_backend"])
+        return None, "Oefening niet gevonden."
+
+    if old_remote_path:
+        try:
+            delete_content_file(old_remote_path, old_storage_backend or "local")
+        except requests.RequestException:
+            pass
+    clear_local_data_cache()
+    return load_exercise_by_id(normalized_id), ""
+
+
+def delete_exercise_video(exercise_id: Any) -> bool:
+    try:
+        normalized_id = int(exercise_id)
+    except (TypeError, ValueError):
+        return False
+    exercise = load_exercise_by_id(normalized_id)
+    if exercise is None:
+        return False
+    remote_path = str(exercise.get("videoRemotePath") or "").strip()
+    storage_backend = str(exercise.get("videoStorageBackend") or "local").strip()
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE exercises
+            SET video_url = NULL,
+                video_remote_path = NULL,
+                video_file_name = NULL,
+                video_original_name = NULL,
+                video_content_type = NULL,
+                video_file_size = 0,
+                video_storage_backend = NULL,
+                video_uploaded_at = NULL,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (utcnow_iso(), normalized_id),
+        )
+    if cursor.rowcount <= 0:
+        return False
+    if remote_path:
+        delete_content_file(remote_path, storage_backend or "local")
+    clear_local_data_cache()
+    return True
 
 
 def delete_exercise(exercise_id: Any) -> bool:
@@ -3296,11 +4393,116 @@ def delete_exercise(exercise_id: Any) -> bool:
         normalized_id = int(exercise_id)
     except (TypeError, ValueError):
         return False
+    exercise = load_exercise_by_id(normalized_id)
+    if exercise is None:
+        return False
     with get_db_connection() as connection:
         cursor = connection.execute("DELETE FROM exercises WHERE id = ?", (normalized_id,))
     if cursor.rowcount > 0:
+        remote_path = str(exercise.get("videoRemotePath") or "").strip()
+        if remote_path:
+            try:
+                delete_content_file(remote_path, str(exercise.get("videoStorageBackend") or "local").strip())
+            except requests.RequestException:
+                pass
         clear_local_data_cache()
     return cursor.rowcount > 0
+
+
+def normalize_training_session_exercises(items: Any) -> List[Dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+
+    exercise_lookup = {int(exercise["id"]): exercise for exercise in load_exercises()}
+    cleaned_items: List[Dict[str, Any]] = []
+    for position, item in enumerate(items[:80], start=1):
+        if not isinstance(item, dict):
+            continue
+        try:
+            exercise_id = int(item.get("exerciseId") or item.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        exercise = exercise_lookup.get(exercise_id)
+        if exercise is None:
+            continue
+        cleaned_items.append(
+            {
+                "exerciseId": exercise_id,
+                "title": exercise.get("title", "Oefening"),
+                "category": exercise.get("category", ""),
+                "trainingExercise": exercise.get("trainingExercise", ""),
+                "duration": normalize_exercise_text(item.get("duration") or exercise.get("duration")),
+                "notes": normalize_exercise_text(item.get("notes"))[:800],
+                "position": position,
+            }
+        )
+
+    return cleaned_items
+
+
+def normalize_training_session(row: sqlite3.Row) -> Dict[str, Any]:
+    try:
+        exercises = json.loads(str(row["exercises_json"] or "[]"))
+    except json.JSONDecodeError:
+        exercises = []
+    if not isinstance(exercises, list):
+        exercises = []
+
+    return {
+        "id": int(row["id"]),
+        "title": str(row["title"] or "").strip(),
+        "trainingDate": str(row["training_date"] or "").strip(),
+        "objective": str(row["objective"] or "").strip(),
+        "notes": str(row["notes"] or "").strip(),
+        "exercises": exercises,
+        "exerciseCount": len(exercises),
+        "createdAt": str(row["created_at"] or "").strip(),
+        "updatedAt": str(row["updated_at"] or "").strip(),
+    }
+
+
+def load_training_sessions() -> List[Dict[str, Any]]:
+    def loader() -> List[Dict[str, Any]]:
+        with get_db_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, title, training_date, objective, notes, exercises_json, created_at, updated_at
+                FROM training_sessions
+                ORDER BY updated_at DESC, id DESC
+                """
+            ).fetchall()
+        return [normalize_training_session(row) for row in rows]
+
+    return get_cached_local_data("training_sessions", (), loader)
+
+
+def save_training_session(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    title = normalize_exercise_text(payload.get("title"))[:160]
+    exercises = normalize_training_session_exercises(payload.get("exercises"))
+    if not title or not exercises:
+        return None
+
+    notes = normalize_exercise_text(payload.get("notes"))[:1200]
+    objective = normalize_exercise_text(payload.get("objective"))[:1200]
+    training_date = str(payload.get("trainingDate") or "").strip()[:10]
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", training_date):
+        training_date = ""
+    now = utcnow_iso()
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO training_sessions (title, training_date, objective, notes, exercises_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (title, training_date, objective, notes, json.dumps(exercises, ensure_ascii=True), now, now),
+        )
+        training_id = int(cursor.lastrowid)
+    clear_local_data_cache()
+
+    for training in load_training_sessions():
+        if int(training["id"]) == training_id:
+            return training
+    return None
 
 
 def load_agenda_trainings(start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -3309,7 +4511,7 @@ def load_agenda_trainings(start_date: Optional[str] = None, end_date: Optional[s
 
     def loader() -> List[Dict[str, Any]]:
         query = """
-            SELECT id, title, date, time, end_time, location, notes
+            SELECT id, title, date, time, end_time, location, training_type, trainers_json, notes
             FROM agenda_trainings
         """
         params: List[str] = []
@@ -3330,6 +4532,19 @@ def load_agenda_trainings(start_date: Optional[str] = None, end_date: Optional[s
 
         trainings = []
         for row in rows:
+            try:
+                trainers_payload = json.loads(str(row["trainers_json"] or "[]"))
+            except (json.JSONDecodeError, KeyError):
+                trainers_payload = []
+            trainers = [
+                {
+                    "id": str(item.get("id") or "").strip(),
+                    "name": str(item.get("name") or "").strip(),
+                }
+                for item in trainers_payload
+                if isinstance(item, dict) and str(item.get("id") or "").strip() and str(item.get("name") or "").strip()
+            ] if isinstance(trainers_payload, list) else []
+            type_option = get_agenda_training_type_option(row["training_type"])
             trainings.append(
                 {
                     "id": str(row["id"]),
@@ -3338,6 +4553,11 @@ def load_agenda_trainings(start_date: Optional[str] = None, end_date: Optional[s
                     "time": str(row["time"] or "").strip(),
                     "endTime": str(row["end_time"] or "").strip(),
                     "location": str(row["location"] or "").strip(),
+                    "trainingType": type_option["value"],
+                    "trainingTypeLabel": type_option["label"],
+                    "trainingTypeClass": type_option["className"],
+                    "trainers": trainers,
+                    "trainerNames": ", ".join(item["name"] for item in trainers),
                     "notes": str(row["notes"] or "").strip(),
                 }
             )
@@ -3352,8 +4572,8 @@ def save_agenda_trainings(trainings: List[Dict[str, Any]]) -> None:
         connection.execute("DELETE FROM agenda_trainings")
         connection.executemany(
             """
-            INSERT INTO agenda_trainings (id, title, date, time, end_time, location, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO agenda_trainings (id, title, date, time, end_time, location, training_type, trainers_json, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -3363,6 +4583,8 @@ def save_agenda_trainings(trainings: List[Dict[str, Any]]) -> None:
                     str(item.get("time", "")).strip(),
                     str(item.get("endTime", "")).strip(),
                     str(item.get("location", "")).strip(),
+                    get_agenda_training_type_option(item.get("trainingType"))["value"],
+                    json.dumps(item.get("trainers") if isinstance(item.get("trainers"), list) else [], ensure_ascii=False),
                     str(item.get("notes", "")).strip(),
                 )
                 for item in trainings
@@ -3372,12 +4594,126 @@ def save_agenda_trainings(trainings: List[Dict[str, Any]]) -> None:
     clear_local_data_cache()
 
 
+def build_agenda_training_signature(training: Dict[str, Any]) -> str:
+    trainers = training.get("trainers") if isinstance(training.get("trainers"), list) else []
+    normalized_trainers = [
+        {
+            "id": str(item.get("id") or "").strip(),
+            "name": str(item.get("name") or "").strip(),
+        }
+        for item in trainers
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    ]
+    return json.dumps(
+        {
+            "title": str(training.get("title") or "").strip(),
+            "time": str(training.get("time") or "").strip(),
+            "endTime": str(training.get("endTime") or "").strip(),
+            "location": str(training.get("location") or "").strip(),
+            "trainingType": get_agenda_training_type_option(training.get("trainingType"))["value"],
+            "trainers": normalized_trainers,
+            "notes": str(training.get("notes") or "").strip(),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def update_agenda_training(
+    training_id: str,
+    update_scope: str,
+    original_signature: str,
+    title: str,
+    date_value: str,
+    time_value: str,
+    end_time_value: str,
+    location: str,
+    training_type: str,
+    trainers: List[Dict[str, str]],
+    notes: str,
+) -> int:
+    normalized_training_id = str(training_id or "").strip()
+    normalized_scope = str(update_scope or "").strip()
+    normalized_title = title.strip()
+    normalized_date = str(date_value or "").strip()
+    normalized_time = time_value.strip()
+    normalized_end_time = end_time_value.strip()
+    normalized_location = location.strip()
+    normalized_training_type = training_type.strip()
+
+    if not normalized_training_id or not normalized_title or not normalized_time or not normalized_location or not normalized_training_type:
+        return 0
+    if normalized_scope != "matching" and parse_iso_date(normalized_date) is None:
+        return 0
+
+    trainings = load_agenda_trainings()
+    updated_count = 0
+
+    for training in trainings:
+        is_target = str(training.get("id") or "").strip() == normalized_training_id
+        if normalized_scope == "matching":
+            is_target = build_agenda_training_signature(training) == original_signature
+        if not is_target:
+            continue
+
+        training["title"] = normalized_title
+        if normalized_scope != "matching":
+            training["date"] = normalized_date
+        training["time"] = normalized_time
+        training["endTime"] = normalized_end_time
+        training["location"] = normalized_location
+        training["trainingType"] = normalized_training_type
+        training["trainers"] = trainers
+        training["notes"] = notes.strip()
+        updated_count += 1
+
+    if updated_count:
+        save_agenda_trainings(trainings)
+    return updated_count
+
+
+def delete_agenda_training(
+    training_id: str,
+    delete_scope: str,
+    original_signature: str,
+) -> int:
+    normalized_training_id = str(training_id or "").strip()
+    normalized_scope = str(delete_scope or "").strip()
+    normalized_signature = str(original_signature or "").strip()
+
+    if not normalized_training_id:
+        return 0
+    if normalized_scope == "matching" and not normalized_signature:
+        return 0
+
+    trainings = load_agenda_trainings()
+    remaining_trainings: List[Dict[str, Any]] = []
+    deleted_count = 0
+
+    for training in trainings:
+        is_target = str(training.get("id") or "").strip() == normalized_training_id
+        if normalized_scope == "matching":
+            is_target = build_agenda_training_signature(training) == normalized_signature
+
+        if is_target:
+            deleted_count += 1
+            continue
+
+        remaining_trainings.append(training)
+
+    if deleted_count:
+        save_agenda_trainings(remaining_trainings)
+    return deleted_count
+
+
 def add_agenda_training(
     title: str,
     date_value: str,
     time_value: str,
     end_time_value: str,
     location: str,
+    training_type: str,
+    trainers: List[Dict[str, str]],
     notes: str,
 ) -> None:
     trainings = load_agenda_trainings()
@@ -3389,14 +4725,131 @@ def add_agenda_training(
             "time": time_value.strip(),
             "endTime": end_time_value.strip(),
             "location": location.strip(),
+            "trainingType": training_type.strip(),
+            "trainers": trainers,
             "notes": notes.strip(),
         }
     )
     save_agenda_trainings(trainings)
 
 
+def add_agenda_trainings_bulk(
+    title: str,
+    date_values: List[str],
+    time_value: str,
+    end_time_value: str,
+    location: str,
+    training_type: str,
+    trainers: List[Dict[str, str]],
+    notes: str,
+) -> int:
+    normalized_title = title.strip()
+    normalized_time = time_value.strip()
+    normalized_end_time = end_time_value.strip()
+    normalized_location = location.strip()
+    normalized_training_type = training_type.strip()
+    valid_dates = []
+    seen_dates = set()
+
+    for date_value in date_values:
+        normalized_date = str(date_value or "").strip()
+        if not normalized_date or normalized_date in seen_dates:
+            continue
+        if parse_iso_date(normalized_date) is None:
+            continue
+        seen_dates.add(normalized_date)
+        valid_dates.append(normalized_date)
+
+    if not normalized_title or not normalized_time or not normalized_location or not normalized_training_type or not valid_dates:
+        return 0
+
+    trainings = load_agenda_trainings()
+    base_id = int(time.time() * 1000)
+    for index, date_value in enumerate(valid_dates):
+        trainings.append(
+            {
+                "id": str(base_id + index),
+                "title": normalized_title,
+                "date": date_value,
+                "time": normalized_time,
+                "endTime": normalized_end_time,
+                "location": normalized_location,
+                "trainingType": normalized_training_type,
+                "trainers": trainers,
+                "notes": notes.strip(),
+            }
+        )
+    save_agenda_trainings(trainings)
+    return len(valid_dates)
+
+
 def is_allowed_agenda_day_plan(plan_type: str) -> bool:
     return str(plan_type or "").strip() in AGENDA_DAY_PLAN_OPTIONS
+
+
+def normalize_agenda_club(value: Any) -> str:
+    normalized_value = str(value or "").strip()
+    return normalized_value if normalized_value in AGENDA_CLUB_OPTIONS else ""
+
+
+def get_agenda_club_class(value: Any) -> str:
+    return AGENDA_CLUB_CLASS_NAMES.get(str(value or "").strip(), "")
+
+
+def get_agenda_training_type_option(value: Any) -> Dict[str, str]:
+    normalized_value = str(value or "").strip()
+    for option in AGENDA_TRAINING_TYPE_OPTIONS:
+        if option["value"] == normalized_value:
+            return option
+    return AGENDA_TRAINING_TYPE_OPTIONS[2]
+
+
+def normalize_agenda_training_type(value: Any) -> str:
+    normalized_value = str(value or "").strip()
+    valid_values = {option["value"] for option in AGENDA_TRAINING_TYPE_OPTIONS}
+    return normalized_value if normalized_value in valid_values else ""
+
+
+def build_agenda_trainer_options() -> List[Dict[str, str]]:
+    options = []
+    for profile in load_trainer_profiles():
+        profile_id = str(profile.get("id") or "").strip()
+        full_name = str(profile.get("fullName") or "").strip()
+        if profile_id and full_name:
+            options.append(
+                {
+                    "id": profile_id,
+                    "name": full_name,
+                }
+            )
+    return options
+
+
+def normalize_agenda_trainers(trainer_ids: List[str]) -> List[Dict[str, str]]:
+    selected_ids = []
+    seen_ids = set()
+    for trainer_id in trainer_ids:
+        normalized_id = str(trainer_id or "").strip()
+        if not normalized_id or normalized_id in seen_ids:
+            continue
+        seen_ids.add(normalized_id)
+        selected_ids.append(normalized_id)
+
+    if not selected_ids:
+        return []
+
+    trainer_options_by_id = {
+        option["id"]: option
+        for option in build_agenda_trainer_options()
+    }
+    return [
+        {
+            "id": trainer_options_by_id[trainer_id]["id"],
+            "name": trainer_options_by_id[trainer_id]["name"],
+        }
+        for trainer_id in selected_ids
+        if trainer_id in trainer_options_by_id
+    ]
 
 
 def load_agenda_day_plans(date_values: List[str]) -> Dict[str, str]:
@@ -3666,6 +5119,7 @@ FOOTBALL_ACTIVITY_ICON_RULES: Tuple[Tuple[str, str], ...] = (
     ("materiaal|opbouw|afbouw|veld", "cones"),
     ("quiz", "clipboard"),
 )
+FOOTBALL_ACTIVITY_ICON_KEYS = {icon_key for _, icon_key in FOOTBALL_ACTIVITY_ICON_RULES} | {"clock"}
 
 
 def infer_football_activity_icon(activity_name: str) -> str:
@@ -3697,6 +5151,20 @@ def normalize_football_field_layout(layout: Any) -> List[Dict[str, Any]]:
     for index, item in enumerate(items[:80]):
         if not isinstance(item, dict):
             continue
+        if str(item.get("type") or "").strip() == "arrow" or str(item.get("id") or "").startswith("field-arrow-"):
+            normalized_layout.append(
+                {
+                    "type": "arrow",
+                    "id": str(item.get("id") or f"arrow-{index + 1}").strip()[:80],
+                    "x1": round(clamp_float(item.get("x1"), 0.0, 100.0, 22.0), 3),
+                    "y1": round(clamp_float(item.get("y1"), 0.0, 100.0, 24.0), 3),
+                    "x2": round(clamp_float(item.get("x2"), 0.0, 100.0, 58.0), 3),
+                    "y2": round(clamp_float(item.get("y2"), 0.0, 100.0, 34.0), 3),
+                    "color": normalize_hex_color(item.get("color"), "#FFFFFF"),
+                    "strokeWidth": round(clamp_float(item.get("strokeWidth") or item.get("width"), 2.0, 12.0, 5.0), 3),
+                }
+            )
+            continue
         width = clamp_float(item.get("width"), 8.0, 100.0, 20.0)
         height = clamp_float(item.get("height"), 6.0, 100.0, 14.0)
         x = clamp_float(item.get("x"), 0.0, 100.0 - width, 8.0)
@@ -3707,6 +5175,7 @@ def normalize_football_field_layout(layout: Any) -> List[Dict[str, Any]]:
             exercise_id = 0
         normalized_layout.append(
             {
+                "type": "block",
                 "id": str(item.get("id") or f"block-{index + 1}").strip()[:80],
                 "x": round(x, 3),
                 "y": round(y, 3),
@@ -3717,26 +5186,198 @@ def normalize_football_field_layout(layout: Any) -> List[Dict[str, Any]]:
                 "exerciseTitle": str(item.get("exerciseTitle") or "").strip()[:180],
                 "exerciseKind": str(item.get("exerciseKind") or "").strip()[:180],
                 "category": str(item.get("category") or "").strip()[:120],
+                "exerciseAgeGroups": normalize_exercise_age_groups(item.get("exerciseAgeGroups")),
+                "sameExerciseExport": bool(item.get("sameExerciseExport")),
+                "sameExerciseKey": str(item.get("sameExerciseKey") or "").strip()[:220],
                 "color": normalize_hex_color(item.get("color")),
             }
         )
     return normalized_layout
 
 
+def normalize_football_field_periods(periods: Any, fallback_layout: Any = None) -> List[Dict[str, Any]]:
+    normalized_periods: List[Dict[str, Any]] = []
+    items = periods if isinstance(periods, list) else []
+    for index, item in enumerate(items[:8]):
+        if not isinstance(item, dict):
+            continue
+        field_layout = normalize_football_field_layout(item.get("fieldLayout"))
+        label = str(item.get("label") or item.get("name") or "").strip()
+        start_time = str(item.get("startTime") or item.get("start") or "").strip()
+        end_time = str(item.get("endTime") or item.get("end") or "").strip()
+        if not label and not start_time and not end_time and not field_layout:
+            continue
+        normalized_periods.append(
+            {
+                "id": str(item.get("id") or f"field-period-{index + 1}").strip()[:80],
+                "label": label[:120] or f"Plattegrond {index + 1}",
+                "startTime": start_time[:20],
+                "endTime": end_time[:20],
+                "fieldLayout": field_layout,
+            }
+        )
+    if not normalized_periods and fallback_layout:
+        normalized_periods.append(
+            {
+                "id": "field-period-1",
+                "label": "Plattegrond 1",
+                "startTime": "",
+                "endTime": "",
+                "fieldLayout": normalize_football_field_layout(fallback_layout),
+            }
+        )
+    return normalized_periods
+
+
+def normalize_football_field_trainings(trainings: Any, fallback_layout: Any = None) -> List[Dict[str, Any]]:
+    normalized_trainings: List[Dict[str, Any]] = []
+    items = trainings if isinstance(trainings, list) else []
+    for index, item in enumerate(items[:24]):
+        if not isinstance(item, dict):
+            continue
+        field_layout = normalize_football_field_layout(item.get("fieldLayout"))
+        field_periods = normalize_football_field_periods(item.get("fieldPeriods"), field_layout)
+        if field_periods and not field_layout:
+            field_layout = field_periods[0]["fieldLayout"]
+        name = str(item.get("name") or item.get("title") or "").strip()
+        date = str(item.get("date") or "").strip()
+        age_groups = normalize_exercise_age_groups(item.get("ageGroups"))
+        if not name and not date and not field_layout and not field_periods:
+            continue
+        normalized_trainings.append(
+            {
+                "id": str(item.get("id") or f"training-{index + 1}").strip()[:80],
+                "name": name[:120] or f"Training {index + 1}",
+                "date": date[:40],
+                "dateLabel": format_football_days_date(date),
+                "ageGroups": age_groups,
+                "fieldPeriods": field_periods,
+                "fieldLayout": field_layout,
+            }
+        )
+
+    if not normalized_trainings and fallback_layout:
+        normalized_trainings.append(
+            {
+                "id": "training-1",
+                "name": "Training 1",
+                "date": "",
+                "dateLabel": format_football_days_date(""),
+                "ageGroups": [],
+                "fieldPeriods": normalize_football_field_periods([], fallback_layout),
+                "fieldLayout": normalize_football_field_layout(fallback_layout),
+            }
+        )
+    return normalized_trainings
+
+
+def normalize_football_no_training_dates(value: Any) -> List[Dict[str, str]]:
+    if isinstance(value, str):
+        try:
+            parsed_value = json.loads(value)
+        except json.JSONDecodeError:
+            raw_items = []
+            matches = list(re.finditer(r"\d{4}-\d{2}-\d{2}", value))
+            for match_index, match in enumerate(matches):
+                next_start = matches[match_index + 1].start() if match_index + 1 < len(matches) else len(value)
+                description = value[match.end() : next_start].strip(" \t\r\n,;:-–—")
+                raw_items.append({"date": match.group(0), "description": description})
+        else:
+            raw_items = parsed_value if isinstance(parsed_value, list) else []
+    else:
+        raw_items = value if isinstance(value, list) else []
+
+    normalized_dates: List[Dict[str, str]] = []
+    seen_dates: Set[str] = set()
+    for item in raw_items[:48]:
+        raw_date = str(item.get("date") if isinstance(item, dict) else item or "").strip()
+        raw_description = str(item.get("description") if isinstance(item, dict) else "").strip()
+        if not raw_date:
+            continue
+        try:
+            date_value = datetime.strptime(raw_date[:10], "%Y-%m-%d").date().isoformat()
+        except ValueError:
+            continue
+        if date_value in seen_dates:
+            continue
+        seen_dates.add(date_value)
+        normalized_dates.append(
+            {
+                "date": date_value,
+                "dateLabel": format_football_days_date(date_value),
+                "description": raw_description[:160] or "Geen training",
+            }
+        )
+    return sorted(normalized_dates, key=lambda row: row["date"])
+
+
+def sorted_football_cycle_trainings(trainings: Any) -> List[Dict[str, Any]]:
+    items = trainings if isinstance(trainings, list) else []
+
+    def sort_key(item: Tuple[int, Any]) -> Tuple[int, str, int]:
+        index, training = item
+        training_date = str(training.get("date") or "").strip() if isinstance(training, dict) else ""
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", training_date):
+            return (0, training_date, index)
+        return (1, "", index)
+
+    return [
+        training
+        for _index, training in sorted(
+            [(index, training) for index, training in enumerate(items) if isinstance(training, dict)],
+            key=sort_key,
+        )
+    ]
+
+
+def get_football_field_block_sort_key(block: Dict[str, Any], fallback_index: int) -> Tuple[int, int, str, int]:
+    title = str(block.get("title") or "").strip()
+    normalized_title = normalize_match_text(title)
+    order_match = re.match(r"^o\s*0*(\d+)(?:\b|$)", normalized_title)
+    if order_match:
+        return (0, int(order_match.group(1)), normalized_title, fallback_index)
+    return (1, fallback_index, normalized_title, fallback_index)
+
+
+def sort_football_field_blocks(blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    indexed_blocks = [
+        (index, block)
+        for index, block in enumerate(blocks)
+        if isinstance(block, dict) and block.get("type") != "arrow"
+    ]
+    return [
+        block
+        for index, block in sorted(
+            indexed_blocks,
+            key=lambda item: get_football_field_block_sort_key(item[1], item[0]),
+        )
+    ]
+
+
 def normalize_football_days_playbook(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
     if row is None:
         return {
             "id": None,
+            "playbookType": "voetbaldagen",
             "title": "Draaiboek Voetbaldagen",
             "eventDate": "",
+            "cycleNumber": "",
+            "cycleStartDate": "",
+            "cycleEndDate": "",
             "location": "",
             "ecwidProductId": "",
             "ecwidProductName": "",
             "ecwidProductSku": "",
             "registrationCount": 0,
+            "includeStaff": True,
+            "includeStaffSetupTasks": True,
+            "includeProgram": True,
             "staff": [],
             "program": [],
             "fieldLayout": [],
+            "fieldTrainings": [],
+            "cycleNoTrainingDates": [],
+            "cycleNoTrainingDatesText": "",
             "contingencies": "",
             "createdAt": "",
             "updatedAt": "",
@@ -3754,6 +5395,14 @@ def normalize_football_days_playbook(row: Optional[sqlite3.Row]) -> Dict[str, An
         field_layout = json.loads(str(row["field_layout_json"] or "[]"))
     except (KeyError, IndexError, json.JSONDecodeError):
         field_layout = []
+    try:
+        field_trainings = json.loads(str(row["field_trainings_json"] or "[]"))
+    except (KeyError, IndexError, json.JSONDecodeError):
+        field_trainings = []
+    try:
+        cycle_no_training_dates = json.loads(str(row["cycle_no_training_dates_json"] or "[]"))
+    except (KeyError, IndexError, json.JSONDecodeError):
+        cycle_no_training_dates = []
 
     normalized_program = []
     for item in program if isinstance(program, list) else []:
@@ -3782,56 +5431,116 @@ def normalize_football_days_playbook(row: Optional[sqlite3.Row]) -> Dict[str, An
             normalized_staff.append({"name": name, "role": role, "setupTask": setup_task})
 
     normalized_field_layout = normalize_football_field_layout(field_layout)
+    normalized_field_trainings = normalize_football_field_trainings(field_trainings, normalized_field_layout)
+    normalized_no_training_dates = normalize_football_no_training_dates(cycle_no_training_dates)
 
     return {
         "id": int(row["id"]),
+        "playbookType": str(row["playbook_type"] or "voetbaldagen").strip() if "playbook_type" in row.keys() else "voetbaldagen",
         "title": str(row["title"] or "Draaiboek Voetbaldagen").strip(),
         "eventDate": str(row["event_date"] or "").strip(),
+        "cycleNumber": str(row["cycle_number"] or "").strip() if "cycle_number" in row.keys() else "",
+        "cycleStartDate": str(row["cycle_start_date"] or "").strip() if "cycle_start_date" in row.keys() else "",
+        "cycleEndDate": str(row["cycle_end_date"] or "").strip() if "cycle_end_date" in row.keys() else "",
         "location": str(row["location"] or "").strip(),
         "ecwidProductId": str(row["ecwid_product_id"] or "").strip(),
         "ecwidProductName": str(row["ecwid_product_name"] or "").strip(),
         "ecwidProductSku": str(row["ecwid_product_sku"] or "").strip(),
         "registrationCount": 0,
+        "includeStaff": bool(row["include_staff"]) if "include_staff" in row.keys() else True,
+        "includeStaffSetupTasks": bool(row["include_staff_setup_tasks"]) if "include_staff_setup_tasks" in row.keys() else True,
+        "includeProgram": bool(row["include_program"]) if "include_program" in row.keys() else True,
         "staff": normalized_staff,
         "program": normalized_program,
         "fieldLayout": normalized_field_layout,
+        "fieldTrainings": normalized_field_trainings,
+        "cycleNoTrainingDates": normalized_no_training_dates,
+        "cycleNoTrainingDatesText": "\n".join(
+            f"{row['date']} - {row['description']}" if row.get("description") and row["description"] != "Geen training" else row["date"]
+            for row in normalized_no_training_dates
+        ),
         "contingencies": str(row["contingencies"] or "").strip(),
         "createdAt": str(row["created_at"] or "").strip(),
         "updatedAt": str(row["updated_at"] or "").strip(),
     }
 
 
-def load_football_days_playbooks() -> List[Dict[str, Any]]:
+def normalize_football_playbook_type(playbook_type: Any) -> str:
+    value = str(playbook_type or "voetbaldagen").strip()
+    return value if value in FOOTBALL_PLAYBOOK_CONTEXTS else "voetbaldagen"
+
+
+def get_football_playbook_context(playbook_type: Any) -> Dict[str, str]:
+    return FOOTBALL_PLAYBOOK_CONTEXTS[normalize_football_playbook_type(playbook_type)]
+
+
+def load_football_days_playbooks(playbook_type: str = "voetbaldagen") -> List[Dict[str, Any]]:
+    normalized_type = normalize_football_playbook_type(playbook_type)
     with get_db_connection() as connection:
         rows = connection.execute(
             """
-            SELECT id, title, event_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, field_layout_json, contingencies, created_at, updated_at
+            SELECT id, playbook_type, title, event_date, cycle_number, cycle_start_date, cycle_end_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, field_layout_json, field_trainings_json, cycle_no_training_dates_json, contingencies, include_staff, include_staff_setup_tasks, include_program, created_at, updated_at
             FROM football_days_playbooks
+            WHERE playbook_type = ?
             ORDER BY COALESCE(NULLIF(event_date, ''), updated_at) DESC, id DESC
-            """
+            """,
+            (normalized_type,),
         ).fetchall()
     return [normalize_football_days_playbook(row) for row in rows]
 
 
-def load_football_days_playbook(playbook_id: int) -> Optional[Dict[str, Any]]:
+def load_football_days_playbook(playbook_id: int, playbook_type: str = "voetbaldagen") -> Optional[Dict[str, Any]]:
+    normalized_type = normalize_football_playbook_type(playbook_type)
     with get_db_connection() as connection:
         row = connection.execute(
             """
-            SELECT id, title, event_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, field_layout_json, contingencies, created_at, updated_at
+            SELECT id, playbook_type, title, event_date, cycle_number, cycle_start_date, cycle_end_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, field_layout_json, field_trainings_json, cycle_no_training_dates_json, contingencies, include_staff, include_staff_setup_tasks, include_program, created_at, updated_at
             FROM football_days_playbooks
-            WHERE id = ?
+            WHERE id = ? AND playbook_type = ?
             """,
-            (playbook_id,),
+            (playbook_id, normalized_type),
         ).fetchone()
     if row is None:
         return None
     return normalize_football_days_playbook(row)
 
 
-def create_empty_football_days_playbook() -> Dict[str, Any]:
+def duplicate_football_days_playbook(playbook_id: int, playbook_type: str = "voetbaldagen") -> Optional[int]:
+    context = get_football_playbook_context(playbook_type)
+    playbook = load_football_days_playbook(playbook_id, context["playbookType"])
+    if playbook is None:
+        return None
+
+    duplicate = copy.deepcopy(playbook)
+    duplicate.pop("id", None)
+    duplicate["playbookType"] = context["playbookType"]
+    duplicate["title"] = f"Kopie van {str(playbook.get('title') or context['defaultTitle']).strip()}"
+    duplicate["createdAt"] = ""
+    duplicate["updatedAt"] = ""
+    return save_football_days_playbook(duplicate, playbook_type=context["playbookType"])
+
+
+def create_empty_football_days_playbook(playbook_type: str = "voetbaldagen") -> Dict[str, Any]:
+    context = get_football_playbook_context(playbook_type)
     playbook = normalize_football_days_playbook(None)
+    playbook["playbookType"] = context["playbookType"]
+    playbook["title"] = context["defaultTitle"]
+    playbook["includeStaff"] = True
+    playbook["includeStaffSetupTasks"] = True
+    playbook["includeProgram"] = True
     playbook["staff"] = [{"name": "", "role": "", "setupTask": ""}]
     playbook["program"] = [{"startTime": "", "endTime": "", "activity": "", "icon": "clock"}]
+    playbook["fieldTrainings"] = [
+        {
+            "id": "training-1",
+            "name": "Training 1",
+            "date": "",
+            "dateLabel": format_football_days_date(""),
+            "ageGroups": [],
+            "fieldPeriods": [{"id": "field-period-1", "label": "Plattegrond 1", "startTime": "", "endTime": "", "fieldLayout": []}],
+            "fieldLayout": [],
+        }
+    ]
     return playbook
 
 
@@ -3931,11 +5640,21 @@ def attach_football_days_registration_counts(
     return playbooks
 
 
-def save_football_days_playbook(playbook: Dict[str, Any], playbook_id: Optional[int] = None) -> int:
+def save_football_days_playbook(
+    playbook: Dict[str, Any],
+    playbook_id: Optional[int] = None,
+    playbook_type: str = "voetbaldagen",
+) -> int:
     now = utcnow_iso()
+    normalized_type = normalize_football_playbook_type(playbook.get("playbookType") or playbook_type)
+    context = get_football_playbook_context(normalized_type)
     payload = (
-        str(playbook.get("title") or "Draaiboek Voetbaldagen").strip(),
+        normalized_type,
+        str(playbook.get("title") or context["defaultTitle"]).strip(),
         str(playbook.get("eventDate") or "").strip(),
+        str(playbook.get("cycleNumber") or "").strip() if context["supportsCycleDates"] else "",
+        str(playbook.get("cycleStartDate") or "").strip() if context["supportsCycleDates"] else "",
+        str(playbook.get("cycleEndDate") or "").strip() if context["supportsCycleDates"] else "",
         str(playbook.get("location") or "").strip(),
         str(playbook.get("ecwidProductId") or "").strip(),
         str(playbook.get("ecwidProductName") or "").strip(),
@@ -3943,7 +5662,12 @@ def save_football_days_playbook(playbook: Dict[str, Any], playbook_id: Optional[
         json.dumps(playbook.get("staff") or [], ensure_ascii=False),
         json.dumps(playbook.get("program") or [], ensure_ascii=False),
         json.dumps(normalize_football_field_layout(playbook.get("fieldLayout")), ensure_ascii=False),
+        json.dumps(normalize_football_field_trainings(playbook.get("fieldTrainings")), ensure_ascii=False),
+        json.dumps(normalize_football_no_training_dates(playbook.get("cycleNoTrainingDates")), ensure_ascii=False),
         str(playbook.get("contingencies") or "").strip(),
+        1 if playbook.get("includeStaff", True) else 0,
+        1 if playbook.get("includeStaffSetupTasks", True) or not context["supportsStaffSetupTasks"] else 0,
+        1 if playbook.get("includeProgram", True) else 0,
     )
 
     with get_db_connection() as connection:
@@ -3951,8 +5675,12 @@ def save_football_days_playbook(playbook: Dict[str, Any], playbook_id: Optional[
             connection.execute(
                 """
                 UPDATE football_days_playbooks
-                SET title = ?,
+                SET playbook_type = ?,
+                    title = ?,
                     event_date = ?,
+                    cycle_number = ?,
+                    cycle_start_date = ?,
+                    cycle_end_date = ?,
                     location = ?,
                     ecwid_product_id = ?,
                     ecwid_product_name = ?,
@@ -3960,7 +5688,12 @@ def save_football_days_playbook(playbook: Dict[str, Any], playbook_id: Optional[
                     staff_json = ?,
                     program_json = ?,
                     field_layout_json = ?,
+                    field_trainings_json = ?,
+                    cycle_no_training_dates_json = ?,
                     contingencies = ?,
+                    include_staff = ?,
+                    include_staff_setup_tasks = ?,
+                    include_program = ?,
                     updated_at = ?
                 WHERE id = ?
                 """,
@@ -3971,16 +5704,17 @@ def save_football_days_playbook(playbook: Dict[str, Any], playbook_id: Optional[
         cursor = connection.execute(
             """
             INSERT INTO football_days_playbooks (
-                title, event_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, field_layout_json, contingencies, created_at, updated_at
+                playbook_type, title, event_date, cycle_number, cycle_start_date, cycle_end_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, field_layout_json, field_trainings_json, cycle_no_training_dates_json, contingencies, include_staff, include_staff_setup_tasks, include_program, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (*payload, now, now),
         )
         return int(cursor.lastrowid)
 
 
-def build_football_days_playbook_from_form() -> Dict[str, Any]:
+def build_football_days_playbook_from_form(playbook_type: str = "voetbaldagen") -> Dict[str, Any]:
+    context = get_football_playbook_context(playbook_type)
     staff_names = request.form.getlist("staff_name")
     staff_roles = request.form.getlist("staff_role")
     staff_setup_tasks = request.form.getlist("staff_setup_task")
@@ -4020,18 +5754,44 @@ def build_football_days_playbook_from_form() -> Dict[str, Any]:
         field_layout_payload = json.loads(request.form.get("field_layout_json", "[]"))
     except json.JSONDecodeError:
         field_layout_payload = []
+    try:
+        field_trainings_payload = json.loads(request.form.get("field_trainings_json", "[]"))
+    except json.JSONDecodeError:
+        field_trainings_payload = []
+
+    include_staff = "1" in request.form.getlist("include_staff")
+    include_staff_setup_tasks = "1" in request.form.getlist("include_staff_setup_tasks")
+    include_program = "1" in request.form.getlist("include_program")
+    if not context["supportsSectionToggles"]:
+        include_staff = True
+        include_program = True
+    if not context["supportsStaffSetupTasks"]:
+        include_staff_setup_tasks = True
 
     return {
-        "title": request.form.get("title", "Draaiboek Voetbaldagen").strip() or "Draaiboek Voetbaldagen",
+        "playbookType": context["playbookType"],
+        "title": request.form.get("title", context["defaultTitle"]).strip() or context["defaultTitle"],
         "eventDate": request.form.get("event_date", "").strip(),
+        "cycleNumber": request.form.get("cycle_number", "").strip() if context["supportsCycleDates"] else "",
+        "cycleStartDate": request.form.get("cycle_start_date", "").strip() if context["supportsCycleDates"] else "",
+        "cycleEndDate": request.form.get("cycle_end_date", "").strip() if context["supportsCycleDates"] else "",
+        "cycleNoTrainingDates": (
+            normalize_football_no_training_dates(request.form.get("cycle_no_training_dates", ""))
+            if context["supportsCycleDates"]
+            else []
+        ),
         "location": request.form.get("location", "").strip(),
-        "ecwidProductId": request.form.get("ecwid_product_id", "").strip(),
-        "ecwidProductName": request.form.get("ecwid_product_name", "").strip(),
-        "ecwidProductSku": request.form.get("ecwid_product_sku", "").strip(),
+        "ecwidProductId": request.form.get("ecwid_product_id", "").strip() if context["showEcwidProduct"] else "",
+        "ecwidProductName": request.form.get("ecwid_product_name", "").strip() if context["showEcwidProduct"] else "",
+        "ecwidProductSku": request.form.get("ecwid_product_sku", "").strip() if context["showEcwidProduct"] else "",
+        "includeStaff": include_staff,
+        "includeStaffSetupTasks": include_staff_setup_tasks,
+        "includeProgram": include_program,
         "staff": staff,
         "program": program,
         "fieldLayout": normalize_football_field_layout(field_layout_payload),
-        "contingencies": request.form.get("contingencies", "").strip(),
+        "fieldTrainings": normalize_football_field_trainings(field_trainings_payload, field_layout_payload),
+        "contingencies": request.form.get("contingencies", "").strip() if context["showContingencies"] else "",
     }
 
 
@@ -4039,6 +5799,7 @@ def clean_football_days_club_name(value: Any) -> str:
     cleaned = re.sub(r"\|.*", "", str(value or ""))
     cleaned = re.sub(r"\bdraaiboek\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\bvoetbaldag(?:en)?\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bsamenwerkende\s+amateurclubs?\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\bhws\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b", "", cleaned)
     cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
@@ -4068,17 +5829,40 @@ def format_football_days_date(value: Any) -> str:
         "november",
         "december",
     ]
-    return f"{weekday_labels[parsed_date.weekday()]} {parsed_date.day} {month_labels[parsed_date.month - 1]} {parsed_date.year}"
+    weekday_label = weekday_labels[parsed_date.weekday()].capitalize()
+    return f"{weekday_label} {parsed_date.day} {month_labels[parsed_date.month - 1]} {parsed_date.year}"
 
 
-def normalize_football_days_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+def format_football_cycle_date_range(start_value: Any, end_value: Any) -> str:
+    start_label = format_football_days_date(start_value) if str(start_value or "").strip() else ""
+    end_label = format_football_days_date(end_value) if str(end_value or "").strip() else ""
+    if start_label and end_label:
+        return f"{start_label} t/m {end_label}"
+    return start_label or end_label or "cyclus nog in te vullen"
+
+
+def normalize_football_days_export_payload(payload: Dict[str, Any], playbook_type: str = "voetbaldagen") -> Dict[str, Any]:
     data = payload if isinstance(payload, dict) else {}
-    title = str(data.get("title") or "Draaiboek Voetbaldagen").strip() or "Draaiboek Voetbaldagen"
-    product_id = str(data.get("productId") or data.get("ecwidProductId") or "").strip()
-    product_name = str(data.get("productName") or data.get("ecwidProductName") or "").strip()
-    product_sku = str(data.get("productSku") or data.get("ecwidProductSku") or "").strip()
-    club_name = clean_football_days_club_name(data.get("clubName") or title or product_name or data.get("location"))
+    context = get_football_playbook_context(data.get("playbookType") or playbook_type)
+    title = str(data.get("title") or context["defaultTitle"]).strip() or context["defaultTitle"]
+    product_id = str(data.get("productId") or data.get("ecwidProductId") or "").strip() if context["showEcwidProduct"] else ""
+    product_name = str(data.get("productName") or data.get("ecwidProductName") or "").strip() if context["showEcwidProduct"] else ""
+    product_sku = str(data.get("productSku") or data.get("ecwidProductSku") or "").strip() if context["showEcwidProduct"] else ""
+    submitted_club_name = clean_football_days_club_name(data.get("clubName"))
+    club_name = (
+        clean_football_days_club_name(product_name or data.get("location") or title)
+        if submitted_club_name == "HWS"
+        else submitted_club_name
+    )
     registration_count = str(data.get("registrationCount") or "0").strip() or "0"
+    include_staff = bool(data.get("includeStaff", True))
+    include_staff_setup_tasks = bool(data.get("includeStaffSetupTasks", True))
+    include_program = bool(data.get("includeProgram", True))
+    if not context["supportsSectionToggles"]:
+        include_staff = True
+        include_program = True
+    if not context["supportsStaffSetupTasks"]:
+        include_staff_setup_tasks = True
     if product_id or product_name or product_sku:
         try:
             orders_payload = fetch_ecwid_orders()
@@ -4117,47 +5901,124 @@ def normalize_football_days_export_payload(payload: Dict[str, Any]) -> Dict[str,
                 "startTime": str(item.get("startTime") or "").strip(),
                 "endTime": str(item.get("endTime") or "").strip(),
                 "activity": activity,
-                "icon": infer_football_activity_icon(activity),
+                "icon": (
+                    str(item.get("icon") or "").strip()
+                    if str(item.get("icon") or "").strip() in FOOTBALL_ACTIVITY_ICON_KEYS
+                    else infer_football_activity_icon(activity)
+                ),
             }
         )
 
     field_layout = normalize_football_field_layout(data.get("fieldLayout"))
-    exercise_lookup = {int(exercise["id"]): exercise for exercise in load_exercises()}
-    for block in field_layout:
-        exercise = exercise_lookup.get(int(block.get("exerciseId") or 0))
-        if exercise is None:
-            continue
-        block["exerciseTitle"] = block.get("exerciseTitle") or exercise.get("title", "")
-        block["exerciseKind"] = block.get("exerciseKind") or exercise.get("trainingExercise", "")
-        block["category"] = block.get("category") or exercise.get("category", "")
-        block["exerciseDetails"] = {
-            "description": exercise.get("description", ""),
-            "coaching": exercise.get("coaching", ""),
-            "variationEasier": exercise.get("variationEasier", ""),
-            "variationHarder": exercise.get("variationHarder", ""),
-            "dimensions": exercise.get("dimensions", ""),
-            "materials": exercise.get("materials", ""),
+    field_trainings = normalize_football_field_trainings(data.get("fieldTrainings"), field_layout)
+    cycle_no_training_dates = normalize_football_no_training_dates(data.get("cycleNoTrainingDates")) if context["supportsCycleDates"] else []
+    cycle_no_training_dates_text = str(data.get("cycleNoTrainingDatesText") or "").strip()
+    if context["supportsCycleDates"] and cycle_no_training_dates_text:
+        text_rows_by_date = {
+            row["date"]: row
+            for row in normalize_football_no_training_dates(cycle_no_training_dates_text)
+            if row.get("description") and row.get("description") != "Geen training"
         }
-        block["exerciseField"] = exercise.get("field") if isinstance(exercise.get("field"), dict) else {}
+        for row in cycle_no_training_dates:
+            raw_description = str(row.get("description") or "").strip()
+            text_row = text_rows_by_date.get(row.get("date"))
+            if text_row and raw_description in {"", "-", "Geen training"}:
+                row["description"] = text_row["description"]
+    exercise_lookup = {int(exercise["id"]): exercise for exercise in load_exercises()}
+
+    def enrich_field_layout(layout: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        for block in layout:
+            if block.get("type") == "arrow":
+                continue
+            exercise = exercise_lookup.get(int(block.get("exerciseId") or 0))
+            if exercise is None:
+                continue
+            block["exerciseTitle"] = exercise.get("title", "")
+            block["exerciseKind"] = exercise.get("trainingExercise", "")
+            block["category"] = exercise.get("category", "")
+            block["exerciseAgeGroups"] = exercise.get("ageGroups", [])
+            block["exerciseDetails"] = {
+                "description": exercise.get("description", ""),
+                "coaching": exercise.get("coaching", ""),
+                "variationEasier": exercise.get("variationEasier", ""),
+                "variationHarder": exercise.get("variationHarder", ""),
+                "dimensions": exercise.get("dimensions", ""),
+                "materials": exercise.get("materials", ""),
+            }
+            block["exerciseField"] = exercise.get("field") if isinstance(exercise.get("field"), dict) else {}
+        return layout
+
+    field_layout = enrich_field_layout(field_layout)
+    for training in field_trainings:
+        field_periods = training.get("fieldPeriods") if isinstance(training.get("fieldPeriods"), list) else []
+        enriched_periods = []
+        for period in field_periods:
+            if not isinstance(period, dict):
+                continue
+            enriched_period = dict(period)
+            enriched_period["fieldLayout"] = enrich_field_layout(period.get("fieldLayout") if isinstance(period.get("fieldLayout"), list) else [])
+            enriched_periods.append(enriched_period)
+        if enriched_periods:
+            training["fieldPeriods"] = enriched_periods
+            training["fieldLayout"] = enriched_periods[0]["fieldLayout"]
+        else:
+            training["fieldLayout"] = enrich_field_layout(training.get("fieldLayout") if isinstance(training.get("fieldLayout"), list) else [])
+
+    cycle_date_range_label = (
+        format_football_cycle_date_range(data.get("cycleStartDate"), data.get("cycleEndDate"))
+        if context["supportsCycleDates"]
+        else ""
+    )
+    cycle_number = str(data.get("cycleNumber") or "").strip() if context["supportsCycleDates"] else ""
+    cycle_cover_label = f"CYCLUS {cycle_number}".strip() if cycle_number else "CYCLUS"
+    cover_meta = f"{club_name.upper()} | {registration_count} AANMELDINGEN" if context["showEcwidProduct"] else club_name.upper()
+    if context["supportsCycleDates"]:
+        cover_meta = f"{club_name.upper()} | {cycle_cover_label} | {cycle_date_range_label}"
+    cover_title = title if context["playbookType"] == "samenwerkende-amateurclubs" else context["pdfCoverTitle"]
 
     return {
         "title": title,
+        "playbookType": context["playbookType"],
         "eventDate": str(data.get("eventDate") or "").strip(),
         "eventDateLabel": format_football_days_date(data.get("eventDate")),
+        "cycleNumber": cycle_number,
+        "cycleCoverLabel": cycle_cover_label,
+        "cycleStartDate": str(data.get("cycleStartDate") or "").strip() if context["supportsCycleDates"] else "",
+        "cycleEndDate": str(data.get("cycleEndDate") or "").strip() if context["supportsCycleDates"] else "",
+        "cycleStartDateLabel": format_football_days_date(data.get("cycleStartDate")) if context["supportsCycleDates"] else "",
+        "cycleEndDateLabel": format_football_days_date(data.get("cycleEndDate")) if context["supportsCycleDates"] else "",
+        "cycleDateRangeLabel": cycle_date_range_label,
+        "cycleNoTrainingDates": cycle_no_training_dates,
         "location": str(data.get("location") or "").strip(),
         "clubName": club_name,
-        "coverTitle": "HWS VOETBALDAG",
-        "coverMeta": f"{club_name.upper()} | {registration_count} AANMELDINGEN",
+        "coverTitle": cover_title,
+        "introSubject": context["introSubject"],
+        "coverMeta": cover_meta,
+        "includeStaff": include_staff,
+        "includeStaffSetupTasks": include_staff_setup_tasks,
+        "includeProgram": include_program,
         "staff": staff,
         "program": program,
         "fieldLayout": field_layout,
-        "contingencies": str(data.get("contingencies") or "").strip(),
+        "fieldTrainings": field_trainings,
+        "contingencies": str(data.get("contingencies") or "").strip() if context["showContingencies"] else "",
         "registrationCount": registration_count,
     }
 
 
 def football_days_pdf_filename(data: Dict[str, Any]) -> str:
-    base = slugify_value(f"{data.get('clubName') or 'voetbaldag'}-{data.get('eventDate') or 'draaiboek'}")
+    context = get_football_playbook_context(data.get("playbookType"))
+    if context["playbookType"] == "samenwerkende-amateurclubs":
+        title = str(data.get("title") or context["defaultTitle"]).strip()
+        normalized_title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode("ascii")
+        filename_title = re.sub(r"[/\\]+", "-", normalized_title)
+        filename_title = re.sub(r'[<>:"|?*\x00-\x1f]+', "", filename_title)
+        filename_title = re.sub(r"\s{2,}", " ", filename_title).strip(" .-_")
+        return f"{filename_title or 'samenwerkende-amateurclubs-draaiboek'}.pdf"
+    date_part = data.get("eventDate") or "draaiboek"
+    if context["supportsCycleDates"]:
+        date_part = data.get("cycleStartDate") or data.get("eventDate") or "cyclus"
+    base = slugify_value(f"{data.get('clubName') or context['playbookType']}-{date_part}")
     return f"{base}.pdf"
 
 
@@ -4245,6 +6106,47 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
             lines.append(current)
         return lines
 
+    def trim_text_to_width(text: Any, max_width: float, size: float, font: str) -> str:
+        value = str(text or "").strip()
+        if stringWidth(value, font, size) <= max_width:
+            return value
+        ellipsis = "..."
+        while value and stringWidth(f"{value}{ellipsis}", font, size) > max_width:
+            value = value[:-1].rstrip()
+        return f"{value}{ellipsis}" if value else ellipsis
+
+    def fit_text_lines(text: Any, max_width: float, max_lines: int, max_size: float, min_size: float, font: str) -> Tuple[float, List[str]]:
+        value = str(text or "").strip()
+        size = max_size
+        while size >= min_size:
+            lines = split_text(value, max_width, size, font) or [value]
+            if len(lines) <= max_lines and all(stringWidth(line, font, size) <= max_width for line in lines):
+                return size, lines
+            size -= 1
+        lines = split_text(value, max_width, min_size, font) or [value]
+        fitted_lines = lines[:max_lines]
+        if len(lines) > max_lines and fitted_lines:
+            fitted_lines[-1] = trim_text_to_width(fitted_lines[-1], max_width, min_size, font)
+        return min_size, fitted_lines
+
+    def draw_centered_fitted_title(
+        title: Any,
+        y_top: float = 452,
+        y_bottom: float = 394,
+        max_width: float = 850,
+        max_size: float = 54,
+        min_size: float = 24,
+    ) -> None:
+        size, lines = fit_text_lines(str(title or "").upper(), max_width, 2, max_size, min_size, black_font)
+        leading = size * 0.98
+        text_height = size + ((len(lines) - 1) * leading)
+        first_baseline = y_bottom + ((y_top - y_bottom - text_height) / 2) + size * 0.76 + ((len(lines) - 1) * leading)
+        pdf.setFillColor(pdf_white)
+        pdf.setFont(black_font, size)
+        for index, line in enumerate(lines):
+            line_width = stringWidth(line, black_font, size)
+            pdf.drawString((FOOTBALL_DAYS_PDF_WIDTH - line_width) / 2, first_baseline - (index * leading), line)
+
     def draw_wrapped(text: Any, x: float, y: float, max_width: float, size: float, leading: float, color: Any = pdf_white, font: str = None) -> float:
         font = font or regular_font
         pdf.setFillColor(color)
@@ -4260,7 +6162,34 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
 
     def draw_header(title: str, page_index: int) -> None:
         draw_background(page_index)
-        draw_text(title.upper(), 278, 428, 54, pdf_white, black_font)
+        draw_centered_fitted_title(title)
+
+    def draw_exercise_header(title: str, page_index: int) -> None:
+        draw_background(page_index)
+        draw_centered_fitted_title(title)
+
+    def draw_training_cover_page(training: Dict[str, Any], page_index: int) -> None:
+        draw_background(page_index, 0.24)
+        training_name = str(training.get("name") or "Training").strip()
+        training_date = str(training.get("dateLabel") or format_football_days_date(training.get("date"))).strip().upper()
+        draw_centered_fitted_title(training_name, 360, 294, 820, 56, 24)
+        pdf.setFillColor(pdf_white)
+        pdf.setFont(bold_font, 22)
+        pdf.drawCentredString(FOOTBALL_DAYS_PDF_WIDTH / 2, 250, training_date)
+
+    def draw_training_page_footer(training: Optional[Dict[str, Any]]) -> None:
+        if not isinstance(training, dict):
+            return
+        training_name = str(training.get("name") or "Training").strip()
+        training_date = str(training.get("dateLabel") or format_football_days_date(training.get("date"))).strip()
+        footer_text = " | ".join(part for part in (training_name, training_date) if part)
+        if not footer_text:
+            return
+        pdf.saveState()
+        pdf.setFillColor(pdf_white)
+        pdf.setFont(regular_font, 8)
+        pdf.drawCentredString(FOOTBALL_DAYS_PDF_WIDTH / 2, 22, footer_text)
+        pdf.restoreState()
 
     def draw_panel(x: float, y: float, width: float, height: float, alpha: float = 0.78) -> None:
         pdf.saveState()
@@ -4302,88 +6231,80 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
 
     def draw_program_icon(icon_key: str, cx: float, cy: float, size: float = 21) -> None:
         key = icon_key if icon_key in {"clipboard", "flame", "football", "utensils", "trophy", "camera", "medical", "cones", "clock"} else "clock"
-        radius = size / 2
+        scale = size / 21
+        outer_radius = size * 0.72
         pdf.saveState()
         pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.94))
         pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.08))
-        pdf.setLineWidth(1.6)
-        pdf.circle(cx, cy, radius + 8, stroke=1, fill=1)
+        pdf.setLineWidth(max(1, 1.6 * scale))
+        pdf.circle(cx, cy, outer_radius, stroke=1, fill=1)
+        pdf.translate(cx, cy)
+        pdf.scale(scale, scale)
         pdf.setLineWidth(1.9)
         if key == "football":
-            pdf.circle(cx, cy, radius * 0.74, stroke=1, fill=0)
-            pdf.circle(cx, cy, radius * 0.18, stroke=1, fill=0)
-            for dx, dy in ((0, radius * 0.7), (radius * 0.66, radius * 0.22), (radius * 0.42, -radius * 0.58), (-radius * 0.42, -radius * 0.58), (-radius * 0.66, radius * 0.22)):
-                pdf.line(cx, cy, cx + dx, cy + dy)
+            pdf.circle(0, 0, 7.6, stroke=1, fill=0)
+            pdf.circle(0, 0, 2.2, stroke=1, fill=0)
+            for dx, dy in ((0, 7.3), (6.9, 2.3), (4.4, -6.1), (-4.4, -6.1), (-6.9, 2.3)):
+                pdf.line(0, 0, dx, dy)
         elif key == "trophy":
-            pdf.roundRect(cx - 7, cy + 1, 14, 10, 2, stroke=1, fill=0)
-            pdf.arc(cx - 16, cy + 2, cx - 4, cy + 14, 260, 130)
-            pdf.arc(cx + 4, cy + 2, cx + 16, cy + 14, -30, 130)
-            pdf.line(cx, cy + 1, cx, cy - 8)
-            pdf.line(cx - 8, cy - 9, cx + 8, cy - 9)
+            pdf.roundRect(-7, 1, 14, 10, 2, stroke=1, fill=0)
+            pdf.arc(-16, 2, -4, 14, 260, 130)
+            pdf.arc(4, 2, 16, 14, -30, 130)
+            pdf.line(0, 1, 0, -8)
+            pdf.line(-8, -9, 8, -9)
         elif key == "utensils":
             for offset in (-4, 0, 4):
-                pdf.line(cx - 7 + offset / 2, cy + 10, cx - 7 + offset / 2, cy - 3)
-            pdf.line(cx - 10, cy - 3, cx - 5, cy - 3)
-            pdf.line(cx + 7, cy + 10, cx + 7, cy - 10)
-            pdf.arc(cx + 3, cy + 1, cx + 13, cy + 13, 90, 180)
+                pdf.line(-7 + offset / 2, 10, -7 + offset / 2, -3)
+            pdf.line(-10, -3, -5, -3)
+            pdf.line(7, 10, 7, -10)
+            pdf.arc(3, 1, 13, 13, 90, 180)
         elif key == "clipboard":
-            pdf.roundRect(cx - 8, cy - 10, 16, 20, 2, stroke=1, fill=0)
-            pdf.roundRect(cx - 5, cy + 7, 10, 5, 1.4, stroke=1, fill=0)
-            pdf.line(cx - 4, cy + 2, cx + 5, cy + 2)
-            pdf.line(cx - 4, cy - 3, cx + 5, cy - 3)
+            pdf.roundRect(-8, -10, 16, 20, 2, stroke=1, fill=0)
+            pdf.roundRect(-5, 7, 10, 5, 1.4, stroke=1, fill=0)
+            pdf.line(-4, 2, 5, 2)
+            pdf.line(-4, -3, 5, -3)
         elif key == "flame":
             path = pdf.beginPath()
-            path.moveTo(cx, cy - 10)
-            path.curveTo(cx - 14, cy - 4, cx - 7, cy + 7, cx - 1, cy + 12)
-            path.curveTo(cx - 1, cy + 5, cx + 6, cy + 5, cx + 3, cy + 12)
-            path.curveTo(cx + 12, cy + 4, cx + 13, cy - 7, cx, cy - 10)
+            path.moveTo(0, -10)
+            path.curveTo(-14, -4, -7, 7, -1, 12)
+            path.curveTo(-1, 5, 6, 5, 3, 12)
+            path.curveTo(12, 4, 13, -7, 0, -10)
             pdf.drawPath(path, stroke=1, fill=0)
         elif key == "camera":
-            pdf.roundRect(cx - 11, cy - 7, 22, 16, 2, stroke=1, fill=0)
-            pdf.line(cx - 5, cy + 9, cx + 4, cy + 9)
-            pdf.circle(cx, cy + 1, 4.2, stroke=1, fill=0)
+            pdf.roundRect(-11, -7, 22, 16, 2, stroke=1, fill=0)
+            pdf.line(-5, 9, 4, 9)
+            pdf.circle(0, 1, 4.2, stroke=1, fill=0)
         elif key == "medical":
-            pdf.rect(cx - 3, cy - 10, 6, 20, stroke=1, fill=0)
-            pdf.rect(cx - 10, cy - 3, 20, 6, stroke=1, fill=0)
+            pdf.rect(-3, -10, 6, 20, stroke=1, fill=0)
+            pdf.rect(-10, -3, 20, 6, stroke=1, fill=0)
         elif key == "cones":
-            pdf.line(cx - 8, cy - 10, cx - 2, cy + 10)
-            pdf.line(cx + 8, cy - 10, cx + 2, cy + 10)
-            pdf.line(cx - 11, cy - 10, cx + 11, cy - 10)
-            pdf.line(cx - 5, cy + 1, cx + 5, cy + 1)
-            pdf.line(cx - 3, cy + 7, cx + 3, cy + 7)
+            pdf.line(-8, -10, -2, 10)
+            pdf.line(8, -10, 2, 10)
+            pdf.line(-11, -10, 11, -10)
+            pdf.line(-5, 1, 5, 1)
+            pdf.line(-3, 7, 3, 7)
         else:
-            pdf.circle(cx, cy, radius * 0.72, stroke=1, fill=0)
-            pdf.line(cx, cy, cx, cy + 6)
-            pdf.line(cx, cy, cx + 6, cy - 4)
+            pdf.circle(0, 0, 7.6, stroke=1, fill=0)
+            pdf.line(0, 0, 0, 6)
+            pdf.line(0, 0, 6, -4)
         pdf.restoreState()
 
-    def draw_program_page(rows: List[Dict[str, Any]], page_index: int) -> None:
+    def draw_program_page(rows: List[Dict[str, Any]], page_index: int, layout_row_count: Optional[int] = None) -> None:
         draw_header("Programma", page_index)
-        row_count = max(1, len(rows))
-        top_y = 374
-        bottom_y = 58
+        row_count = max(1, int(layout_row_count or len(rows)))
+        top_y = 385
+        bottom_y = 42
         available_height = top_y - bottom_y
         row_height = min(37, available_height / row_count)
         row_box_height = max(18, row_height - 4)
         icon_size = 18 if row_height >= 32 else 14
         start_font_size = 14 if row_height >= 32 else 11.5
         end_font_size = 10 if row_height >= 32 else 8.5
-        activity_font_size = 17 if row_height >= 32 else 13.5
-        activity_leading = 18 if row_height >= 32 else 13.5
-        max_activity_lines = 2 if row_height >= 32 else 1
+        activity_font_size = 16.5 if row_height >= 32 else 12.4
+        activity_leading = 17.5 if row_height >= 32 else 11.4
+        max_activity_lines = 2 if row_box_height >= 22 else 1
         x = 78
         width = 804
-        compact_icon_labels = {
-            "clipboard": "L",
-            "flame": "W",
-            "football": "V",
-            "utensils": "P",
-            "trophy": "B",
-            "camera": "F",
-            "medical": "+",
-            "cones": "M",
-            "clock": "T",
-        }
         for row_index, item in enumerate(rows):
             row_y = top_y - (row_index * row_height)
             pdf.saveState()
@@ -4394,21 +6315,7 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
 
             icon_key = str(item.get("icon") or infer_football_activity_icon(str(item.get("activity") or "")))
             row_center_y = row_y - (row_box_height / 2) + 2
-            if row_height >= 30:
-                draw_program_icon(icon_key, x + 28, row_center_y, icon_size)
-            else:
-                badge_radius = max(6, min(8, row_box_height * 0.34))
-                pdf.saveState()
-                pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.9))
-                pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.08))
-                pdf.setLineWidth(1.2)
-                pdf.circle(x + 28, row_center_y, badge_radius, stroke=1, fill=1)
-                pdf.setFillColor(pdf_white)
-                pdf.setFont(black_font, 6.8)
-                label = compact_icon_labels.get(icon_key, "T")
-                label_width = stringWidth(label, black_font, 6.8)
-                pdf.drawString(x + 28 - (label_width / 2), row_center_y - 2.4, label)
-                pdf.restoreState()
+            draw_program_icon(icon_key, x + 28, row_center_y, icon_size)
 
             start = str(item.get("startTime") or "").strip() or "--:--"
             end = str(item.get("endTime") or "").strip() or "--:--"
@@ -4420,22 +6327,52 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
             pdf.drawString(x + 62, row_center_y - (12 if row_height >= 32 else 9), end)
 
             pdf.setFillColor(pdf_white)
-            pdf.setFont(bold_font, activity_font_size)
             activity = str(item.get("activity") or "Nog in te vullen").strip()
-            activity_lines = split_text(activity, width - 205, activity_font_size, bold_font)[:max_activity_lines]
-            text_y = row_center_y + (activity_font_size * 0.34)
-            if len(activity_lines) > 1:
-                text_y += activity_leading / 2
+            activity_width = width - 205
+            fitted_activity_font_size = activity_font_size
+            fitted_activity_leading = activity_leading
+            activity_lines = []
+            for candidate_font_size in (activity_font_size, 11.4, 10.5, 9.8):
+                candidate_leading = min(fitted_activity_leading, candidate_font_size + 1)
+                candidate_lines = split_text(activity, activity_width, candidate_font_size, bold_font)
+                if len(candidate_lines) <= max_activity_lines or candidate_font_size == 9.8:
+                    fitted_activity_font_size = candidate_font_size
+                    fitted_activity_leading = candidate_leading
+                    activity_lines = candidate_lines[:max_activity_lines]
+                    break
+            pdf.setFont(bold_font, fitted_activity_font_size)
+            ascent = pdfmetrics.getAscent(bold_font) / 1000 * fitted_activity_font_size
+            descent = abs(pdfmetrics.getDescent(bold_font) / 1000 * fitted_activity_font_size)
+            text_block_height = ascent + descent + (max(0, len(activity_lines) - 1) * fitted_activity_leading)
+            text_y = row_center_y + (text_block_height / 2) - ascent
             for line in activity_lines:
                 pdf.drawString(x + 168, text_y, line)
-                text_y -= activity_leading
+                text_y -= fitted_activity_leading
 
     def draw_overview_page(page_index: int) -> None:
         draw_header("Overzicht", page_index)
+        intro_subject = str(data.get("introSubject") or "voetbaldag")
+        include_staff = bool(data.get("includeStaff", True))
+        include_program = bool(data.get("includeProgram", True))
+        has_contingencies = bool(str(data.get("contingencies") or "").strip())
+        is_amateur_club_playbook = str(data.get("playbookType")) == "samenwerkende-amateurclubs"
+        date_sentence = (
+            f"voor {str(data.get('cycleCoverLabel') or 'de cyclus').lower()}: {data['cycleDateRangeLabel']}"
+            if is_amateur_club_playbook
+            else f"op {data['eventDateLabel']}"
+        )
+        visible_parts = []
+        if include_staff:
+            visible_parts.append("de taakverdeling")
+        if include_program:
+            visible_parts.append("het programma")
+        visible_parts.append("de veldplattegrond")
+        if has_contingencies:
+            visible_parts.append("de afspraken voor onvoorziene situaties")
+        visible_parts_text = ", ".join(visible_parts[:-1]) + (" en " + visible_parts[-1] if len(visible_parts) > 1 else visible_parts[0])
         intro = (
-            f"Dit draaiboek bundelt alle praktische informatie voor de voetbaldag bij {data['clubName']} "
-            f"op {data['eventDateLabel']}. Trainers en medewerkers zien in een oogopslag wie wat doet, "
-            "hoe het dagprogramma loopt en welke afspraken gelden bij onvoorziene situaties."
+            f"Dit draaiboek bundelt alle praktische informatie voor de {intro_subject} bij {data['clubName']} "
+            f"{date_sentence}. Het document bevat {visible_parts_text}."
         )
         panel_width = 670
         padding_x = 34
@@ -4473,12 +6410,20 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
             pdf.drawString(text_x, text_y, line)
             text_y -= intro_leading
 
-        details = [
-            ("Club", data["clubName"]),
-            ("Datum", data["eventDateLabel"]),
-            ("Locatie", data["location"] or "Nog in te vullen"),
-            ("Aanmeldingen", data["registrationCount"]),
-        ]
+        if is_amateur_club_playbook:
+            details = [
+                ("Club", data["clubName"]),
+                ("Cyclus", data.get("cycleNumber") or "Nog in te vullen"),
+                ("Start cyclus", data["cycleStartDateLabel"]),
+                ("Einde cyclus", data["cycleEndDateLabel"]),
+            ]
+        else:
+            details = [
+                ("Club", data["clubName"]),
+                ("Datum", data["eventDateLabel"]),
+                ("Locatie", data["location"] or "Nog in te vullen"),
+                ("Aanmeldingen", data["registrationCount"]),
+            ]
         detail_start_y = text_y - intro_to_tiles_gap + 7
         for index, (label, value) in enumerate(details):
             column = index % 2
@@ -4501,18 +6446,116 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
                 pdf.drawString(box_x + 16, value_y, line)
                 value_y -= 14
 
+    def draw_training_dates_page(rows: List[Dict[str, Any]], no_training_rows: List[Dict[str, str]], page_index: int) -> None:
+        draw_header("Trainingsdata", page_index)
+        sections = [
+            {
+                "title": "Trainingen",
+                "rows": [
+                    {
+                        "date": str(training.get("date") or "").strip(),
+                        "dateLabel": str(training.get("dateLabel") or format_football_days_date(training.get("date"))).strip(),
+                        "label": str(training.get("name") or f"Training {index + 1}").strip(),
+                    }
+                    for index, training in enumerate(sorted_football_cycle_trainings(rows))
+                ],
+            },
+            {
+                "title": "Geen training",
+                "rows": [
+                    {
+                        "date": row["date"],
+                        "dateLabel": row["dateLabel"],
+                        "label": row.get("description") or "Geen training",
+                    }
+                    for row in normalize_football_no_training_dates(no_training_rows)
+                ],
+            },
+        ]
+        sections = [section for section in sections if section["rows"]]
+        total_rows = sum(len(section["rows"]) for section in sections)
+        panel_width = 700
+        panel_x = (FOOTBALL_DAYS_PDF_WIDTH - panel_width) / 2
+        panel_y = 62
+        panel_height = 306
+        padding_x = 34
+        top_y = panel_y + panel_height - 32
+        heading_height = 24
+        section_gap = 18
+        row_height = min(
+            36,
+            (panel_height - 50 - (len(sections) * heading_height) - (max(0, len(sections) - 1) * section_gap))
+            / max(1, total_rows),
+        )
+        font_size = 12.2 if row_height >= 28 else max(7.2, row_height - 5)
+        max_lines = 2 if row_height >= 28 else 1
+        date_width = 248
+
+        pdf.saveState()
+        pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.78))
+        pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.55))
+        pdf.roundRect(panel_x, panel_y, panel_width, panel_height, 5, fill=1, stroke=1)
+        pdf.restoreState()
+
+        cursor_y = top_y
+        for section_index, section in enumerate(sections):
+            if section_index:
+                cursor_y -= section_gap
+            pdf.setFillColor(colors.HexColor("#303030"))
+            pdf.setFont(black_font, 11)
+            pdf.drawString(panel_x + padding_x, cursor_y, f"{section['title']} datum".upper())
+            pdf.drawString(panel_x + padding_x + date_width, cursor_y, "OMSCHRIJVING")
+            table_top = cursor_y - 18
+
+            def draw_centered_row_text(lines: List[str], x: float, box_y: float, box_height: float, font: str, size: float, color: Any) -> None:
+                visible_lines = lines or ["-"]
+                line_gap = 1.2
+                line_height = size + line_gap
+                ascent = pdfmetrics.getAscent(font) / 1000 * size
+                descent = abs(pdfmetrics.getDescent(font) / 1000 * size)
+                text_height = ascent + descent + ((len(visible_lines) - 1) * line_height)
+                baseline = box_y + (box_height - text_height) / 2 + text_height - ascent
+                pdf.setFillColor(color)
+                pdf.setFont(font, size)
+                for line in visible_lines:
+                    pdf.drawString(x, baseline, line)
+                    baseline -= line_height
+
+            for row_index, row in enumerate(section["rows"]):
+                row_top = table_top - (row_index * row_height)
+                row_y = row_top - row_height + 4
+                box_height = row_height - 4
+                pdf.saveState()
+                pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.58 if row_index % 2 == 0 else 0.46))
+                pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.42))
+                pdf.roundRect(panel_x + padding_x - 4, row_y, panel_width - (padding_x * 2) + 8, box_height, 4, fill=1, stroke=1)
+                pdf.restoreState()
+
+                date_lines = split_text(row["dateLabel"], date_width - 22, font_size, bold_font)[:max_lines]
+                name_lines = split_text(row["label"], panel_width - (padding_x * 2) - date_width - 24, font_size, regular_font)[:max_lines]
+                draw_centered_row_text(date_lines, panel_x + padding_x + 8, row_y, box_height, bold_font, font_size, colors.HexColor("#171717"))
+                draw_centered_row_text(name_lines, panel_x + padding_x + date_width, row_y, box_height, regular_font, font_size, colors.HexColor("#5f5f5f"))
+            cursor_y = table_top - (len(section["rows"]) * row_height)
+
     def draw_staff_page(rows: List[Dict[str, Any]], page_index: int) -> None:
         draw_header("Taakverdeling", page_index)
+        include_setup_tasks = bool(data.get("includeStaffSetupTasks", True))
         x = 78
         width = 804
         top_y = 382
         header_height = 31
         row_height = 37
-        columns = [
-            ("Naam", x + 18, 210, bold_font),
-            ("Rol", x + 250, 190, regular_font),
-            ("Taak bij uitzetten", x + 468, 315, regular_font),
-        ]
+        if include_setup_tasks:
+            columns = [
+                ("Naam", x + 18, 210, bold_font),
+                ("Rol", x + 250, 190, regular_font),
+                ("Taak bij uitzetten", x + 468, 315, regular_font),
+            ]
+        else:
+            columns = [
+                ("Naam", x + 18, 360, bold_font),
+                ("Rol", x + 420, 390, regular_font),
+            ]
 
         pdf.saveState()
         pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.72))
@@ -4535,8 +6578,9 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
             values = [
                 str(member.get("name") or "-").strip() or "-",
                 str(member.get("role") or "-").strip() or "-",
-                str(member.get("setupTask") or "-").strip() or "-",
             ]
+            if include_setup_tasks:
+                values.append(str(member.get("setupTask") or "-").strip() or "-")
             for value, (_label, column_x, column_width, font) in zip(values, columns):
                 font_size = 13.5 if font == bold_font else 12.5
                 line_height = 14
@@ -4548,17 +6592,86 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
                     pdf.drawString(column_x, text_y, line)
                     text_y -= line_height
 
+    def draw_contingencies_page(rows: List[List[str]], page_index: int) -> None:
+        draw_exercise_header("Onvoorziene omstandigheden", page_index)
+        panel_width = 720
+        panel_x = (FOOTBALL_DAYS_PDF_WIDTH - panel_width) / 2
+        panel_y = 92
+        panel_height = 285
+        padding_x = 34
+        padding_top = 30
+        padding_bottom = 28
+        body_width = panel_width - (padding_x * 2)
+
+        font_size = 16
+        leading = 20
+        label_size = 10.5
+        label_gap = 13
+        entry_gap = 16
+        entries: List[Dict[str, Any]] = []
+        while font_size >= 10:
+            entries = []
+            total_height = 0.0
+            for scenario, solution in rows:
+                scenario_label = str(scenario or "").strip()
+                solution_text = str(solution or "").strip() or "Nog in te vullen"
+                show_label = bool(scenario_label and scenario_label.lower() not in {"scenario", "algemeen"})
+                lines: List[str] = []
+                for paragraph in solution_text.splitlines() or [solution_text]:
+                    lines.extend(split_text(paragraph, body_width, font_size, regular_font) or [""])
+                entry_height = (label_gap if show_label else 0) + (max(1, len(lines)) * leading)
+                entries.append({"label": scenario_label, "showLabel": show_label, "lines": lines, "height": entry_height})
+                total_height += entry_height
+            total_height += max(0, len(entries) - 1) * entry_gap
+            if total_height <= panel_height - padding_top - padding_bottom:
+                break
+            font_size -= 1
+            leading = max(13, font_size + 4)
+            entry_gap = max(8, font_size)
+
+        pdf.saveState()
+        pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.78))
+        pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.55))
+        pdf.roundRect(panel_x, panel_y, panel_width, panel_height, 5, fill=1, stroke=1)
+        pdf.restoreState()
+
+        text_y = panel_y + panel_height - padding_top
+        for entry in entries:
+            if entry["showLabel"]:
+                pdf.setFillColor(colors.HexColor("#303030"))
+                pdf.setFont(black_font, label_size)
+                pdf.drawString(panel_x + padding_x, text_y, str(entry["label"]).upper())
+                text_y -= label_gap
+            pdf.setFillColor(colors.HexColor("#171717"))
+            pdf.setFont(regular_font, font_size)
+            available_lines = max(1, int((text_y - panel_y - padding_bottom) // leading))
+            lines = entry["lines"][:available_lines]
+            if len(entry["lines"]) > available_lines and lines:
+                lines[-1] = trim_text_to_width(lines[-1], body_width, font_size, regular_font)
+            for line in lines:
+                pdf.drawString(panel_x + padding_x, text_y, line)
+                text_y -= leading
+            text_y -= entry_gap
+
     def draw_field_exercise_table(rows: List[List[str]]) -> None:
         x = 360
         width = 535
         top_y = 386
-        header_height = 28
-        row_height = 34
+        bottom_y = 58
+        row_count = max(1, len(rows))
+        available_height = max(80, top_y - bottom_y)
+        header_height = 28 if row_count <= 10 else max(16, min(24, available_height * 0.08))
+        row_height = min(34, (available_height - header_height) / row_count)
+        header_font_size = max(5.4, min(9.2, header_height * 0.34))
+        row_font_size = max(4.2, min(10.5, row_height * 0.36))
+        block_font_size = max(row_font_size, min(10.5, row_font_size + 0.8))
+        line_gap = max(4.2, row_font_size + 1.2)
+        max_lines = 2 if row_height >= 27 else 1
+        row_radius = 3 if row_height >= 18 else 1.5
         columns = [
-            ("#", x + 14, 32, black_font, 9.5),
-            ("Naam blok", x + 58, 122, bold_font, 10.5),
-            ("Naam oefening", x + 204, 230, regular_font, 10.5),
-            ("Welke oefening", x + 445, 78, regular_font, 9.5),
+            ("#", x + 14, 34, black_font, max(4.4, row_font_size)),
+            ("Naam blok", x + 58, 140, bold_font, block_font_size),
+            ("Oefening", x + 214, 300, regular_font, row_font_size),
         ]
 
         pdf.saveState()
@@ -4566,26 +6679,29 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
         pdf.roundRect(x, top_y - header_height, width, header_height, 4, fill=1, stroke=0)
         pdf.restoreState()
         pdf.setFillColor(pdf_white)
-        pdf.setFont(black_font, 9.2)
+        pdf.setFont(black_font, header_font_size)
         for label, column_x, _column_width, _font, _font_size in columns:
-            pdf.drawString(column_x, top_y - 18, label.upper())
+            pdf.drawString(column_x, top_y - max(9, header_height * 0.66), label.upper())
 
-        for row_index, row in enumerate(rows[:8]):
+        for row_index, row in enumerate(rows):
             row_top = top_y - header_height - (row_index * row_height)
             row_y = row_top - row_height
             pdf.saveState()
             pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.55 if row_index % 2 == 0 else 0.45))
             pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.16))
-            pdf.roundRect(x, row_y, width, row_height - 2, 3, fill=1, stroke=1)
+            pdf.roundRect(x, row_y, width, max(2.5, row_height - 2), row_radius, fill=1, stroke=1)
             pdf.restoreState()
             for value, (_label, column_x, column_width, font, font_size) in zip(row, columns):
-                lines = split_text(value or "-", column_width, font_size, font)[:2]
-                text_y = row_y + 19 if len(lines) == 1 else row_y + 24
+                lines = split_text(value or "-", column_width, font_size, font)[:max_lines]
+                if len(lines) > 1:
+                    text_y = row_y + (row_height / 2) + (line_gap / 2) - 1
+                else:
+                    text_y = row_y + max(2, (row_height - font_size) / 2)
                 pdf.setFillColor(pdf_white if font == bold_font or font == black_font else colors.Color(1, 1, 1, alpha=0.82))
                 pdf.setFont(font, font_size)
                 for line in lines:
                     pdf.drawString(column_x, text_y, line)
-                    text_y -= 11
+                    text_y -= line_gap
 
     def draw_exercise_field_preview(field: Any, x: float, y: float, width: float, height: float, label: str) -> None:
         pdf.saveState()
@@ -4594,14 +6710,99 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
         pdf.roundRect(x, y, width, height, 5, fill=1, stroke=1)
         pdf.restoreState()
         if not isinstance(field, dict):
-            draw_wrapped("Geen veldtekening beschikbaar", x + 26, y + height / 2, width - 52, 12, 15, pdf_white, bold_font)
+            field = {"viewBox": [0, 0, 100, 70], "elements": [], "overlayItems": []}
             return
+
+        def draw_overlay_items(items: Any, stage_x: float, stage_y: float, stage_width: float, stage_height: float) -> None:
+            overlay_items = items if isinstance(items, list) else []
+
+            def overlay_x(value: Any, default: float = 50.0) -> float:
+                return stage_x + stage_width * (clamp_float(value, 0.0, 100.0, default) / 100)
+
+            def overlay_y(value: Any, default: float = 50.0) -> float:
+                return stage_y + stage_height - stage_height * (clamp_float(value, 0.0, 100.0, default) / 100)
+
+            for item in overlay_items[:160]:
+                if not isinstance(item, dict):
+                    continue
+                item_type = str(item.get("type") or "").strip()
+                item_color = safe_svg_color(item.get("color"), "#111111")
+                red = int(item_color[1:3], 16) / 255
+                green = int(item_color[3:5], 16) / 255
+                blue = int(item_color[5:7], 16) / 255
+                item_x = overlay_x(item.get("x"))
+                item_y = overlay_y(item.get("y"))
+                item_size = clamp_float(item.get("size"), 45.0, 220.0, 100.0) / 100.0
+                pdf.saveState()
+                if item_type == "player":
+                    pdf.setFillColor(colors.Color(red, green, blue, alpha=0.96))
+                    pdf.setStrokeColor(pdf_white)
+                    pdf.setLineWidth(1.2)
+                    pdf.circle(item_x, item_y, 5.8 * item_size, stroke=1, fill=1)
+                    pdf.setFillColor(colors.Color(max(red * 0.82, 0), max(green * 0.82, 0), max(blue * 0.82, 0), alpha=0.96))
+                    pdf.roundRect(item_x - 6.0 * item_size, item_y - 13.5 * item_size, 12.0 * item_size, 6.2 * item_size, 2.2 * item_size, fill=1, stroke=0)
+                elif item_type == "ball":
+                    pdf.setFillColor(colors.Color(red, green, blue, alpha=0.96))
+                    pdf.setStrokeColor(colors.HexColor("#111111"))
+                    pdf.setLineWidth(1.1)
+                    pdf.circle(item_x, item_y, 4.1 * item_size, stroke=1, fill=1)
+                    pdf.line(item_x - 3.0 * item_size, item_y, item_x + 3.0 * item_size, item_y)
+                    pdf.line(item_x, item_y - 3.0 * item_size, item_x, item_y + 3.0 * item_size)
+                elif item_type in {"cone", "small-cone", "big-cone"}:
+                    cone_scale = item_size * (1.25 if item_type == "big-cone" else 1.0)
+                    pdf.setFillColor(colors.Color(red, green, blue, alpha=0.96))
+                    pdf.setStrokeColor(colors.HexColor("#111111"))
+                    pdf.setLineWidth(0.9)
+                    path = pdf.beginPath()
+                    path.moveTo(item_x, item_y + 6.5 * cone_scale)
+                    path.lineTo(item_x - 6.0 * cone_scale, item_y - 6.5 * cone_scale)
+                    path.lineTo(item_x + 6.0 * cone_scale, item_y - 6.5 * cone_scale)
+                    path.close()
+                    pdf.drawPath(path, stroke=1, fill=1)
+                elif item_type == "goal":
+                    goal_width = 28.0 * item_size
+                    goal_height = 17.0 * item_size
+                    pdf.setStrokeColor(colors.Color(red, green, blue, alpha=0.96))
+                    pdf.setLineWidth(max(1.2, 2.2 * item_size))
+                    pdf.rect(item_x - goal_width / 2, item_y - goal_height / 2, goal_width, goal_height, fill=0, stroke=1)
+                    pdf.line(item_x - goal_width / 2, item_y - goal_height / 2, item_x + goal_width / 2, item_y - goal_height / 2)
+                elif item_type in {"line", "arrow"}:
+                    end_x = overlay_x(item.get("x2"), clamp_float(item.get("x"), 0.0, 100.0, 50.0) + 12)
+                    end_y = overlay_y(item.get("y2"), clamp_float(item.get("y"), 0.0, 100.0, 50.0))
+                    length = ((end_x - item_x) ** 2 + (end_y - item_y) ** 2) ** 0.5
+                    if length >= 0.5:
+                        line_width = 2.4 * item_size
+                        pdf.setStrokeColor(colors.Color(red, green, blue, alpha=0.96))
+                        pdf.setLineWidth(line_width)
+                        pdf.setLineCap(1)
+                        pdf.line(item_x, item_y, end_x, end_y)
+                        if item_type == "arrow":
+                            angle = atan2(end_y - item_y, end_x - item_x)
+                            head_length = min(10.0, max(6.0, length * 0.35)) * item_size
+                            head_angle = 0.62
+                            pdf.line(end_x, end_y, end_x - head_length * cos(angle - head_angle), end_y - head_length * sin(angle - head_angle))
+                            pdf.line(end_x, end_y, end_x - head_length * cos(angle + head_angle), end_y - head_length * sin(angle + head_angle))
+                elif item_type == "text":
+                    text = normalize_exercise_text(item.get("text"))[:80] or "Tekst"
+                    pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.9))
+                    text_size = 7.5 * item_size
+                    text_width = min(110.0, max(28.0, stringWidth(text, bold_font, text_size) + 8))
+                    pdf.roundRect(item_x - text_width / 2, item_y - 7 * item_size, text_width, 14 * item_size, 3, fill=1, stroke=0)
+                    pdf.setFillColor(colors.Color(red, green, blue, alpha=1))
+                    pdf.setFont(bold_font, text_size)
+                    pdf.drawCentredString(item_x, item_y - 2.5 * item_size, text)
+                pdf.restoreState()
 
         image_data_url = str(field.get("imageDataUrl") or "").strip()
         if image_data_url.startswith("data:image/") and "," in image_data_url:
             try:
                 image_bytes = base64.b64decode(image_data_url.split(",", 1)[1])
-                pdf.drawImage(ImageReader(BytesIO(image_bytes)), x + 10, y + 10, width - 20, height - 20, preserveAspectRatio=True, anchor="c", mask="auto")
+                stage_x = x + 10
+                stage_y = y + 10
+                stage_width = width - 20
+                stage_height = height - 20
+                pdf.drawImage(ImageReader(BytesIO(image_bytes)), stage_x, stage_y, stage_width, stage_height, preserveAspectRatio=True, anchor="c", mask="auto")
+                draw_overlay_items(field.get("overlayItems"), stage_x, stage_y, stage_width, stage_height)
                 return
             except Exception:
                 pass
@@ -4609,7 +6810,7 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
         raw_viewbox = field.get("viewBox")
         raw_elements = field.get("elements")
         if not isinstance(raw_viewbox, list) or len(raw_viewbox) != 4 or not isinstance(raw_elements, list) or not raw_elements:
-            draw_wrapped("Geen veldtekening beschikbaar", x + 26, y + height / 2, width - 52, 12, 15, pdf_white, bold_font)
+            draw_overlay_items(field.get("overlayItems"), x + 10, y + 10, width - 20, height - 20)
             return
 
         viewbox = [safe_svg_number(value) for value in raw_viewbox]
@@ -4675,6 +6876,8 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
                 pdf.rect(mapped_x, mapped_y, mapped_width, mapped_height, fill=1, stroke=1)
             pdf.restoreState()
 
+        draw_overlay_items(field.get("overlayItems"), x + (width - draw_width) / 2, y + (height - draw_height) / 2, draw_width, draw_height)
+
     def draw_exercise_text_panel(label: str, value: Any, x: float, y: float, width: float, height: float, max_lines: int = 5) -> None:
         pdf.saveState()
         pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.5))
@@ -4684,15 +6887,66 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
         pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.78))
         pdf.setFont(black_font, 9.5)
         pdf.drawString(x + 12, y + height - 17, label.upper())
+
+        body_top = y + height - 34
+        body_bottom = y + 10
+        body_height = max(8.0, body_top - body_bottom)
+        bullet_pattern = re.compile(r"^\s*(?:[•*-])\s+(.+)$")
+
+        def build_panel_lines(font_size: float) -> List[Dict[str, Any]]:
+            panel_lines: List[Dict[str, Any]] = []
+            bullet_indent = max(6.0, font_size * 1.35)
+            for paragraph in str(value or "Niet ingevuld").splitlines() or ["Niet ingevuld"]:
+                raw_paragraph = str(paragraph or "").strip()
+                if not raw_paragraph:
+                    continue
+                bullet_match = bullet_pattern.match(raw_paragraph)
+                if bullet_match:
+                    wrapped_lines = split_text(bullet_match.group(1), width - 24 - bullet_indent, font_size, regular_font) or [""]
+                    panel_lines.extend(
+                        {"text": line, "bullet": line_index == 0, "indent": bullet_indent}
+                        for line_index, line in enumerate(wrapped_lines)
+                    )
+                    continue
+                panel_lines.extend(
+                    {"text": line, "bullet": False, "indent": 0}
+                    for line in split_text(raw_paragraph, width - 24, font_size, regular_font) or [""]
+                )
+            if not panel_lines:
+                panel_lines = [{"text": "Niet ingevuld", "bullet": False, "indent": 0}]
+            return panel_lines
+
+        font_size = 10.2
+        lines = build_panel_lines(font_size)
+        leading = font_size * 1.16
+        while font_size > 2.4:
+            lines = build_panel_lines(font_size)
+            leading = max(font_size * 1.12, font_size + 0.35)
+            if len(lines) * leading <= body_height:
+                break
+            font_size -= 0.2
+        if len(lines) * leading > body_height:
+            font_size = max(1.6, min(font_size, (body_height / max(1, len(lines))) * 0.9))
+            for _fit_attempt in range(8):
+                lines = build_panel_lines(font_size)
+                leading = max(font_size * 1.08, font_size + 0.2)
+                if len(lines) * leading <= body_height or font_size <= 0.8:
+                    break
+                font_size = max(0.8, font_size * 0.86)
+
         pdf.setFillColor(pdf_white)
-        pdf.setFont(regular_font, 10.2)
-        text_y = y + height - 34
-        lines: List[str] = []
-        for paragraph in str(value or "Niet ingevuld").splitlines() or ["Niet ingevuld"]:
-            lines.extend(split_text(paragraph, width - 24, 10.2, regular_font) or [""])
-        for line in lines[:max_lines]:
-            pdf.drawString(x + 12, text_y, line)
-            text_y -= 12
+        pdf.setFont(regular_font, font_size)
+        text_y = body_top
+        bullet_radius = max(0.7, font_size * 0.16)
+        for line in lines:
+            text_x = x + 12 + float(line["indent"])
+            if line["bullet"]:
+                pdf.saveState()
+                pdf.setFillColor(pdf_white)
+                pdf.circle(x + 15, text_y + font_size * 0.32, bullet_radius, stroke=0, fill=1)
+                pdf.restoreState()
+            pdf.drawString(text_x, text_y, str(line["text"]))
+            text_y -= leading
 
     def draw_field_line(x1: float, y1: float, x2: float, y2: float, width: float = 2.2) -> None:
         pdf.saveState()
@@ -4746,7 +7000,38 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
         pdf.arc(x + width - corner_radius, y - corner_radius, x + width + corner_radius, y + corner_radius, 90, 90)
         pdf.restoreState()
 
-        for index, block in enumerate(blocks):
+        for arrow in [item for item in blocks if item.get("type") == "arrow"]:
+            start_x = x + width * (float(arrow.get("x1") or 0) / 100)
+            start_y = y + height - height * (float(arrow.get("y1") or 0) / 100)
+            end_x = x + width * (float(arrow.get("x2") or 0) / 100)
+            end_y = y + height - height * (float(arrow.get("y2") or 0) / 100)
+            arrow_length = ((end_x - start_x) ** 2 + (end_y - start_y) ** 2) ** 0.5
+            if arrow_length < 0.5:
+                continue
+            arrow_color = normalize_hex_color(arrow.get("color"), "#FFFFFF")
+            red = int(arrow_color[1:3], 16) / 255
+            green = int(arrow_color[3:5], 16) / 255
+            blue = int(arrow_color[5:7], 16) / 255
+            line_width = max(1.2, min(6.0, float(arrow.get("strokeWidth") or 5) * 0.55))
+            angle = atan2(end_y - start_y, end_x - start_x)
+            head_length = min(13.0, max(7.0, 7.5 + line_width * 1.15), arrow_length * 0.45)
+            head_angle = 0.62
+            left_head_x = end_x - head_length * cos(angle - head_angle)
+            left_head_y = end_y - head_length * sin(angle - head_angle)
+            right_head_x = end_x - head_length * cos(angle + head_angle)
+            right_head_y = end_y - head_length * sin(angle + head_angle)
+            pdf.saveState()
+            pdf.setStrokeColor(colors.Color(red, green, blue, alpha=0.95))
+            pdf.setLineWidth(line_width)
+            pdf.setLineCap(1)
+            pdf.setLineJoin(1)
+            pdf.line(start_x, start_y, end_x, end_y)
+            pdf.line(end_x, end_y, left_head_x, left_head_y)
+            pdf.line(end_x, end_y, right_head_x, right_head_y)
+            pdf.restoreState()
+
+        block_items = [item for item in blocks if item.get("type") != "arrow"]
+        for index, block in enumerate(block_items):
             block_width = max(14.0, width * (float(block.get("width") or 0) / 100))
             block_height = max(10.0, height * (float(block.get("height") or 0) / 100))
             block_x = x + width * (float(block.get("x") or 0) / 100)
@@ -4779,28 +7064,60 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
                 pdf.drawString(block_x + max(3, (block_width - text_width) / 2), text_y, line)
             pdf.restoreState()
 
-    def draw_field_layout_page(blocks: List[Dict[str, Any]], page_index: int) -> None:
+    def get_field_period_label(period: Optional[Dict[str, Any]]) -> str:
+        if not period:
+            return ""
+        label = str(period.get("label") or "").strip()
+        start_time = str(period.get("startTime") or "").strip()
+        end_time = str(period.get("endTime") or "").strip()
+        time_label = f"{start_time or '--:--'}-{end_time or '--:--'}" if start_time or end_time else ""
+        if label and time_label:
+            return f"{label} | {time_label}"
+        return label or time_label
+
+    def draw_field_layout_page(
+        blocks: List[Dict[str, Any]],
+        page_index: int,
+        training: Optional[Dict[str, Any]] = None,
+        period: Optional[Dict[str, Any]] = None,
+    ) -> None:
         draw_header("Veldplattegrond", page_index)
+        period_label = get_field_period_label(period)
+        if period_label:
+            pdf.setFont(bold_font, 13)
+            pdf.setFillColor(pdf_white)
+            pdf.drawString(94, 424, period_label)
         draw_football_field(94, 58, 230, 355, blocks)
 
-        selected_blocks = [block for block in blocks if block.get("exerciseTitle")]
+        selected_blocks = sort_football_field_blocks(blocks)
         rows = []
+        listed_exercise_keys: Set[str] = set()
         for index, block in enumerate(selected_blocks, start=1):
+            if block.get("sameExerciseExport") and (block.get("exerciseTitle") or block.get("exerciseId")):
+                export_key = get_exercise_detail_export_key(block, index)
+                if export_key in listed_exercise_keys:
+                    continue
+                listed_exercise_keys.add(export_key)
             block_title = str(block.get("title") or f"Blok {index}").strip()
-            exercise_title = str(block.get("exerciseTitle") or "").strip()
-            exercise_kind = str(block.get("exerciseKind") or block.get("category") or "").strip()
-            rows.append([str(index), block_title, exercise_title, exercise_kind])
+            exercise_title = str(block.get("exerciseTitle") or "Geen oefening geselecteerd").strip()
+            rows.append([str(index), block_title, exercise_title])
         if not rows:
-            rows = [["-", "Nog geen blokken", "Nog geen oefening geselecteerd", ""]]
+            rows = [["-", "Nog geen blokken", "Nog geen oefening geselecteerd"]]
 
         draw_field_exercise_table(rows)
+        draw_training_page_footer(training)
 
-    def draw_exercise_detail_page(block: Dict[str, Any], page_index: int, fallback_index: int) -> None:
+    def draw_exercise_detail_page(
+        block: Dict[str, Any],
+        page_index: int,
+        fallback_index: int,
+        training: Optional[Dict[str, Any]] = None,
+    ) -> None:
         block_title = str(block.get("title") or f"Blok {fallback_index}").strip()
         exercise_title = str(block.get("exerciseTitle") or "Oefening").strip()
         exercise_kind = str(block.get("exerciseKind") or block.get("category") or "").strip()
         header_title = f"{block_title} - {exercise_title}"
-        draw_header(header_title, page_index)
+        draw_exercise_header(header_title, page_index)
 
         details = block.get("exerciseDetails") if isinstance(block.get("exerciseDetails"), dict) else {}
         content_y = 58
@@ -4811,93 +7128,149 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
         center_width = 280
         right_x = 642
         panel_gap = 12
-        tall_panel = (content_height - panel_gap) / 2
-        short_panel = (content_height - (panel_gap * 2)) / 3
+        top_row_height = 228
+        bottom_row_height = content_height - top_row_height - panel_gap
+        top_row_y = content_y + bottom_row_height + panel_gap
+        variation_height = (top_row_height - panel_gap) / 2
 
-        subtitle = f"Welke oefening: {exercise_kind}" if exercise_kind else "Welke oefening: niet ingevuld"
-        pdf.saveState()
-        pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.58))
-        pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.22))
-        pdf.roundRect(center_x, content_y + content_height - 34, center_width, 34, 5, fill=1, stroke=1)
-        pdf.restoreState()
-        draw_wrapped(subtitle, center_x + 14, content_y + content_height - 14, center_width - 28, 11, 13, pdf_white, bold_font)
+        draw_exercise_text_panel("Omschrijving oefening", details.get("description", ""), left_x, top_row_y, column_width, top_row_height, 7)
+        draw_exercise_field_preview(block.get("exerciseField"), center_x, top_row_y, center_width, top_row_height, exercise_title)
+        draw_exercise_text_panel("Variatie makkelijker maken", details.get("variationEasier", ""), right_x, top_row_y + variation_height + panel_gap, column_width, variation_height, 4)
+        draw_exercise_text_panel("Variatie moeilijker maken", details.get("variationHarder", ""), right_x, top_row_y, column_width, variation_height, 4)
 
-        draw_exercise_text_panel("Omschrijving oefening", details.get("description", ""), left_x, content_y + tall_panel + panel_gap, column_width, tall_panel, 7)
-        draw_exercise_text_panel("Coaching", details.get("coaching", ""), left_x, content_y, column_width, tall_panel, 7)
-        draw_exercise_field_preview(block.get("exerciseField"), center_x, content_y, center_width, content_height - 46, exercise_title)
-        draw_exercise_text_panel("Variatie makkelijker maken", details.get("variationEasier", ""), right_x, content_y + (short_panel + panel_gap) * 2, column_width, short_panel, 4)
-        draw_exercise_text_panel("Variatie moeilijker maken", details.get("variationHarder", ""), right_x, content_y + short_panel + panel_gap, column_width, short_panel, 4)
-        draw_exercise_text_panel("Afmetingen en materialen", "\n".join([str(details.get("dimensions") or ""), str(details.get("materials") or "")]).strip(), right_x, content_y, column_width, short_panel, 5)
+        coaching_label = f"Coaching - {exercise_kind}" if exercise_kind else "Coaching"
+        draw_exercise_text_panel(coaching_label, details.get("coaching", ""), left_x, content_y, column_width, bottom_row_height, 4)
+        draw_exercise_text_panel("Materialen", details.get("materials", ""), center_x, content_y, center_width, bottom_row_height, 4)
+        draw_exercise_text_panel("Afmetingen", details.get("dimensions", ""), right_x, content_y, column_width, bottom_row_height, 4)
+        draw_training_page_footer(training)
 
     page_index = 0
     draw_background(page_index, 0.24)
     logo_path = os.path.join(os.path.dirname(__file__), "static", "assets", "hws-logo.png")
     if os.path.exists(logo_path):
+        cover_logo_size = 260
         pdf.drawImage(
             ImageReader(logo_path),
-            (FOOTBALL_DAYS_PDF_WIDTH - 190) / 2,
-            288,
-            190,
-            190,
+            (FOOTBALL_DAYS_PDF_WIDTH - cover_logo_size) / 2,
+            242,
+            cover_logo_size,
+            cover_logo_size,
             mask="auto",
             preserveAspectRatio=True,
             anchor="c",
         )
     pdf.setFillColor(pdf_white)
     pdf.setFont(extra_bold_font, 42)
-    cover_title = data.get("coverTitle") or "HWS VOETBALDAG"
+    cover_title = str(data.get("coverTitle") or "HWS VOETBALDAG").upper()
     title_width = stringWidth(cover_title, extra_bold_font, 42)
-    pdf.drawString((FOOTBALL_DAYS_PDF_WIDTH - title_width) / 2, 226, cover_title)
+    pdf.drawString((FOOTBALL_DAYS_PDF_WIDTH - title_width) / 2, 156, cover_title)
     pdf.setFont(bold_font, 20)
     meta = str(data.get("coverMeta") or f"{data['clubName'].upper()} | {data['registrationCount']} AANMELDINGEN").upper()
-    pdf.drawString((FOOTBALL_DAYS_PDF_WIDTH - stringWidth(meta, bold_font, 20)) / 2, 193, meta)
+    pdf.drawString((FOOTBALL_DAYS_PDF_WIDTH - stringWidth(meta, bold_font, 20)) / 2, 122, meta)
     pdf.showPage()
 
     page_index += 1
     draw_overview_page(page_index)
     pdf.showPage()
 
-    staff_rows = data["staff"] or [{"name": "Nog in te vullen", "role": "", "setupTask": ""}]
-    for chunk in chunk_items(staff_rows, 8):
+    field_training_rows = data.get("fieldTrainings") if isinstance(data.get("fieldTrainings"), list) else []
+    no_training_rows = data.get("cycleNoTrainingDates") if isinstance(data.get("cycleNoTrainingDates"), list) else []
+    if data.get("playbookType") == "samenwerkende-amateurclubs" and (len(field_training_rows) > 1 or no_training_rows):
         page_index += 1
-        draw_staff_page(chunk, page_index)
+        draw_training_dates_page(field_training_rows, no_training_rows, page_index)
         pdf.showPage()
 
-    program_rows = data["program"] or [{"startTime": "", "endTime": "", "activity": "Nog in te vullen"}]
-    program_chunk_size = 14 if len(program_rows) <= 14 else 12
-    for chunk in chunk_items(program_rows, program_chunk_size):
+    if data.get("includeStaff", True):
+        staff_rows = data["staff"] or [{"name": "Nog in te vullen", "role": "", "setupTask": ""}]
+        for chunk in chunk_items(staff_rows, 8):
+            page_index += 1
+            draw_staff_page(chunk, page_index)
+            pdf.showPage()
+
+    if data.get("includeProgram", True):
+        program_rows = data["program"] or [{"startTime": "", "endTime": "", "activity": "Nog in te vullen"}]
+        program_chunk_size = 14 if len(program_rows) <= 14 else 12
+        program_layout_row_count = program_chunk_size if len(program_rows) > program_chunk_size else len(program_rows)
+        for chunk in chunk_items(program_rows, program_chunk_size):
+            page_index += 1
+            draw_program_page(chunk, page_index, program_layout_row_count)
+            pdf.showPage()
+
+    if str(data.get("contingencies") or "").strip():
+        contingency_lines = [
+            line.strip()
+            for line in str(data.get("contingencies") or "").splitlines()
+            if line.strip()
+        ]
+        contingency_rows = []
+        for line in contingency_lines:
+            if ":" in line:
+                scenario, solution = line.split(":", 1)
+                contingency_rows.append([scenario.strip(), solution.strip()])
+            else:
+                contingency_rows.append(["Scenario", line])
+        for chunk in chunk_items(contingency_rows, 7):
+            page_index += 1
+            draw_contingencies_page(chunk, page_index)
+            pdf.showPage()
+
+    def get_exercise_detail_export_key(block: Dict[str, Any], fallback_index: int) -> str:
+        export_key = str(block.get("sameExerciseKey") or "").strip()
+        if not export_key:
+            exercise_id = int(block.get("exerciseId") or 0)
+            exercise_title = normalize_match_text(block.get("exerciseTitle"))
+            export_key = f"exercise:{exercise_id}" if exercise_id else f"title:{exercise_title}"
+        if not export_key or export_key == "title:":
+            export_key = f"block:{block.get('id') or fallback_index}"
+        return export_key
+
+    def select_exercise_detail_blocks(blocks: List[Dict[str, Any]], sort_blocks: bool = True) -> List[Dict[str, Any]]:
+        exported_keys: Set[str] = set()
+        selected_blocks: List[Dict[str, Any]] = []
+        ordered_blocks = sort_football_field_blocks(blocks) if sort_blocks else blocks
+        for exercise_index, block in enumerate(ordered_blocks, start=1):
+            if not (block.get("exerciseTitle") or block.get("exerciseId")):
+                continue
+            if block.get("sameExerciseExport"):
+                export_key = get_exercise_detail_export_key(block, exercise_index)
+                if export_key in exported_keys:
+                    continue
+                exported_keys.add(export_key)
+            selected_blocks.append(block)
+        return selected_blocks
+
+    if data.get("playbookType") == "samenwerkende-amateurclubs" and field_training_rows:
+        for training_index, training in enumerate(field_training_rows, start=1):
+            training_name = str(training.get("name") or f"Training {training_index}").strip()
+            field_period_rows = training.get("fieldPeriods") if isinstance(training.get("fieldPeriods"), list) else []
+            if not field_period_rows:
+                field_period_rows = [{"label": "Plattegrond 1", "startTime": "", "endTime": "", "fieldLayout": training.get("fieldLayout") if isinstance(training.get("fieldLayout"), list) else []}]
+            page_index += 1
+            draw_training_cover_page(training, page_index)
+            pdf.showPage()
+            all_training_blocks: List[Dict[str, Any]] = []
+            for period in field_period_rows:
+                field_layout_rows = period.get("fieldLayout") if isinstance(period.get("fieldLayout"), list) else []
+                page_index += 1
+                draw_field_layout_page(field_layout_rows, page_index, training, period)
+                pdf.showPage()
+                all_training_blocks.extend(sort_football_field_blocks(field_layout_rows))
+            selected_exercise_blocks = select_exercise_detail_blocks(all_training_blocks, sort_blocks=False)
+            for exercise_index, block in enumerate(selected_exercise_blocks, start=1):
+                page_index += 1
+                draw_exercise_detail_page(block, page_index, exercise_index, training)
+                pdf.showPage()
+    else:
+        field_layout_rows = data.get("fieldLayout") if isinstance(data.get("fieldLayout"), list) else []
         page_index += 1
-        draw_program_page(chunk, page_index)
+        draw_field_layout_page(field_layout_rows, page_index)
         pdf.showPage()
 
-    contingency_lines = [
-        line.strip()
-        for line in str(data.get("contingencies") or "").splitlines()
-        if line.strip()
-    ] or ["Algemeen: Nog in te vullen"]
-    contingency_rows = []
-    for line in contingency_lines:
-        if ":" in line:
-            scenario, solution = line.split(":", 1)
-            contingency_rows.append([scenario.strip(), solution.strip()])
-        else:
-            contingency_rows.append(["Scenario", line])
-    for chunk in chunk_items(contingency_rows, 7):
-        page_index += 1
-        draw_header("Onvoorzien", page_index)
-        draw_table(["Situatie", "Afspraak of oplossing"], chunk, [250, 555], 58, 407, 45, 11)
-        pdf.showPage()
-
-    field_layout_rows = data.get("fieldLayout") if isinstance(data.get("fieldLayout"), list) else []
-    page_index += 1
-    draw_field_layout_page(field_layout_rows, page_index)
-    pdf.showPage()
-
-    selected_exercise_blocks = [block for block in field_layout_rows if block.get("exerciseTitle") or block.get("exerciseId")]
-    for exercise_index, block in enumerate(selected_exercise_blocks, start=1):
-        page_index += 1
-        draw_exercise_detail_page(block, page_index, exercise_index)
-        pdf.showPage()
+        selected_exercise_blocks = select_exercise_detail_blocks(field_layout_rows)
+        for exercise_index, block in enumerate(selected_exercise_blocks, start=1):
+            page_index += 1
+            draw_exercise_detail_page(block, page_index, exercise_index)
+            pdf.showPage()
 
     pdf.save()
     buffer.seek(0)
@@ -4906,12 +7279,22 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
 
 @app.post("/api/voetbaldagen/export-pdf")
 def api_football_days_export_pdf():
-    access_redirect = require_page_access("voetbaldagen")
+    return export_football_playbook_pdf("voetbaldagen")
+
+
+@app.post("/api/samenwerkende-amateurclubs/export-pdf")
+def api_amateur_clubs_export_pdf():
+    return export_football_playbook_pdf("samenwerkende-amateurclubs")
+
+
+def export_football_playbook_pdf(playbook_type: str):
+    context = get_football_playbook_context(playbook_type)
+    access_redirect = require_page_access(context["pageKey"])
     if access_redirect is not None:
         return access_redirect
 
     payload = request.get_json(silent=True) or {}
-    data = normalize_football_days_export_payload(payload)
+    data = normalize_football_days_export_payload(payload, context["playbookType"])
     try:
         pdf_bytes = create_football_days_pdf(data)
     except RuntimeError as exc:
@@ -4927,6 +7310,1206 @@ def api_football_days_export_pdf():
             "Cache-Control": "no-store",
         },
     )
+
+
+CONTRACT_DEFAULTS = {
+    "title": "Overeenkomst van opdracht",
+    "clubName": "",
+    "clubAddress": "",
+    "season": "",
+    "startDate": "",
+    "endDate": "",
+    "noticePeriod": "30 dagen (schriftelijk)",
+    "trainingExecutionSummary": "Trainingen volgens schema",
+    "trainingExecutionDetails": "De invulling wordt per club afgestemd op basis van het trainingsschema.",
+    "agendaAttachmentTitle": "",
+    "agendaAttachmentItems": [],
+    "hwsMaterials": "Trainingsmaterialen",
+    "clubMaterials": "Ballen, doelen, veld en opslag",
+    "extraActivities": "Voetbaldagen en techniektrainingen mogelijk zonder veldhuur",
+    "pricePerTraining": "",
+    "trainingCount": 0,
+    "totalAmount": "",
+    "costLines": [{"description": "", "pricePerTraining": "", "trainingCount": 0, "totalAmount": ""}],
+    "minPlayers": "Minimaal 4 spelers per training",
+    "weatherCancellation": "Bij afgelasting door weer worden geen kosten gerekend",
+    "hwsAbsence": "Bij afwezigheid vanuit HWS vindt verrekening plaats",
+    "liability": "Alleen bij opzet of grove nalatigheid",
+    "participationRisk": "Deelname op eigen risico",
+    "evaluationMoments": "Herfstvakantie telefonisch\nApril/mei evaluatie",
+    "hwsSignatory": "HWS Voetbalschool",
+    "clubSignatory": "",
+    "signingDate": "",
+    "notes": "",
+}
+
+
+def normalize_contract_line(item: Any) -> Optional[Dict[str, str]]:
+    if not isinstance(item, dict):
+        return None
+    line = {
+        "day": str(item.get("day") or "").strip(),
+        "time": str(item.get("time") or "").strip(),
+        "team": str(item.get("team") or "").strip(),
+        "trainingType": str(item.get("trainingType") or item.get("type") or "").strip(),
+    }
+    if not any(line.values()):
+        return None
+    return line
+
+
+def normalize_contract_cost_line(item: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(item, dict):
+        return None
+    description = str(item.get("description") or item.get("label") or "").strip()
+    price_per_training = str(item.get("pricePerTraining") or item.get("price") or "").strip()
+    total_amount = str(item.get("totalAmount") or item.get("total") or "").strip()
+    try:
+        training_count = max(0, int(str(item.get("trainingCount") or item.get("count") or "0").strip() or 0))
+    except ValueError:
+        training_count = 0
+    if not total_amount and price_per_training and training_count:
+        total_amount = format_contract_money(parse_decimal_amount(price_per_training) * Decimal(training_count))
+    line = {
+        "description": description,
+        "pricePerTraining": price_per_training,
+        "trainingCount": training_count,
+        "totalAmount": total_amount,
+    }
+    if not (description or price_per_training or training_count or total_amount):
+        return None
+    return line
+
+
+def normalize_contract_agenda_attachment_item(item: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(item, dict):
+        return None
+    key = str(item.get("key") or "").strip()
+    label = str(item.get("label") or "").strip()
+    plan_type = str(item.get("planType") or item.get("plan_type") or "").strip()
+    weekday = str(item.get("weekday") or "").strip()
+    count = int(item.get("count") or 0)
+    copy_text = str(item.get("copyText") or item.get("copy_text") or "").strip()
+    days = item.get("days") if isinstance(item.get("days"), list) else []
+    normalized_days = []
+    for day in days:
+        if not isinstance(day, dict):
+            continue
+        day_date = str(day.get("date") or "").strip()
+        day_label = str(day.get("label") or "").strip()
+        if day_date or day_label:
+            normalized_days.append({"date": day_date, "label": day_label})
+    if not key and plan_type and weekday:
+        key = f"{plan_type}|{weekday}"
+    if not label and plan_type:
+        label = f"{plan_type} - {weekday}" if weekday else plan_type
+    if not (key or label or copy_text or normalized_days):
+        return None
+    return {
+        "key": key,
+        "label": label,
+        "planType": plan_type,
+        "weekday": weekday,
+        "count": count or len(normalized_days),
+        "copyText": copy_text,
+        "days": normalized_days,
+    }
+
+
+def normalize_contract(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
+    contract = dict(CONTRACT_DEFAULTS)
+    contract["id"] = None
+    contract["createdAt"] = ""
+    contract["updatedAt"] = ""
+    contract["trainingLines"] = [{"day": "", "time": "", "team": "", "trainingType": ""}]
+    if row is None:
+        return contract
+
+    try:
+        training_lines_payload = json.loads(str(row["training_lines_json"] or "[]"))
+    except json.JSONDecodeError:
+        training_lines_payload = []
+    training_lines = [
+        normalized_line
+        for normalized_line in (normalize_contract_line(item) for item in training_lines_payload if isinstance(training_lines_payload, list))
+        if normalized_line is not None
+    ]
+    if "cost_lines_json" in row.keys():
+        try:
+            cost_lines_payload = json.loads(str(row["cost_lines_json"] or "[]"))
+        except json.JSONDecodeError:
+            cost_lines_payload = []
+    else:
+        cost_lines_payload = []
+    cost_lines = [
+        normalized_line
+        for normalized_line in (normalize_contract_cost_line(item) for item in cost_lines_payload if isinstance(cost_lines_payload, list))
+        if normalized_line is not None
+    ]
+    if not cost_lines and (str(row["price_per_training"] or "").strip() or int(row["training_count"] or 0) or str(row["total_amount"] or "").strip()):
+        cost_lines = [
+            {
+                "description": "",
+                "pricePerTraining": str(row["price_per_training"] or "").strip(),
+                "trainingCount": int(row["training_count"] or 0),
+                "totalAmount": str(row["total_amount"] or "").strip(),
+            }
+        ]
+    if "agenda_attachment_items_json" in row.keys():
+        try:
+            attachment_payload = json.loads(str(row["agenda_attachment_items_json"] or "[]"))
+        except json.JSONDecodeError:
+            attachment_payload = []
+    else:
+        attachment_payload = []
+    agenda_attachment_items = [
+        normalized_item
+        for normalized_item in (normalize_contract_agenda_attachment_item(item) for item in attachment_payload if isinstance(attachment_payload, list))
+        if normalized_item is not None
+    ]
+
+    contract.update(
+        {
+            "id": int(row["id"]),
+            "title": str(row["title"] or CONTRACT_DEFAULTS["title"]).strip(),
+            "clubName": str(row["club_name"] or "").strip(),
+            "clubAddress": str(row["club_address"] or "").strip() if "club_address" in row.keys() else "",
+            "season": str(row["season"] or "").strip(),
+            "startDate": str(row["start_date"] or "").strip(),
+            "endDate": str(row["end_date"] or "").strip(),
+            "noticePeriod": str(row["notice_period"] or "").strip(),
+            "trainingLines": training_lines or [{"day": "", "time": "", "team": "", "trainingType": ""}],
+            "trainingExecutionSummary": str(row["training_execution_summary"] or CONTRACT_DEFAULTS["trainingExecutionSummary"]).strip() if "training_execution_summary" in row.keys() else CONTRACT_DEFAULTS["trainingExecutionSummary"],
+            "trainingExecutionDetails": str(row["training_execution_details"] or CONTRACT_DEFAULTS["trainingExecutionDetails"]).strip() if "training_execution_details" in row.keys() else CONTRACT_DEFAULTS["trainingExecutionDetails"],
+            "agendaAttachmentTitle": str(row["agenda_attachment_title"] or "").strip() if "agenda_attachment_title" in row.keys() else "",
+            "agendaAttachmentItems": agenda_attachment_items,
+            "hwsMaterials": str(row["hws_materials"] or "").strip(),
+            "clubMaterials": str(row["club_materials"] or "").strip(),
+            "extraActivities": str(row["extra_activities"] or "").strip(),
+            "pricePerTraining": str(row["price_per_training"] or "").strip(),
+            "trainingCount": int(row["training_count"] or 0),
+            "totalAmount": str(row["total_amount"] or "").strip(),
+            "costLines": cost_lines or [{"description": "", "pricePerTraining": "", "trainingCount": 0, "totalAmount": ""}],
+            "minPlayers": str(row["min_players"] or "").strip(),
+            "weatherCancellation": str(row["weather_cancellation"] or "").strip(),
+            "hwsAbsence": str(row["hws_absence"] or "").strip(),
+            "liability": str(row["liability"] or "").strip(),
+            "participationRisk": str(row["participation_risk"] or "").strip(),
+            "evaluationMoments": str(row["evaluation_moments"] or "").strip(),
+            "hwsSignatory": str(row["hws_signatory"] or "").strip(),
+            "clubSignatory": str(row["club_signatory"] or "").strip(),
+            "signingDate": str(row["signing_date"] or "").strip(),
+            "notes": str(row["notes"] or "").strip(),
+            "createdAt": str(row["created_at"] or "").strip(),
+            "updatedAt": str(row["updated_at"] or "").strip(),
+        }
+    )
+    return contract
+
+
+def load_contracts() -> List[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM contracts
+            ORDER BY COALESCE(NULLIF(start_date, ''), updated_at) DESC, id DESC
+            """
+        ).fetchall()
+    return [normalize_contract(row) for row in rows]
+
+
+def load_contract(contract_id: int) -> Optional[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        row = connection.execute("SELECT * FROM contracts WHERE id = ?", (contract_id,)).fetchone()
+    if row is None:
+        return None
+    return normalize_contract(row)
+
+
+def parse_contract_season_start_year(value: Any) -> Optional[int]:
+    match = re.search(r"(20\d{2})", str(value or ""))
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def get_contract_agenda_attachment_bounds(contract: Optional[Dict[str, Any]] = None) -> Tuple[date, Optional[date]]:
+    contract = contract or {}
+    season_start_year = parse_contract_season_start_year(contract.get("season"))
+    start_date = parse_iso_date(str(contract.get("startDate") or "").strip())
+    end_date = parse_iso_date(str(contract.get("endDate") or "").strip())
+
+    if start_date is None:
+        start_date = date(season_start_year or date.today().year, 8, 1)
+    if end_date is None and season_start_year is not None:
+        end_date = date(season_start_year + 1, 7, 31)
+    return start_date, end_date
+
+
+def filter_contract_agenda_day_plans_for_bounds(
+    day_plans: List[Dict[str, Any]],
+    contract: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    start_date, end_date = get_contract_agenda_attachment_bounds(contract)
+    filtered_day_plans: List[Dict[str, Any]] = []
+    for day_plan in day_plans:
+        current_date = day_plan.get("date")
+        if isinstance(current_date, str):
+            current_date = parse_iso_date(current_date.strip())
+        if not isinstance(current_date, date):
+            continue
+        if current_date < start_date:
+            continue
+        if end_date is not None and current_date > end_date:
+            continue
+        filtered_day_plans.append(day_plan)
+    return filtered_day_plans
+
+
+def filter_contract_agenda_trainings_for_bounds(
+    trainings: List[Dict[str, Any]],
+    contract: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    start_date, end_date = get_contract_agenda_attachment_bounds(contract)
+    filtered_trainings: List[Dict[str, Any]] = []
+    for training in trainings:
+        current_date = training.get("date")
+        if isinstance(current_date, str):
+            current_date = parse_iso_date(current_date.strip())
+        if not isinstance(current_date, date):
+            continue
+        if current_date < start_date:
+            continue
+        if end_date is not None and current_date > end_date:
+            continue
+        filtered_trainings.append(training)
+    return filtered_trainings
+
+
+def build_contract_agenda_attachment_options(contract: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    day_plans = load_all_agenda_day_plans()
+    trainings = load_agenda_trainings()
+    filtered_day_plans = filter_contract_agenda_day_plans_for_bounds(day_plans, contract)
+    filtered_trainings = filter_contract_agenda_trainings_for_bounds(trainings, contract)
+    summary_items = build_agenda_day_plan_summary(add_football_day_only_no_activity_days(filtered_day_plans, filtered_trainings))
+    options: List[Dict[str, Any]] = []
+    for summary_item in summary_items:
+        plan_type = str(summary_item.get("label") or "").strip()
+        for detail in summary_item.get("details") or []:
+            weekday = str(detail.get("label") or "").strip()
+            key = f"{plan_type}|{weekday}"
+            count = int(detail.get("count") or 0)
+            days = detail.get("days") if isinstance(detail.get("days"), list) else []
+            label = f"{plan_type} - {weekday} ({count} {'dag' if count == 1 else 'dagen'})"
+            option = normalize_contract_agenda_attachment_item(
+                {
+                    "key": key,
+                    "label": label,
+                    "planType": plan_type,
+                    "weekday": weekday,
+                    "count": count,
+                    "copyText": detail.get("copyText") or "",
+                    "days": days,
+                }
+            )
+            if option is not None:
+                options.append(option)
+    return options
+
+
+def parse_contract_agenda_attachment_items_from_form(contract: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    selected_keys = {str(key or "").strip() for key in request.form.getlist("agenda_attachment_keys") if str(key or "").strip()}
+    if not selected_keys:
+        return []
+    option_map = {option["key"]: option for option in build_contract_agenda_attachment_options(contract)}
+    selected_items = [
+        normalize_contract_agenda_attachment_item(option_map[key])
+        for key in sorted(selected_keys)
+        if key in option_map
+    ]
+    return [item for item in selected_items if item is not None]
+
+
+def parse_contract_lines_from_form() -> List[Dict[str, str]]:
+    days = request.form.getlist("line_day")
+    times = request.form.getlist("line_time")
+    teams = request.form.getlist("line_team")
+    training_types = request.form.getlist("line_training_type")
+    lines: List[Dict[str, str]] = []
+    for index, day in enumerate(days):
+        line = normalize_contract_line(
+            {
+                "day": day,
+                "time": times[index] if index < len(times) else "",
+                "team": teams[index] if index < len(teams) else "",
+                "trainingType": training_types[index] if index < len(training_types) else "",
+            }
+        )
+        if line is not None:
+            lines.append(line)
+    return lines
+
+
+def parse_contract_cost_lines_from_form() -> List[Dict[str, Any]]:
+    descriptions = request.form.getlist("cost_description")
+    prices = request.form.getlist("cost_price_per_training")
+    counts = request.form.getlist("cost_training_count")
+    totals = request.form.getlist("cost_total_amount")
+    lines: List[Dict[str, Any]] = []
+    max_length = max(len(descriptions), len(prices), len(counts), len(totals), 0)
+    for index in range(max_length):
+        line = normalize_contract_cost_line(
+            {
+                "description": descriptions[index] if index < len(descriptions) else "",
+                "pricePerTraining": prices[index] if index < len(prices) else "",
+                "trainingCount": counts[index] if index < len(counts) else "",
+                "totalAmount": totals[index] if index < len(totals) else "",
+            }
+        )
+        if line is not None:
+            lines.append(line)
+    return lines
+
+
+def parse_decimal_amount(value: Any) -> Decimal:
+    raw_value = str(value or "").strip()
+    cleaned = re.sub(r"[^0-9,.-]", "", raw_value).replace(".", "").replace(",", ".")
+    if not cleaned:
+        return Decimal("0")
+    try:
+        return Decimal(cleaned)
+    except InvalidOperation:
+        return Decimal("0")
+
+
+def format_contract_money(value: Decimal) -> str:
+    return f"{value.quantize(Decimal('0.01'))}".replace(".", ",")
+
+
+def build_contract_from_form() -> Dict[str, Any]:
+    training_lines = parse_contract_lines_from_form()
+    cost_lines = parse_contract_cost_lines_from_form()
+    contract_context = {
+        "season": request.form.get("season", "").strip(),
+        "startDate": request.form.get("start_date", "").strip(),
+        "endDate": request.form.get("end_date", "").strip(),
+    }
+    agenda_attachment_items = parse_contract_agenda_attachment_items_from_form(contract_context)
+    first_cost_line = cost_lines[0] if cost_lines else {"pricePerTraining": "", "trainingCount": 0, "totalAmount": ""}
+    training_count = sum(int(line.get("trainingCount") or 0) for line in cost_lines)
+    total_decimal = sum(parse_decimal_amount(line.get("totalAmount")) for line in cost_lines)
+    total_amount = format_contract_money(total_decimal) if total_decimal else str(first_cost_line.get("totalAmount") or "")
+
+    return {
+        "title": request.form.get("title", "").strip() or CONTRACT_DEFAULTS["title"],
+        "clubName": request.form.get("club_name", "").strip(),
+        "clubAddress": request.form.get("club_address", "").strip(),
+        "season": contract_context["season"],
+        "startDate": contract_context["startDate"],
+        "endDate": contract_context["endDate"],
+        "noticePeriod": request.form.get("notice_period", "").strip(),
+        "trainingLines": training_lines,
+        "trainingExecutionSummary": request.form.get("training_execution_summary", "").strip() or CONTRACT_DEFAULTS["trainingExecutionSummary"],
+        "trainingExecutionDetails": request.form.get("training_execution_details", "").strip() or CONTRACT_DEFAULTS["trainingExecutionDetails"],
+        "agendaAttachmentTitle": request.form.get("agenda_attachment_title", "").strip(),
+        "agendaAttachmentItems": agenda_attachment_items,
+        "costLines": cost_lines,
+        "hwsMaterials": CONTRACT_DEFAULTS["hwsMaterials"],
+        "clubMaterials": CONTRACT_DEFAULTS["clubMaterials"],
+        "extraActivities": request.form.get("extra_activities", "").strip(),
+        "pricePerTraining": str(first_cost_line.get("pricePerTraining") or ""),
+        "trainingCount": training_count or int(first_cost_line.get("trainingCount") or 0),
+        "totalAmount": total_amount,
+        "minPlayers": CONTRACT_DEFAULTS["minPlayers"],
+        "weatherCancellation": CONTRACT_DEFAULTS["weatherCancellation"],
+        "hwsAbsence": CONTRACT_DEFAULTS["hwsAbsence"],
+        "liability": CONTRACT_DEFAULTS["liability"],
+        "participationRisk": CONTRACT_DEFAULTS["participationRisk"],
+        "evaluationMoments": CONTRACT_DEFAULTS["evaluationMoments"],
+        "hwsSignatory": CONTRACT_DEFAULTS["hwsSignatory"],
+        "clubSignatory": "",
+        "signingDate": "",
+        "notes": "",
+    }
+
+
+def save_contract(contract: Dict[str, Any], contract_id: Optional[int] = None) -> int:
+    now = utcnow_iso()
+    cost_lines = get_contract_cost_lines(contract)
+    first_cost_line = cost_lines[0] if cost_lines else {"pricePerTraining": "", "trainingCount": 0, "totalAmount": ""}
+    training_count = sum(int(line.get("trainingCount") or 0) for line in cost_lines)
+    total_decimal = sum(parse_decimal_amount(line.get("totalAmount")) for line in cost_lines)
+    total_amount = format_contract_money(total_decimal) if total_decimal else str(contract.get("totalAmount") or first_cost_line.get("totalAmount") or "").strip()
+    payload = (
+        str(contract.get("title") or CONTRACT_DEFAULTS["title"]).strip(),
+        str(contract.get("clubName") or "").strip(),
+        str(contract.get("clubAddress") or "").strip(),
+        str(contract.get("season") or "").strip(),
+        str(contract.get("startDate") or "").strip(),
+        str(contract.get("endDate") or "").strip(),
+        str(contract.get("noticePeriod") or "").strip(),
+        json.dumps(contract.get("trainingLines") or [], ensure_ascii=False),
+        str(contract.get("trainingExecutionSummary") or CONTRACT_DEFAULTS["trainingExecutionSummary"]).strip(),
+        str(contract.get("trainingExecutionDetails") or CONTRACT_DEFAULTS["trainingExecutionDetails"]).strip(),
+        str(contract.get("agendaAttachmentTitle") or "").strip(),
+        json.dumps(contract.get("agendaAttachmentItems") or [], ensure_ascii=False),
+        str(contract.get("hwsMaterials") or "").strip(),
+        str(contract.get("clubMaterials") or "").strip(),
+        str(contract.get("extraActivities") or "").strip(),
+        json.dumps(cost_lines, ensure_ascii=False),
+        str(contract.get("pricePerTraining") or first_cost_line.get("pricePerTraining") or "").strip(),
+        training_count or int(contract.get("trainingCount") or first_cost_line.get("trainingCount") or 0),
+        total_amount,
+        str(contract.get("minPlayers") or "").strip(),
+        str(contract.get("weatherCancellation") or "").strip(),
+        str(contract.get("hwsAbsence") or "").strip(),
+        str(contract.get("liability") or "").strip(),
+        str(contract.get("participationRisk") or "").strip(),
+        str(contract.get("evaluationMoments") or "").strip(),
+        str(contract.get("hwsSignatory") or "").strip(),
+        str(contract.get("clubSignatory") or "").strip(),
+        str(contract.get("signingDate") or "").strip(),
+        str(contract.get("notes") or "").strip(),
+    )
+    with get_db_connection() as connection:
+        if contract_id:
+            connection.execute(
+                """
+                UPDATE contracts
+                SET title = ?, club_name = ?, club_address = ?, season = ?, start_date = ?, end_date = ?,
+                    notice_period = ?, training_lines_json = ?, training_execution_summary = ?,
+                    training_execution_details = ?, agenda_attachment_title = ?,
+                    agenda_attachment_items_json = ?, hws_materials = ?,
+                    club_materials = ?, extra_activities = ?, cost_lines_json = ?,
+                    price_per_training = ?, training_count = ?, total_amount = ?, min_players = ?,
+                    weather_cancellation = ?, hws_absence = ?, liability = ?,
+                    participation_risk = ?, evaluation_moments = ?, hws_signatory = ?,
+                    club_signatory = ?, signing_date = ?, notes = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (*payload, now, contract_id),
+            )
+            return contract_id
+
+        cursor = connection.execute(
+            """
+            INSERT INTO contracts (
+                title, club_name, club_address, season, start_date, end_date, notice_period,
+                training_lines_json, training_execution_summary, training_execution_details,
+                agenda_attachment_title, agenda_attachment_items_json,
+                hws_materials, club_materials, extra_activities,
+                cost_lines_json, price_per_training, training_count, total_amount, min_players,
+                weather_cancellation, hws_absence, liability, participation_risk,
+                evaluation_moments, hws_signatory, club_signatory, signing_date,
+                notes, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (*payload, now, now),
+        )
+        return int(cursor.lastrowid)
+
+
+def format_contract_date(value: Any) -> str:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return ""
+    try:
+        parsed = datetime.strptime(raw_value, "%Y-%m-%d").date()
+    except ValueError:
+        return raw_value
+    return parsed.strftime("%d-%m-%Y")
+
+
+def contract_training_schedule_text(contract: Dict[str, Any]) -> str:
+    lines = []
+    for item in contract.get("trainingLines") or []:
+        if not isinstance(item, dict):
+            continue
+        values = [
+            str(item.get("day") or "").strip() or "-",
+            str(item.get("time") or "").strip() or "-",
+            str(item.get("team") or "").strip() or "-",
+            str(item.get("trainingType") or "").strip() or "-",
+        ]
+        lines.append(" | ".join(values))
+    return "\n".join(lines) or "Dag | Tijd | Team | Type"
+
+
+def contract_training_schedule_lines(contract: Dict[str, Any]) -> List[str]:
+    lines = ["Dag | Tijd | Team | Type"]
+    for item in contract.get("trainingLines") or []:
+        if not isinstance(item, dict):
+            continue
+        values = [
+            str(item.get("day") or "").strip() or "-",
+            str(item.get("time") or "").strip() or "-",
+            str(item.get("team") or "").strip() or "-",
+            str(item.get("trainingType") or "").strip() or "-",
+        ]
+        lines.append(" | ".join(values))
+    return lines
+
+
+def get_contract_cost_lines(contract: Dict[str, Any]) -> List[Dict[str, Any]]:
+    cost_lines = [
+        normalized_line
+        for normalized_line in (normalize_contract_cost_line(item) for item in contract.get("costLines") or [])
+        if normalized_line is not None
+    ]
+    if cost_lines:
+        return cost_lines
+    fallback = normalize_contract_cost_line(
+        {
+            "pricePerTraining": contract.get("pricePerTraining"),
+            "trainingCount": contract.get("trainingCount"),
+            "totalAmount": contract.get("totalAmount"),
+        }
+    )
+    return [fallback] if fallback is not None else []
+
+
+def contract_cost_lines_for_docx(contract: Dict[str, Any]) -> List[str]:
+    lines: List[str] = []
+    cost_lines = get_contract_cost_lines(contract)
+    if not cost_lines:
+        return ["Tarief: €0,00", "Aantal trainingen: 0", "Totaal: €0,00"]
+    for index, line in enumerate(cost_lines):
+        description = str(line.get("description") or "").strip()
+        suffix = f" ({description})" if description else ""
+        if index > 0:
+            lines.append("")
+        lines.extend(
+            [
+                f"Tarief{suffix}: €{str(line.get('pricePerTraining') or '0,00').strip()}",
+                f"Aantal trainingen{suffix}: {int(line.get('trainingCount') or 0)}",
+                f"Totaal{suffix}: €{str(line.get('totalAmount') or '0,00').strip()}",
+            ]
+        )
+    return lines
+
+
+def build_contract_replacements(contract: Dict[str, Any]) -> Dict[str, str]:
+    cost_lines = get_contract_cost_lines(contract)
+    first_cost_line = cost_lines[0] if cost_lines else {}
+    training_count = sum(int(line.get("trainingCount") or 0) for line in cost_lines)
+    total_decimal = sum(parse_decimal_amount(line.get("totalAmount")) for line in cost_lines)
+    total_amount = format_contract_money(total_decimal) if total_decimal else str(contract.get("totalAmount") or first_cost_line.get("totalAmount") or "").strip()
+    training_types = sorted(
+        {
+            str(line.get("trainingType") or "").strip()
+            for line in contract.get("trainingLines") or []
+            if isinstance(line, dict) and str(line.get("trainingType") or "").strip()
+        }
+    )
+    return {
+        "[NAAM CLUB]": str(contract.get("clubName") or "").strip() or "Naam club",
+        "[ADRES CLUB]": str(contract.get("clubAddress") or "").strip() or "Adres club",
+        "[SEIZOEN]": str(contract.get("season") or "").strip() or "Seizoen",
+        "[STARTDATUM]": format_contract_date(contract.get("startDate")) or "Startdatum",
+        "[EINDDATUM]": format_contract_date(contract.get("endDate")) or "Einddatum",
+        "[BEDRAG]": str(first_cost_line.get("pricePerTraining") or contract.get("pricePerTraining") or "").strip() or "0,00",
+        "[AANTAL]": str(training_count or contract.get("trainingCount") or 0),
+        "[TOTAAL]": total_amount or "0,00",
+        "[TOTAALBEDRAG]": total_amount or "0,00",
+        "[Type training]": str(contract.get("trainingExecutionSummary") or "").strip() or ", ".join(training_types) or CONTRACT_DEFAULTS["trainingExecutionSummary"],
+        "[Variabel per club]": str(contract.get("trainingExecutionDetails") or "").strip() or CONTRACT_DEFAULTS["trainingExecutionDetails"],
+        "[Club:]": f"{str(contract.get('clubName') or '').strip() or 'Club'}:",
+    }
+
+
+def build_docx_line_run(lines: List[Any]) -> str:
+    normalized_lines = [str(line or "").strip() for line in lines]
+    normalized_lines = [line for line in normalized_lines if line]
+    if not normalized_lines:
+        normalized_lines = [""]
+    return "<w:br/>".join(f"<w:t>{html.escape(line)}</w:t>" for line in normalized_lines)
+
+
+def set_docx_container_text(container: XmlElementTree.Element, value: Any) -> None:
+    text_nodes = container.findall(".//w:t", DOCX_XML_NAMESPACES)
+    if not text_nodes:
+        return
+    text_nodes[0].text = str(value or "")
+    for node in text_nodes[1:]:
+        node.text = ""
+
+
+def ensure_docx_child(parent: XmlElementTree.Element, tag_name: str) -> XmlElementTree.Element:
+    word_namespace = f"{{{DOCX_XML_NAMESPACES['w']}}}"
+    child = parent.find(f"w:{tag_name}", DOCX_XML_NAMESPACES)
+    if child is None:
+        child = XmlElementTree.SubElement(parent, f"{word_namespace}{tag_name}")
+    return child
+
+
+def set_docx_training_cell_layout(cell: XmlElementTree.Element, width: int, no_wrap: bool = True) -> None:
+    word_namespace = f"{{{DOCX_XML_NAMESPACES['w']}}}"
+    cell_properties = ensure_docx_child(cell, "tcPr")
+    cell_width = ensure_docx_child(cell_properties, "tcW")
+    cell_width.set(f"{word_namespace}w", str(width))
+    cell_width.set(f"{word_namespace}type", "dxa")
+    cell_margin = ensure_docx_child(cell_properties, "tcMar")
+    for side_name, side_width in (("top", "40"), ("left", "90"), ("bottom", "40"), ("right", "90")):
+        side = ensure_docx_child(cell_margin, side_name)
+        side.set(f"{word_namespace}w", side_width)
+        side.set(f"{word_namespace}type", "dxa")
+    if no_wrap and cell_properties.find("w:noWrap", DOCX_XML_NAMESPACES) is None:
+        XmlElementTree.SubElement(cell_properties, f"{word_namespace}noWrap")
+    for paragraph in cell.findall(".//w:p", DOCX_XML_NAMESPACES):
+        paragraph_properties = ensure_docx_child(paragraph, "pPr")
+        justification = ensure_docx_child(paragraph_properties, "jc")
+        justification.set(f"{word_namespace}val", "left")
+        indentation = ensure_docx_child(paragraph_properties, "ind")
+        indentation.set(f"{word_namespace}left", "0")
+        indentation.set(f"{word_namespace}firstLine", "0")
+        indentation.set(f"{word_namespace}hanging", "0")
+
+
+def set_docx_training_row_layout(row: XmlElementTree.Element, widths: List[int], no_wrap_columns: Set[int]) -> None:
+    cells = row.findall("w:tc", DOCX_XML_NAMESPACES)
+    for index, cell in enumerate(cells):
+        width = widths[index] if index < len(widths) else widths[-1]
+        set_docx_training_cell_layout(cell, width, index in no_wrap_columns)
+
+
+def remove_docx_paragraphs_by_text(root: XmlElementTree.Element, texts_to_remove: Set[str]) -> None:
+    for paragraph in list(root.findall(".//w:p", DOCX_XML_NAMESPACES)):
+        paragraph_text = "".join(node.text or "" for node in paragraph.findall(".//w:t", DOCX_XML_NAMESPACES)).strip()
+        if paragraph_text not in texts_to_remove:
+            continue
+        parent = None
+        for candidate in root.iter():
+            if paragraph in list(candidate):
+                parent = candidate
+                break
+        if parent is not None:
+            parent.remove(paragraph)
+
+
+def fill_contract_training_table_xml(xml_bytes: bytes, contract: Dict[str, Any]) -> bytes:
+    root = XmlElementTree.fromstring(xml_bytes)
+    table = root.find(".//w:tbl", DOCX_XML_NAMESPACES)
+    if table is None:
+        return xml_bytes
+    word_namespace = f"{{{DOCX_XML_NAMESPACES['w']}}}"
+    column_widths = [1500, 2350, 1900, 3320]
+
+    table_properties = ensure_docx_child(table, "tblPr")
+    table_width = ensure_docx_child(table_properties, "tblW")
+    table_width.set(f"{word_namespace}w", str(sum(column_widths)))
+    table_width.set(f"{word_namespace}type", "dxa")
+    table_layout = ensure_docx_child(table_properties, "tblLayout")
+    table_layout.set(f"{word_namespace}type", "fixed")
+
+    table_grid = table.find("w:tblGrid", DOCX_XML_NAMESPACES)
+    if table_grid is None:
+        table_grid = XmlElementTree.Element(f"{word_namespace}tblGrid")
+        table.insert(1 if table.find("w:tblPr", DOCX_XML_NAMESPACES) is not None else 0, table_grid)
+    for grid_column in list(table_grid):
+        table_grid.remove(grid_column)
+    for width in column_widths:
+        grid_column = XmlElementTree.SubElement(table_grid, f"{word_namespace}gridCol")
+        grid_column.set(f"{word_namespace}w", str(width))
+
+    rows = table.findall("w:tr", DOCX_XML_NAMESPACES)
+    if len(rows) < 2:
+        return xml_bytes
+    set_docx_training_row_layout(rows[0], column_widths, {0, 1, 2})
+
+    training_lines = [
+        line
+        for line in (normalize_contract_line(item) for item in contract.get("trainingLines") or [])
+        if line is not None
+    ]
+    if not training_lines:
+        training_lines = [{"day": "-", "time": "-", "team": "-", "trainingType": "-"}]
+
+    template_row = rows[1]
+    data_rows = rows[1:]
+    while len(data_rows) < len(training_lines):
+        new_row = copy.deepcopy(template_row)
+        table.append(new_row)
+        data_rows.append(new_row)
+
+    for row in data_rows[len(training_lines) :]:
+        table.remove(row)
+
+    for row, line in zip(data_rows, training_lines):
+        cells = row.findall("w:tc", DOCX_XML_NAMESPACES)
+        values = [
+            line.get("day") or "-",
+            line.get("time") or "-",
+            line.get("team") or "-",
+            line.get("trainingType") or "-",
+        ]
+        set_docx_training_row_layout(row, column_widths, {0, 1, 2})
+        for cell, value in zip(cells, values):
+            set_docx_container_text(cell, value)
+
+    return XmlElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def apply_contract_word_page_breaks_xml(xml_bytes: bytes) -> bytes:
+    root = XmlElementTree.fromstring(xml_bytes)
+    remove_docx_paragraphs_by_text(root, {"(Aanpasbaar per club)"})
+    word_namespace = f"{{{DOCX_XML_NAMESPACES['w']}}}"
+    for paragraph in root.findall(".//w:p", DOCX_XML_NAMESPACES):
+        if not paragraph.findall(".//w:lastRenderedPageBreak", DOCX_XML_NAMESPACES):
+            continue
+        paragraph_properties = paragraph.find("w:pPr", DOCX_XML_NAMESPACES)
+        if paragraph_properties is None:
+            paragraph_properties = XmlElementTree.Element(f"{word_namespace}pPr")
+            paragraph.insert(0, paragraph_properties)
+        if paragraph_properties.find("w:pageBreakBefore", DOCX_XML_NAMESPACES) is None:
+            paragraph_properties.insert(0, XmlElementTree.Element(f"{word_namespace}pageBreakBefore"))
+    return XmlElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def adjust_contract_header_logo_xml(xml_bytes: bytes) -> bytes:
+    root = XmlElementTree.fromstring(xml_bytes)
+    logo_width = "505000"
+    logo_height = "633500"
+    anchor = root.find(".//wp:anchor", DOCX_XML_NAMESPACES)
+    if anchor is None:
+        return xml_bytes
+
+    vertical_offset = anchor.find("wp:positionV/wp:posOffset", DOCX_XML_NAMESPACES)
+    if vertical_offset is not None:
+        vertical_offset.text = "40000"
+
+    extent = anchor.find("wp:extent", DOCX_XML_NAMESPACES)
+    if extent is not None:
+        extent.set("cx", logo_width)
+        extent.set("cy", logo_height)
+
+    graphic_extent = anchor.find(".//a:xfrm/a:ext", DOCX_XML_NAMESPACES)
+    if graphic_extent is not None:
+        graphic_extent.set("cx", logo_width)
+        graphic_extent.set("cy", logo_height)
+
+    word_namespace = f"{{{DOCX_XML_NAMESPACES['w']}}}"
+    for paragraph in root.findall(".//w:p", DOCX_XML_NAMESPACES):
+        text = "".join(node.text or "" for node in paragraph.findall(".//w:t", DOCX_XML_NAMESPACES))
+        if text != "HWS VOETBALSCHOOL":
+            continue
+        for run_properties in paragraph.findall(".//w:rPr", DOCX_XML_NAMESPACES):
+            position = run_properties.find("w:position", DOCX_XML_NAMESPACES)
+            if position is None:
+                position = XmlElementTree.Element(f"{word_namespace}position")
+                run_properties.append(position)
+            position.set(f"{word_namespace}val", "10")
+
+    return XmlElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def add_contract_watermark_xml(xml_bytes: bytes) -> bytes:
+    root = XmlElementTree.fromstring(xml_bytes)
+    body = root.find("w:body", DOCX_XML_NAMESPACES)
+    source_anchor = root.find(".//wp:anchor", DOCX_XML_NAMESPACES)
+    if body is None or source_anchor is None:
+        return xml_bytes
+
+    word_namespace = f"{{{DOCX_XML_NAMESPACES['w']}}}"
+    drawing_namespace = f"{{{DOCX_XML_NAMESPACES['wp']}}}"
+    a_namespace = f"{{{DOCX_XML_NAMESPACES['a']}}}"
+    watermark_anchor = copy.deepcopy(source_anchor)
+    watermark_anchor.set("behindDoc", "1")
+    watermark_anchor.set("relativeHeight", "1")
+    watermark_anchor.set("distT", "0")
+    watermark_anchor.set("distB", "0")
+    watermark_anchor.set("distL", "0")
+    watermark_anchor.set("distR", "0")
+    for attr_name in list(watermark_anchor.attrib):
+        if attr_name.endswith("anchorId"):
+            watermark_anchor.set(attr_name, "0A0B0C0D")
+        if attr_name.endswith("editId"):
+            watermark_anchor.set(attr_name, "0E0F0102")
+
+    position_h = watermark_anchor.find("wp:positionH", DOCX_XML_NAMESPACES)
+    if position_h is not None:
+        position_h.set("relativeFrom", "page")
+        for child in list(position_h):
+            position_h.remove(child)
+        align = XmlElementTree.Element(f"{drawing_namespace}align")
+        align.text = "center"
+        position_h.append(align)
+
+    position_v = watermark_anchor.find("wp:positionV", DOCX_XML_NAMESPACES)
+    if position_v is not None:
+        position_v.set("relativeFrom", "page")
+        for child in list(position_v):
+            position_v.remove(child)
+        align = XmlElementTree.Element(f"{drawing_namespace}align")
+        align.text = "center"
+        position_v.append(align)
+
+    for wrap_node in watermark_anchor.findall("wp:wrapTight", DOCX_XML_NAMESPACES):
+        child_index = list(watermark_anchor).index(wrap_node)
+        watermark_anchor.remove(wrap_node)
+        watermark_anchor.insert(child_index, XmlElementTree.Element(f"{drawing_namespace}wrapNone"))
+
+    watermark_width = "3500000"
+    watermark_height = "4392857"
+    extent = watermark_anchor.find("wp:extent", DOCX_XML_NAMESPACES)
+    if extent is not None:
+        extent.set("cx", watermark_width)
+        extent.set("cy", watermark_height)
+    graphic_extent = watermark_anchor.find(".//a:xfrm/a:ext", DOCX_XML_NAMESPACES)
+    if graphic_extent is not None:
+        graphic_extent.set("cx", watermark_width)
+        graphic_extent.set("cy", watermark_height)
+
+    doc_pr = watermark_anchor.find("wp:docPr", DOCX_XML_NAMESPACES)
+    if doc_pr is not None:
+        doc_pr.set("id", "1978967948")
+        doc_pr.set("name", "HWS watermerk")
+        doc_pr.set("descr", "HWS logo watermerk")
+
+    for element in watermark_anchor.iter():
+        if element.tag.endswith("cNvPr"):
+            element.set("id", "1978967948")
+            element.set("name", "HWS watermerk")
+            element.set("descr", "HWS logo watermerk")
+
+    blip = watermark_anchor.find(".//a:blip", DOCX_XML_NAMESPACES)
+    if blip is not None:
+        blip.set(f"{{{DOCX_XML_NAMESPACES['r']}}}embed", CONTRACT_WATERMARK_REL_ID)
+        for alpha_node in blip.findall("a:alphaModFix", DOCX_XML_NAMESPACES):
+            blip.remove(alpha_node)
+
+    watermark_paragraph = XmlElementTree.Element(f"{word_namespace}p")
+    watermark_run = XmlElementTree.SubElement(watermark_paragraph, f"{word_namespace}r")
+    watermark_drawing = XmlElementTree.SubElement(watermark_run, f"{word_namespace}drawing")
+    watermark_drawing.append(watermark_anchor)
+    body.insert(0, watermark_paragraph)
+
+    return XmlElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def append_contract_agenda_attachment_xml(xml_bytes: bytes, contract: Dict[str, Any]) -> bytes:
+    attachment_items = [
+        item
+        for item in (normalize_contract_agenda_attachment_item(item) for item in contract.get("agendaAttachmentItems") or [])
+        if item is not None
+    ]
+    if not attachment_items:
+        return xml_bytes
+
+    root = XmlElementTree.fromstring(xml_bytes)
+    body = root.find("w:body", DOCX_XML_NAMESPACES)
+    if body is None:
+        return xml_bytes
+
+    word_namespace = f"{{{DOCX_XML_NAMESPACES['w']}}}"
+    sect_pr = body.find("w:sectPr", DOCX_XML_NAMESPACES)
+    insert_index = list(body).index(sect_pr) if sect_pr is not None else len(list(body))
+
+    def make_paragraph(text: str = "", *, bold: bool = False, size: Optional[str] = None, page_break: bool = False) -> XmlElementTree.Element:
+        paragraph = XmlElementTree.Element(f"{word_namespace}p")
+        run = XmlElementTree.SubElement(paragraph, f"{word_namespace}r")
+        if page_break:
+            br = XmlElementTree.SubElement(run, f"{word_namespace}br")
+            br.set(f"{word_namespace}type", "page")
+        if text:
+            run_properties = XmlElementTree.SubElement(run, f"{word_namespace}rPr")
+            fonts = XmlElementTree.SubElement(run_properties, f"{word_namespace}rFonts")
+            fonts.set(f"{word_namespace}ascii", "Poppins Medium")
+            fonts.set(f"{word_namespace}hAnsi", "Poppins Medium")
+            if bold:
+                XmlElementTree.SubElement(run_properties, f"{word_namespace}b")
+                XmlElementTree.SubElement(run_properties, f"{word_namespace}bCs")
+            if size:
+                font_size = XmlElementTree.SubElement(run_properties, f"{word_namespace}sz")
+                font_size.set(f"{word_namespace}val", size)
+                font_size_cs = XmlElementTree.SubElement(run_properties, f"{word_namespace}szCs")
+                font_size_cs.set(f"{word_namespace}val", size)
+            text_node = XmlElementTree.SubElement(run, f"{word_namespace}t")
+            text_node.text = text
+        return paragraph
+
+    paragraphs = [
+        make_paragraph(page_break=True),
+        make_paragraph(str(contract.get("agendaAttachmentTitle") or "").strip() or "Bijlage agenda", bold=True, size="32"),
+        make_paragraph(""),
+    ]
+    for item in attachment_items:
+        paragraphs.append(make_paragraph(str(item.get("label") or "").strip(), bold=True, size="24"))
+        copy_text = str(item.get("copyText") or "").strip()
+        if copy_text:
+            for line in copy_text.splitlines():
+                paragraphs.append(make_paragraph(line, size="20"))
+        else:
+            for index, day in enumerate(item.get("days") or [], start=1):
+                day_label = str(day.get("label") or day.get("date") or "").strip()
+                if day_label:
+                    paragraphs.append(make_paragraph(f"{index}. {day_label}", size="20"))
+        paragraphs.append(make_paragraph(""))
+
+    for offset, paragraph in enumerate(paragraphs):
+        body.insert(insert_index + offset, paragraph)
+    return XmlElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def add_contract_watermark_relationship_xml(xml_bytes: bytes) -> bytes:
+    root = XmlElementTree.fromstring(xml_bytes)
+    relationship_namespace = DOCX_XML_NAMESPACES["rel"]
+    relationship_tag = f"{{{relationship_namespace}}}Relationship"
+    for relationship in root.findall(f".//{relationship_tag}"):
+        if relationship.get("Id") == CONTRACT_WATERMARK_REL_ID:
+            return xml_bytes
+    XmlElementTree.SubElement(
+        root,
+        relationship_tag,
+        {
+            "Id": CONTRACT_WATERMARK_REL_ID,
+            "Type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
+            "Target": "media/HWS_watermark.png",
+        },
+    )
+    return XmlElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def fill_contract_document_xml(xml_bytes: bytes, contract: Dict[str, Any]) -> bytes:
+    xml_text = xml_bytes.decode("utf-8")
+    xml_text = xml_text.replace(
+        "<w:t>Tarief: €[BEDRAG]</w:t><w:br/><w:t>Aantal trainingen: [AANTAL]</w:t><w:br/><w:t>Totaal: €[TOTAAL]</w:t>",
+        build_docx_line_run(contract_cost_lines_for_docx(contract)),
+    )
+    replacements = build_contract_replacements(contract)
+    for placeholder, value in replacements.items():
+        xml_text = xml_text.replace(placeholder, html.escape(value))
+    xml_text = xml_text.replace(
+        "<w:t>Opzegtermijn: 30 dagen (schriftelijk)</w:t>",
+        f"<w:t>Opzegtermijn: {html.escape(str(contract.get('noticePeriod') or ''))}</w:t>",
+    )
+    xml_text = xml_text.replace(
+        "<w:t>Voeg hier eenvoudig je schema toe:</w:t><w:br/><w:t>Dag | Tijd | Team | Type</w:t>",
+        build_docx_line_run(["Voeg hier eenvoudig je schema toe:", *contract_training_schedule_lines(contract)]),
+    )
+    execution_details = str(contract.get("trainingExecutionDetails") or CONTRACT_DEFAULTS["trainingExecutionDetails"]).strip()
+    xml_text = xml_text.replace("<w:t>[Variabel per club]</w:t>", build_docx_line_run(execution_details.splitlines()))
+    xml_text = xml_text.replace("Voetbaldagen en techniektrainingen mogelijk zonder veldhuur", html.escape(str(contract.get("extraActivities") or "")))
+    xml_text = xml_text.replace(
+        "Bij afwezigheid van een HWS-trainer wordt de training verrekend",
+        "Bij afwezigheid van een HWS-trainer wordt de training verrekend op de eerstvolgende factuur",
+    )
+    xml_output = fill_contract_training_table_xml(xml_text.encode("utf-8"), contract)
+    xml_output = apply_contract_word_page_breaks_xml(xml_output)
+    xml_output = adjust_contract_header_logo_xml(xml_output)
+    xml_output = append_contract_agenda_attachment_xml(xml_output, contract)
+    # LibreOffice renders Word's floating logo behind the paragraph border, which makes
+    # the title underline cut through the shield in exported PDFs. Word visually keeps
+    # the logo on top, so force that stacking order only for the export document.
+    return xml_output.replace(b'behindDoc="1"', b'behindDoc="0"')
+
+
+def create_contract_docx(contract: Dict[str, Any]) -> bytes:
+    if not os.path.exists(CONTRACT_TEMPLATE_PATH):
+        raise RuntimeError("Het standaard Word-template ontbreekt op de server.")
+    output = BytesIO()
+    with zipfile.ZipFile(CONTRACT_TEMPLATE_PATH, "r") as source_archive:
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as target_archive:
+            for item in source_archive.infolist():
+                data = source_archive.read(item.filename)
+                if item.filename == "word/document.xml":
+                    data = fill_contract_document_xml(data, contract)
+                target_archive.writestr(item, data)
+    output.seek(0)
+    return output.read()
+
+
+def contract_filename(contract: Dict[str, Any], extension: str) -> str:
+    club_name = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(contract.get("clubName") or "overeenkomst")).strip("-")
+    season = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(contract.get("season") or "")).strip("-")
+    base = "-".join(part for part in ["overeenkomst", club_name, season] if part)
+    return f"{base.lower()}.{extension}"
+
+
+def find_office_converter() -> str:
+    converter = shutil.which("libreoffice") or shutil.which("soffice")
+    if not converter:
+        raise RuntimeError("PDF-export vereist LibreOffice/soffice op de server.")
+    return converter
+
+
+def convert_contract_docx_to_pdf(docx_bytes: bytes) -> bytes:
+    converter = find_office_converter()
+    with tempfile.TemporaryDirectory(prefix="contract-export-") as temp_dir:
+        docx_path = os.path.join(temp_dir, "overeenkomst.docx")
+        pdf_path = os.path.join(temp_dir, "overeenkomst.pdf")
+        with open(docx_path, "wb") as docx_file:
+            docx_file.write(docx_bytes)
+        office_profile_dir = os.path.join(temp_dir, "office-profile")
+        os.makedirs(office_profile_dir, exist_ok=True)
+        office_env = os.environ.copy()
+        office_env["HOME"] = temp_dir
+        office_env["XDG_RUNTIME_DIR"] = temp_dir
+        completed = subprocess.run(
+            [
+                converter,
+                "--headless",
+                f"-env:UserInstallation=file://{office_profile_dir}",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                temp_dir,
+                docx_path,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=office_env,
+            timeout=60,
+            check=False,
+        )
+        if completed.returncode != 0 or not os.path.exists(pdf_path):
+            error_output = (completed.stderr or completed.stdout or b"").decode("utf-8", errors="ignore").strip()
+            raise RuntimeError(f"PDF-export via Word-template mislukt. {error_output}".strip())
+        with open(pdf_path, "rb") as pdf_file:
+            return pdf_file.read()
+
+
+def create_contract_pdf(contract: Dict[str, Any]) -> bytes:
+    return add_contract_pdf_watermark(convert_contract_docx_to_pdf(create_contract_docx(contract)))
+
+
+def add_contract_pdf_watermark(pdf_bytes: bytes) -> bytes:
+    if not os.path.exists(CONTRACT_WATERMARK_PATH):
+        raise RuntimeError("Het HWS watermerk ontbreekt op de server.")
+    try:
+        from pypdf import PdfReader, PdfWriter
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas
+    except Exception as exc:  # pragma: no cover - depends on server packages
+        raise RuntimeError("PDF-watermerk vereist pypdf en reportlab op de server.") from exc
+
+    reader = PdfReader(BytesIO(pdf_bytes))
+    writer = PdfWriter()
+    watermark_image = ImageReader(CONTRACT_WATERMARK_PATH)
+
+    for page in reader.pages:
+        page_width = float(page.mediabox.width)
+        page_height = float(page.mediabox.height)
+        image_width, image_height = watermark_image.getSize()
+        watermark_width = page_width * 0.42
+        watermark_height = watermark_width * image_height / image_width
+        x = (page_width - watermark_width) / 2
+        y = (page_height - watermark_height) / 2
+
+        overlay_buffer = BytesIO()
+        overlay = canvas.Canvas(overlay_buffer, pagesize=(page_width, page_height))
+        overlay.drawImage(
+            watermark_image,
+            x,
+            y,
+            width=watermark_width,
+            height=watermark_height,
+            preserveAspectRatio=True,
+            mask="auto",
+        )
+        overlay.save()
+        overlay_buffer.seek(0)
+        watermark_page = PdfReader(overlay_buffer).pages[0]
+        page.merge_page(watermark_page, over=False)
+        writer.add_page(page)
+
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
+def create_contract_pdf_reportlab_fallback(contract: Dict[str, Any]) -> bytes:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    except ImportError as exc:
+        raise RuntimeError("PDF-export is niet beschikbaar omdat ReportLab ontbreekt.") from exc
+
+    buffer = BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=20 * mm,
+        rightMargin=20 * mm,
+        topMargin=18 * mm,
+        bottomMargin=18 * mm,
+        title=contract.get("title") or "Overeenkomst",
+    )
+    styles = {
+        "title": ParagraphStyle("ContractTitle", fontName="Helvetica-Bold", fontSize=17, leading=21, spaceAfter=12),
+        "heading": ParagraphStyle("ContractHeading", fontName="Helvetica-Bold", fontSize=11.5, leading=15, spaceBefore=10, spaceAfter=5),
+        "body": ParagraphStyle("ContractBody", fontName="Helvetica", fontSize=9.5, leading=13, spaceAfter=4),
+        "small": ParagraphStyle("ContractSmall", fontName="Helvetica", fontSize=8.8, leading=12),
+    }
+
+    def p(text: Any, style: str = "body") -> Paragraph:
+        escaped = html.escape(str(text or "")).replace("\n", "<br/>")
+        return Paragraph(escaped or "-", styles[style])
+
+    story = [
+        p(f"OVEREENKOMST VAN OPDRACHT HWS VOETBALSCHOOL - {contract.get('clubName') or 'Naam club'} - {contract.get('season') or 'Seizoen'}", "title"),
+        p("1. Duur van de Overeenkomst", "heading"),
+        p(f"Startdatum: {format_contract_date(contract.get('startDate')) or '-'}\nEinddatum: {format_contract_date(contract.get('endDate')) or '-'}\nOpzegtermijn: {contract.get('noticePeriod') or '-'}"),
+        p("2. Trainingen", "heading"),
+    ]
+
+    schedule_rows = [["Dag", "Tijd", "Team", "Type"]]
+    for line in contract.get("trainingLines") or []:
+        schedule_rows.append([
+            str(line.get("day") or "-"),
+            str(line.get("time") or "-"),
+            str(line.get("team") or "-"),
+            str(line.get("trainingType") or "-"),
+        ])
+    schedule_table = Table(schedule_rows, colWidths=[34 * mm, 30 * mm, 55 * mm, 47 * mm], repeatRows=1)
+    schedule_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#111111")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#C8C8C8")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    story.extend(
+        [
+            schedule_table,
+            Spacer(1, 5 * mm),
+            p("3. Materialen en faciliteiten", "heading"),
+            p(f"HWS: {contract.get('hwsMaterials') or '-'}\nClub: {contract.get('clubMaterials') or '-'}"),
+            p("4. Extra activiteiten", "heading"),
+            p(contract.get("extraActivities") or "-"),
+            p("5. Kosten", "heading"),
+            p(f"Tarief: EUR {contract.get('pricePerTraining') or '-'}\nAantal trainingen: {contract.get('trainingCount') or 0}\nTotaal: EUR {contract.get('totalAmount') or '-'}"),
+            p("6. Afgelastingen", "heading"),
+            p(f"{contract.get('minPlayers') or '-'}\nWeer: {contract.get('weatherCancellation') or '-'}\nHWS afwezig: {contract.get('hwsAbsence') or '-'}"),
+            p("7. Aansprakelijkheid", "heading"),
+            p(f"{contract.get('liability') or '-'}\n{contract.get('participationRisk') or '-'}"),
+            p("8. Evaluatie", "heading"),
+            p(CONTRACT_DEFAULTS["evaluationMoments"]),
+            p("9. Ondertekening", "heading"),
+            p("HWS en Club ondertekenen hieronder"),
+        ]
+    )
+
+    document.build(story)
+    buffer.seek(0)
+    return buffer.read()
 
 
 def normalize_proposal_type(value: Any) -> str:
@@ -5794,8 +9377,9 @@ def get_bunny_storage_host(region: str) -> str:
     return f"https://{normalized_region}.storage.bunnycdn.com"
 
 
-def upload_content_bytes(remote_path: str, content: bytes, content_type: str) -> Dict[str, str]:
-    config = get_content_storage_config()
+def upload_content_bytes(remote_path: str, content: bytes, content_type: str, config: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    if config is None:
+        config = get_content_storage_config()
     normalized_remote_path = remote_path.strip().strip("/")
     if not normalized_remote_path:
         raise ValueError("Geen uploadpad opgegeven.")
@@ -5825,6 +9409,53 @@ def upload_content_bytes(remote_path: str, content: bytes, content_type: str) ->
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
     with open(local_path, "wb") as local_file:
         local_file.write(content)
+    return {
+        "url": f"/static/uploads/{normalized_remote_path}",
+        "storage_backend": "local",
+    }
+
+
+def upload_content_file(
+    remote_path: str,
+    file_obj: Any,
+    file_size: int,
+    content_type: str,
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, str]:
+    if config is None:
+        config = get_content_storage_config()
+    normalized_remote_path = remote_path.strip().strip("/")
+    if not normalized_remote_path:
+        raise ValueError("Geen uploadpad opgegeven.")
+
+    try:
+        file_obj.seek(0)
+    except (AttributeError, OSError):
+        pass
+
+    if config["bunny_enabled"]:
+        upload_url = f"{get_bunny_storage_host(config['region'])}/{config['zone']}/{normalized_remote_path}"
+        response = requests.put(
+            upload_url,
+            headers={
+                "AccessKey": config["access_key"],
+                "Content-Type": content_type,
+                "Content-Length": str(file_size),
+            },
+            data=file_obj,
+            timeout=(30, 7200),
+        )
+        response.raise_for_status()
+        return {
+            "url": f"{config['public_base']}/{normalized_remote_path}",
+            "storage_backend": "bunny",
+        }
+
+    local_root = config["local_upload_root"]
+    local_path = os.path.join(local_root, *normalized_remote_path.split("/"))
+    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    with open(local_path, "wb") as local_file:
+        shutil.copyfileobj(file_obj, local_file, length=1024 * 1024)
     return {
         "url": f"/static/uploads/{normalized_remote_path}",
         "storage_backend": "local",
@@ -6363,13 +9994,19 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "dashboard",
             "agenda",
             "voetbaldagen",
+            "samenwerkende-amateurclubs",
             "tasks",
             "orders",
             "leads",
             "revenue",
+            "spaarpot",
             "trainer-fees",
             "voorstellen-maker",
+            "overeenkomsten",
+            "oefenstof",
             "oefeningen-bibliotheek",
+            "trainingen",
+            "exercise-videos",
             "social-media",
             "content",
             "trainers",
@@ -6379,15 +10016,19 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
         return {
             "dashboard",
             "voetbaldagen",
+            "samenwerkende-amateurclubs",
             "orders",
             "leads",
             "voorstellen-maker",
+            "overeenkomsten",
+            "oefenstof",
             "oefeningen-bibliotheek",
+            "trainingen",
             "social-media",
             "content",
             "profile",
         }
-    return {"orders", "leads", "voetbaldagen", "oefeningen-bibliotheek", "profile"}
+    return {"orders", "leads", "voetbaldagen", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "profile"}
 
 
 def user_can_access_page(user: Optional[Dict[str, Any]], page_key: str) -> bool:
@@ -7024,11 +10665,81 @@ def format_agenda_summary_day_label(day_value: date) -> str:
     )
 
 
-def build_numbered_agenda_day_copy_text(days: List[date]) -> str:
+def format_agenda_day_copy_label(day_value: date, plan_type: str = "") -> str:
+    label = format_agenda_summary_day_label(day_value)
+    if plan_type == "Geen activiteit":
+        reason = AGENDA_NO_ACTIVITY_COPY_REASONS.get(day_value.isoformat())
+        if reason:
+            label = f"{label} ({reason})"
+    return label
+
+
+def build_numbered_agenda_day_copy_text(days: List[date], plan_type: str = "") -> str:
     return "\n".join(
-        f"{index}. {format_agenda_summary_day_label(day_value)}"
+        f"{index}. {format_agenda_day_copy_label(day_value, plan_type)}"
         for index, day_value in enumerate(sorted(days), start=1)
     )
+
+
+def is_football_day_agenda_training(training: Dict[str, Any]) -> bool:
+    title = normalize_match_text(training.get("title", ""))
+    return "voetbaldag" in title
+
+
+def add_football_day_only_no_activity_days(
+    day_plans: List[Dict[str, Any]],
+    trainings: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    summary_day_plans = list(day_plans)
+    plan_types_by_date: Dict[date, Set[str]] = {}
+    no_activity_dates: Set[date] = set()
+    trainings_by_date: Dict[date, List[Dict[str, Any]]] = {}
+
+    for day_plan in day_plans:
+        plan_type = str(day_plan.get("planType") or day_plan.get("plan_type") or "").strip()
+        current_date = day_plan.get("date")
+        if isinstance(current_date, str):
+            current_date = parse_iso_date(current_date.strip())
+        if isinstance(current_date, date):
+            plan_types_by_date.setdefault(current_date, set()).add(plan_type)
+            if plan_type == "Geen activiteit":
+                no_activity_dates.add(current_date)
+
+    for training in trainings:
+        current_date = training.get("date")
+        if isinstance(current_date, str):
+            current_date = parse_iso_date(current_date.strip())
+        if isinstance(current_date, date):
+            trainings_by_date.setdefault(current_date, []).append(training)
+
+    football_day_dates = {
+        current_date
+        for current_date, plan_types in plan_types_by_date.items()
+        if plan_types == {"Voetbaldag"}
+    }
+    football_day_dates.update(
+        current_date
+        for current_date, day_trainings in trainings_by_date.items()
+        if current_date not in plan_types_by_date
+        and day_trainings
+        and all(is_football_day_agenda_training(training) for training in day_trainings)
+    )
+
+    for current_date in sorted(football_day_dates):
+        day_trainings = trainings_by_date.get(current_date, [])
+        has_regular_training = any(
+            not is_football_day_agenda_training(training)
+            for training in day_trainings
+        )
+        if current_date not in no_activity_dates and not has_regular_training:
+            summary_day_plans.append(
+                {
+                    "date": current_date,
+                    "planType": "Geen activiteit",
+                }
+            )
+
+    return summary_day_plans
 
 
 def build_agenda_day_plan_summary(day_plans: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -7071,7 +10782,7 @@ def build_agenda_day_plan_summary(day_plans: List[Dict[str, Any]]) -> List[Dict[
                         }
                         for day_value in sorted(weekday_days[option][weekday])
                     ],
-                    "copyText": build_numbered_agenda_day_copy_text(weekday_days[option][weekday]),
+                    "copyText": build_numbered_agenda_day_copy_text(weekday_days[option][weekday], option),
                 }
                 for weekday, count in weekday_counts[option].items()
                 if count > 0
@@ -7418,14 +11129,122 @@ def build_agenda_week_events(trainings: List[Dict[str, Any]], week_start: date) 
                 "time": start_time,
                 "endTime": end_time,
                 "location": training.get("location", ""),
+                "clubClass": get_agenda_club_class(training.get("location", "")),
+                "trainingType": training.get("trainingType", ""),
+                "trainingTypeLabel": training.get("trainingTypeLabel", ""),
+                "trainingTypeClass": training.get("trainingTypeClass", ""),
+                "trainers": training.get("trainers", []),
+                "trainerNames": training.get("trainerNames", ""),
                 "notes": training.get("notes", ""),
+                "signature": build_agenda_training_signature(training),
                 "dayIndex": (training_date - week_start).days,
                 "top": round(top, 1),
                 "height": round(height, 1),
+                "startMinutes": start_minutes,
+                "endMinutes": end_minutes,
+                "overlapIndex": 0,
+                "overlapCount": 1,
+                "overlapFontScale": 1,
+                "textScale": calculate_agenda_week_event_text_scale(
+                    training["title"],
+                    training.get("trainingTypeLabel", ""),
+                    training.get("location", ""),
+                    training.get("trainerNames", ""),
+                    height,
+                ),
+                "fontScale": 1,
+                "isDenseText": False,
             }
         )
 
+    assign_agenda_week_event_overlaps(events)
     return events
+
+
+def assign_agenda_week_event_overlaps(events: List[Dict[str, Any]]) -> None:
+    events_by_day: Dict[int, List[Dict[str, Any]]] = {}
+    for event in events:
+        events_by_day.setdefault(int(event.get("dayIndex", 0)), []).append(event)
+
+    for day_events in events_by_day.values():
+        sorted_events = sorted(
+            day_events,
+            key=lambda item: (
+                int(item.get("startMinutes", 0)),
+                int(item.get("endMinutes", 0)),
+                normalize_agenda_label(item.get("title", "")),
+            ),
+        )
+        component: List[Dict[str, Any]] = []
+        component_end = -1
+
+        for event in sorted_events:
+            start_minutes = int(event.get("startMinutes", 0))
+            end_minutes = int(event.get("endMinutes", start_minutes))
+            if component and start_minutes >= component_end:
+                assign_agenda_week_event_overlap_component(component)
+                component = []
+                component_end = -1
+
+            component.append(event)
+            component_end = max(component_end, end_minutes)
+
+        if component:
+            assign_agenda_week_event_overlap_component(component)
+
+
+def assign_agenda_week_event_overlap_component(events: List[Dict[str, Any]]) -> None:
+    active_columns: List[Tuple[int, int]] = []
+    max_column = 0
+
+    for event in events:
+        start_minutes = int(event.get("startMinutes", 0))
+        end_minutes = int(event.get("endMinutes", start_minutes))
+        active_columns = [
+            (active_end, active_column)
+            for active_end, active_column in active_columns
+            if active_end > start_minutes
+        ]
+        used_columns = {active_column for _, active_column in active_columns}
+        column = 0
+        while column in used_columns:
+            column += 1
+
+        event["overlapIndex"] = column
+        active_columns.append((end_minutes, column))
+        max_column = max(max_column, column + 1)
+
+    overlap_count = max(max_column, 1)
+    font_scale = max(0.58, round(1 - ((overlap_count - 1) * 0.14), 2))
+    for event in events:
+        text_scale = float(event.get("textScale", 1) or 1)
+        combined_font_scale = max(0.48, round(font_scale * text_scale, 2))
+        event["overlapCount"] = overlap_count
+        event["overlapFontScale"] = font_scale
+        event["fontScale"] = combined_font_scale
+        event["isDenseText"] = combined_font_scale <= 0.72
+
+
+def calculate_agenda_week_event_text_scale(
+    title: Any,
+    training_type_label: Any,
+    location: Any,
+    trainer_names: Any,
+    height: float,
+) -> float:
+    title_length = len(normalize_agenda_label(title))
+
+    if height <= 58 and title_length > 42:
+        return 0.72
+    if height <= 72 and title_length > 58:
+        return 0.78
+    if height <= 92 and title_length > 76:
+        return 0.82
+    if title_length > 96:
+        return 0.86
+    if title_length > 76:
+        return 0.9
+    return 1
 
 
 def build_agenda_month_events(trainings: List[Dict[str, Any]], visible_day_keys: Set[str]) -> Dict[str, List[Dict[str, Any]]]:
@@ -7441,9 +11260,18 @@ def build_agenda_month_events(trainings: List[Dict[str, Any]], visible_day_keys:
             {
                 "id": training.get("id"),
                 "title": normalize_agenda_label(training.get("title")),
+                "date": training_date,
                 "time": start_time,
                 "endTime": normalize_agenda_label(training.get("endTime")) or compute_default_end_time(start_time),
                 "location": normalize_agenda_label(training.get("location")),
+                "clubClass": get_agenda_club_class(training.get("location", "")),
+                "trainingType": normalize_agenda_label(training.get("trainingType")),
+                "trainingTypeLabel": normalize_agenda_label(training.get("trainingTypeLabel")),
+                "trainingTypeClass": normalize_agenda_label(training.get("trainingTypeClass")),
+                "trainers": training.get("trainers", []),
+                "trainerNames": normalize_agenda_label(training.get("trainerNames")),
+                "notes": normalize_agenda_label(training.get("notes")),
+                "signature": build_agenda_training_signature(training),
             }
         )
 
@@ -7768,7 +11596,7 @@ def fetch_moneybird_summary() -> Dict[str, Any]:
         mutation_response = requests.get(
             mutations_sync_url,
             headers=get_moneybird_headers(token),
-            params={"filter": f"period:{start_year}01..{end_year}12,state:all,mutation_type:credit"},
+            params={"filter": f"period:{start_year}01..{end_year}12,state:all"},
             timeout=20,
         )
         mutation_response.raise_for_status()
@@ -8243,6 +12071,213 @@ def build_moneybird_revenue_by_month(moneybird_invoices: List[Dict[str, Any]]) -
     return revenue_by_month
 
 
+def get_quarter_for_month(month: int) -> int:
+    return ((month - 1) // 3) + 1
+
+
+def get_quarter_label(quarter: int) -> str:
+    labels = {
+        1: "JAN-FEB-MAA",
+        2: "APR-MEI-JUN",
+        3: "JUL-AUG-SEP",
+        4: "OKT-NOV-DEC",
+    }
+    return labels.get(quarter, "")
+
+
+def get_quarter_period_label(year: int, quarter: int) -> str:
+    month_ranges = {
+        1: "1 januari t/m 31 maart",
+        2: "1 april t/m 30 juni",
+        3: "1 juli t/m 30 september",
+        4: "1 oktober t/m 31 december",
+    }
+    return f"{month_ranges.get(quarter, '')} {year}".strip()
+
+
+def build_spaarpot_payment_account_label(invoice: Dict[str, Any], payment: Dict[str, Any]) -> str:
+    payment_account_values = [
+        payment.get("account_name"),
+        payment.get("bank_account_name"),
+        payment.get("counterparty_name"),
+        payment.get("counterparty_account"),
+        payment.get("bank_account"),
+    ]
+    for value in payment_account_values:
+        label = str(value or "").strip()
+        if label:
+            return label
+
+    contact = invoice.get("contact") if isinstance(invoice.get("contact"), dict) else {}
+    contact_name = (
+        str(contact.get("company_name") or "").strip()
+        or " ".join(
+            part
+            for part in [
+                str(contact.get("firstname") or "").strip(),
+                str(contact.get("lastname") or "").strip(),
+            ]
+            if part
+        )
+        or str(contact.get("email") or "").strip()
+    )
+    contact_bank_account = str(contact.get("bank_account") or "").strip()
+    if contact_name and contact_bank_account:
+        return f"{contact_name} - {contact_bank_account}"
+    if contact_name:
+        return contact_name
+    if contact_bank_account:
+        return contact_bank_account
+    return "Onbekende rekening"
+
+
+def build_spaarpot_stripe_mutation_label(mutation: Dict[str, Any]) -> str:
+    label_values = [
+        mutation.get("contra_account_name"),
+        mutation.get("account_name"),
+        mutation.get("message"),
+        mutation.get("description"),
+    ]
+    for value in label_values:
+        label = str(value or "").strip()
+        if label:
+            return label
+    return "Stripe"
+
+
+def build_spaarpot_payment_entries(
+    moneybird_invoices: List[Dict[str, Any]],
+    financial_mutations: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+
+    for invoice in moneybird_invoices:
+        for payment in invoice.get("payments") or []:
+            payment_date = parse_iso_date(str(payment.get("payment_date", "")).strip())
+            if payment_date is None:
+                continue
+
+            amount = decimal_from_value(payment.get("price"))
+            if amount <= 0:
+                continue
+
+            quarter = get_quarter_for_month(payment_date.month)
+            reserve = amount * VAT_SAVINGS_RATE
+            entries.append(
+                {
+                    "date": payment_date.isoformat(),
+                    "dateLabel": payment_date.strftime("%d-%m-%Y"),
+                    "year": payment_date.year,
+                    "quarter": quarter,
+                    "quarterLabel": get_quarter_label(quarter),
+                    "invoiceId": str(invoice.get("invoice_id") or invoice.get("id") or "").strip(),
+                    "contactName": str((invoice.get("contact") or {}).get("company_name") or "").strip(),
+                    "accountLabel": build_spaarpot_payment_account_label(invoice, payment),
+                    "amount": round(float(amount), 2),
+                    "reserve": round(float(reserve), 2),
+                }
+            )
+
+    for mutation in financial_mutations or []:
+        mutation_date = parse_iso_date(str(mutation.get("date", "")).strip())
+        if mutation_date is None or not is_spaarpot_stripe_income_mutation(mutation):
+            continue
+
+        amount = get_spaarpot_stripe_mutation_amount(mutation)
+        quarter = get_quarter_for_month(mutation_date.month)
+        reserve = amount * VAT_SAVINGS_RATE
+        mutation_reference = str(
+            mutation.get("code") or mutation.get("id") or mutation.get("financial_account_id") or ""
+        ).strip()
+        entries.append(
+            {
+                "date": mutation_date.isoformat(),
+                "dateLabel": mutation_date.strftime("%d-%m-%Y"),
+                "year": mutation_date.year,
+                "quarter": quarter,
+                "quarterLabel": get_quarter_label(quarter),
+                "invoiceId": f"Stripe {mutation_reference}".strip(),
+                "contactName": "Stripe",
+                "accountLabel": build_spaarpot_stripe_mutation_label(mutation),
+                "amount": round(float(amount), 2),
+                "reserve": round(float(reserve), 2),
+            }
+        )
+
+    return sorted(entries, key=lambda item: (item["date"], item["invoiceId"]), reverse=True)
+
+
+def build_spaarpot_year_options(payment_entries: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    years = sorted({int(entry["year"]) for entry in payment_entries}, reverse=True)
+    if not years:
+        years = [date.today().year]
+    return [{"value": str(year), "label": str(year)} for year in years]
+
+
+def build_spaarpot_quarter_summary(
+    payment_entries: List[Dict[str, Any]],
+    selected_year: int,
+) -> Dict[str, Any]:
+    quarters = []
+    year_income = Decimal("0")
+    year_reserve = Decimal("0")
+    year_payment_count = 0
+
+    for quarter in range(1, 5):
+        quarter_entries = [
+            entry
+            for entry in payment_entries
+            if int(entry["year"]) == selected_year and int(entry["quarter"]) == quarter
+        ]
+        income = sum(decimal_from_value(entry["amount"]) for entry in quarter_entries)
+        reserve = sum(decimal_from_value(entry["reserve"]) for entry in quarter_entries)
+        year_income += income
+        year_reserve += reserve
+        year_payment_count += len(quarter_entries)
+        quarters.append(
+            {
+                "quarter": quarter,
+                "label": get_quarter_label(quarter),
+                "periodLabel": get_quarter_period_label(selected_year, quarter),
+                "income": round(float(income), 2),
+                "reserve": round(float(reserve), 2),
+                "paymentCount": len(quarter_entries),
+                "payments": quarter_entries,
+            }
+        )
+
+    return {
+        "selectedYear": str(selected_year),
+        "quarters": quarters,
+        "income": round(float(year_income), 2),
+        "reserve": round(float(year_reserve), 2),
+        "paymentCount": year_payment_count,
+        "ratePercentage": round(float(VAT_SAVINGS_RATE * Decimal("100")), 2),
+    }
+
+
+def build_spaarpot_year_totals(payment_entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    totals_by_year: Dict[int, Dict[str, Decimal]] = {}
+    counts_by_year: Dict[int, int] = {}
+
+    for entry in payment_entries:
+        year = int(entry["year"])
+        totals = totals_by_year.setdefault(year, {"income": Decimal("0"), "reserve": Decimal("0")})
+        totals["income"] += decimal_from_value(entry["amount"])
+        totals["reserve"] += decimal_from_value(entry["reserve"])
+        counts_by_year[year] = counts_by_year.get(year, 0) + 1
+
+    return [
+        {
+            "year": str(year),
+            "income": round(float(totals_by_year[year]["income"]), 2),
+            "reserve": round(float(totals_by_year[year]["reserve"]), 2),
+            "paymentCount": counts_by_year.get(year, 0),
+        }
+        for year in sorted(totals_by_year, reverse=True)
+    ]
+
+
 def build_moneybird_expenses_by_month(
     financial_mutations: List[Dict[str, Any]],
     ledger_account_types: Dict[str, str],
@@ -8595,7 +12630,7 @@ def index() -> str:
     if access_redirect is not None:
         return access_redirect
 
-    payload = fetch_orders()
+    payload = fetch_orders_non_blocking()
     dashboard_payload = build_dashboard_frontend_payload(payload)
     return render_template(
         "index.html",
@@ -8831,9 +12866,55 @@ def registrations_detail_page(product_key: str) -> str:
         active_page="registrations",
         selected_product=selected_product,
         refresh_url=build_registration_detail_url(normalized_product_key),
+        team_assignment_export_url=url_for("export_registration_team_assignment", product_key=normalized_product_key),
         back_url=build_registrations_page_url(),
         last_updated=format_cache_timestamp(orders_payload.get("cachedAt", 0.0)),
         message=" ".join(message_parts) if message_parts else None,
+    )
+
+
+@app.post("/aanmeldingen/<path:product_key>/teamindeling-export")
+def export_registration_team_assignment(product_key: str):
+    access_redirect = require_page_access("orders")
+    if access_redirect is not None:
+        return access_redirect
+
+    normalized_product_key = str(product_key or "").strip()
+    if not normalized_product_key:
+        return redirect(build_registrations_page_url())
+
+    try:
+        group_count = int(str(request.form.get("group_count", "") or "0").strip())
+    except ValueError:
+        group_count = 0
+    if group_count < 1:
+        group_count = 1
+    group_count = min(group_count, 100)
+
+    products_payload = fetch_catalog_products()
+    orders_payload = fetch_ecwid_orders()
+    selected_product = build_registration_product_detail(
+        products_payload.get("items", []),
+        orders_payload.get("items", []),
+        normalized_product_key,
+    )
+    if selected_product is None:
+        abort(404)
+
+    participants = build_registration_participant_rows(selected_product)
+    if not participants:
+        return redirect(build_registration_detail_url(normalized_product_key))
+
+    workbook_buffer = build_registration_team_assignment_workbook(selected_product, group_count)
+    safe_product_name = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(selected_product.get("name", "") or "aanmeldingen")).strip("-")
+    filename = f"teamindeling-{safe_product_name or 'aanmeldingen'}-{datetime.now().strftime('%Y%m%d-%H%M')}.xlsx"
+    return (
+        workbook_buffer.getvalue(),
+        200,
+        {
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
     )
 
 
@@ -8962,7 +13043,7 @@ def revenue_home_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
-    payload = fetch_orders()
+    payload = fetch_orders_non_blocking()
     return render_template(
         "revenue_home.html",
         active_page="revenue",
@@ -8977,7 +13058,7 @@ def revenue_total_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
-    payload = fetch_orders()
+    payload = fetch_orders_non_blocking()
     orders = payload.get("items", [])
     moneybird = payload.get("moneybird", {})
     ledger_account_types = moneybird.get("ledgerAccountTypes", {})
@@ -9004,7 +13085,7 @@ def revenue_monthly_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
-    payload = fetch_orders()
+    payload = fetch_orders_non_blocking()
     orders = payload.get("items", [])
     moneybird = payload.get("moneybird", {})
     moneybird_invoices = moneybird.get("invoices", [])
@@ -9041,7 +13122,7 @@ def revenue_profit_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
-    payload = fetch_orders()
+    payload = fetch_orders_non_blocking()
     orders = payload.get("items", [])
     moneybird = payload.get("moneybird", {})
     moneybird_invoices = moneybird.get("invoices", [])
@@ -9080,7 +13161,7 @@ def revenue_season_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
-    payload = fetch_orders()
+    payload = fetch_orders_non_blocking()
     orders = payload.get("items", [])
     moneybird = payload.get("moneybird", {})
     moneybird_invoices = moneybird.get("invoices", [])
@@ -9111,13 +13192,62 @@ def revenue_season_page() -> str:
     )
 
 
+@app.get("/spaarpot")
+def spaarpot_page() -> str:
+    access_redirect = require_page_access("spaarpot")
+    if access_redirect is not None:
+        return access_redirect
+
+    moneybird = fetch_moneybird_summary()
+    payment_entries = build_spaarpot_payment_entries(
+        moneybird.get("invoices", []),
+        moneybird.get("financialMutations", []),
+    )
+    year_options = build_spaarpot_year_options(payment_entries)
+
+    selected_year = request.args.get("year", "").strip()
+    available_years = {option["value"] for option in year_options}
+    if selected_year not in available_years:
+        selected_year = year_options[0]["value"] if year_options else str(date.today().year)
+
+    spaarpot_summary = build_spaarpot_quarter_summary(payment_entries, int(selected_year))
+    selected_quarter = request.args.get("quarter", "").strip()
+    available_quarters = {"1", "2", "3", "4"}
+    if selected_quarter not in available_quarters:
+        selected_quarter = next(
+            (
+                str(quarter["quarter"])
+                for quarter in spaarpot_summary["quarters"]
+                if quarter["paymentCount"] > 0
+            ),
+            "1",
+        )
+    selected_quarter_number = int(selected_quarter)
+    selected_quarter_summary = next(
+        quarter
+        for quarter in spaarpot_summary["quarters"]
+        if quarter["quarter"] == selected_quarter_number
+    )
+
+    return render_template(
+        "spaarpot.html",
+        active_page="spaarpot",
+        year_options=year_options,
+        spaarpot_summary=spaarpot_summary,
+        selected_quarter=selected_quarter_number,
+        selected_quarter_summary=selected_quarter_summary,
+        last_updated=format_cache_timestamp(time.time()),
+        message=moneybird.get("message"),
+    )
+
+
 @app.get("/trainersvergoedingen")
 def trainer_fees_home_page() -> str:
     access_redirect = require_page_access("trainer-fees")
     if access_redirect is not None:
         return access_redirect
 
-    payload = fetch_orders()
+    payload = fetch_orders_non_blocking()
     return render_template(
         "trainer_fees_home.html",
         active_page="trainer-fees",
@@ -9132,7 +13262,7 @@ def trainer_fees_per_training_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
-    payload = fetch_orders()
+    payload = fetch_orders_non_blocking()
     return render_template(
         "trainer_fees_per_training.html",
         active_page="trainer-fees",
@@ -9147,7 +13277,7 @@ def trainer_fees_per_month_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
-    payload = fetch_orders()
+    payload = fetch_orders_non_blocking()
     return render_template(
         "trainer_fees_per_month.html",
         active_page="trainer-fees",
@@ -9439,20 +13569,144 @@ def agenda_page() -> str:
                     )
                 )
 
+        if action == "delete_training":
+            training_id = request.form.get("training_id", "").strip()
+            delete_scope = request.form.get("update_scope", "").strip()
+            original_signature = request.form.get("original_signature", "").strip()
+            deleted_count = delete_agenda_training(training_id, delete_scope, original_signature)
+
+            if deleted_count:
+                return redirect(
+                    url_for(
+                        "agenda_page",
+                        view=view_mode,
+                        summary_filter=summary_filter,
+                        week=week_offset,
+                        month=month_offset,
+                        success=f"{deleted_count} afspraak{' is' if deleted_count == 1 else 'en zijn'} verwijderd.",
+                    )
+                )
+            return redirect(
+                url_for(
+                    "agenda_page",
+                    view=view_mode,
+                    summary_filter=summary_filter,
+                    week=week_offset,
+                    month=month_offset,
+                    error="De afspraak kon niet worden verwijderd.",
+                )
+            )
+
+        if action == "update_training":
+            title = request.form.get("title", "").strip()
+            training_id = request.form.get("training_id", "").strip()
+            update_scope = request.form.get("update_scope", "").strip()
+            original_signature = request.form.get("original_signature", "").strip()
+            date_value = request.form.get("date", "").strip()
+            time_value = request.form.get("time", "").strip()
+            end_time_value = request.form.get("end_time", "").strip()
+            location = normalize_agenda_club(request.form.get("location", ""))
+            training_type = normalize_agenda_training_type(request.form.get("training_type", ""))
+            trainers = normalize_agenda_trainers(request.form.getlist("trainer_ids"))
+            notes = request.form.get("notes", "").strip()
+            resolved_end_time = end_time_value or (compute_default_end_time(time_value) if time_value else "")
+
+            updated_count = update_agenda_training(
+                training_id,
+                update_scope,
+                original_signature,
+                title,
+                date_value,
+                time_value,
+                resolved_end_time,
+                location,
+                training_type,
+                trainers,
+                notes,
+            )
+            if updated_count:
+                return redirect(
+                    url_for(
+                        "agenda_page",
+                        view=view_mode,
+                        summary_filter=summary_filter,
+                        week=week_offset,
+                        month=month_offset,
+                        success=f"{updated_count} afspraak{' is' if updated_count == 1 else 'en zijn'} bijgewerkt.",
+                    )
+                )
+            return redirect(
+                url_for(
+                    "agenda_page",
+                    view=view_mode,
+                    summary_filter=summary_filter,
+                    week=week_offset,
+                    month=month_offset,
+                    error="De afspraak kon niet worden bijgewerkt. Controleer titel, datum, type, club en starttijd.",
+                )
+            )
+
+        if action == "bulk_add_trainings":
+            title = request.form.get("title", "").strip()
+            bulk_dates = request.form.getlist("bulk_dates")
+            time_value = request.form.get("time", "").strip()
+            end_time_value = request.form.get("end_time", "").strip()
+            location = normalize_agenda_club(request.form.get("location", ""))
+            training_type = normalize_agenda_training_type(request.form.get("training_type", ""))
+            trainers = normalize_agenda_trainers(request.form.getlist("trainer_ids"))
+            notes = request.form.get("notes", "").strip()
+            resolved_end_time = end_time_value or (compute_default_end_time(time_value) if time_value else "")
+
+            created_count = add_agenda_trainings_bulk(
+                title,
+                bulk_dates,
+                time_value,
+                resolved_end_time,
+                location,
+                training_type,
+                trainers,
+                notes,
+            )
+            if created_count:
+                return redirect(
+                    url_for(
+                        "agenda_page",
+                        view=view_mode,
+                        summary_filter=summary_filter,
+                        week=week_offset,
+                        month=month_offset,
+                        success=f"{created_count} trainingen toegevoegd.",
+                    )
+                )
+            return redirect(
+                url_for(
+                    "agenda_page",
+                    view=view_mode,
+                    summary_filter=summary_filter,
+                    week=week_offset,
+                    month=month_offset,
+                    error="Kies minimaal een datum en vul titel, type, club en starttijd in.",
+                )
+            )
+
         title = request.form.get("title", "").strip()
         date_value = request.form.get("date", "").strip()
         time_value = request.form.get("time", "").strip()
         end_time_value = request.form.get("end_time", "").strip()
-        location = request.form.get("location", "").strip()
+        location = normalize_agenda_club(request.form.get("location", ""))
+        training_type = normalize_agenda_training_type(request.form.get("training_type", ""))
+        trainers = normalize_agenda_trainers(request.form.getlist("trainer_ids"))
         notes = request.form.get("notes", "").strip()
 
-        if title and date_value and time_value:
+        if title and date_value and time_value and location and training_type:
             add_agenda_training(
                 title,
                 date_value,
                 time_value,
                 end_time_value or compute_default_end_time(time_value),
                 location,
+                training_type,
+                trainers,
                 notes,
             )
             return redirect(
@@ -9473,6 +13727,7 @@ def agenda_page() -> str:
                 summary_filter=summary_filter,
                 week=week_offset,
                 month=month_offset,
+                error="Vul titel, datum, type, club en starttijd in.",
             )
         )
 
@@ -9488,9 +13743,20 @@ def agenda_page() -> str:
     all_day_plans = load_all_agenda_day_plans()
     filtered_summary_day_plans = filter_agenda_day_plans_for_summary(all_day_plans, summary_filter)
     selected_summary_filter = get_agenda_summary_filter_option(summary_filter)
+    selected_summary_start = selected_summary_filter.get("start")
+    selected_summary_end = selected_summary_filter.get("end")
+    if isinstance(selected_summary_start, date) and isinstance(selected_summary_end, date):
+        summary_trainings = load_agenda_trainings(
+            selected_summary_start.isoformat(),
+            selected_summary_end.isoformat(),
+        )
+    else:
+        summary_trainings = load_agenda_trainings()
     for day in visible_days:
         day["planType"] = day_plans.get(day["key"], "")
-    agenda_day_plan_summary = build_agenda_day_plan_summary(filtered_summary_day_plans)
+    agenda_day_plan_summary = build_agenda_day_plan_summary(
+        add_football_day_only_no_activity_days(filtered_summary_day_plans, summary_trainings)
+    )
     week_end = week_start + timedelta(days=6)
     month_visible_start = month_days[0]["date"] if month_days else month_start
     month_visible_end = month_days[-1]["date"] if month_days else month_start
@@ -9531,6 +13797,9 @@ def agenda_page() -> str:
         agenda_visible_dates=visible_day_keys,
         today_week_offset=0,
         agenda_day_plan_options=AGENDA_DAY_PLAN_OPTIONS,
+        agenda_club_options=AGENDA_CLUB_OPTIONS,
+        agenda_training_type_options=AGENDA_TRAINING_TYPE_OPTIONS,
+        agenda_trainer_options=build_agenda_trainer_options(),
         agenda_day_plan_summary=agenda_day_plan_summary,
         agenda_external_labels=agenda_external_labels,
         agenda_school_region=AGENDA_SCHOOL_REGION,
@@ -9587,6 +13856,7 @@ def oefeningen_bibliotheek_page() -> str:
                 active_page="oefeningen-bibliotheek",
                 exercises=add_exercise_field_svgs(exercises),
                 categories=list(EXERCISE_CATEGORY_OPTIONS),
+                age_groups=list(EXERCISE_AGE_GROUP_OPTIONS),
                 import_preview=add_exercise_field_svgs(preview_exercises),
                 import_preview_id=preview_id,
                 success=f"{len(preview_exercises)} nieuwe oefeningen gevonden.{skipped_message} Controleer de preview en upload daarna wat je wilt bewaren.",
@@ -9628,6 +13898,7 @@ def oefeningen_bibliotheek_page() -> str:
                 active_page="oefeningen-bibliotheek",
                 exercises=add_exercise_field_svgs(exercises),
                 categories=list(EXERCISE_CATEGORY_OPTIONS),
+                age_groups=list(EXERCISE_AGE_GROUP_OPTIONS),
                 import_preview=add_exercise_field_svgs(remaining_preview),
                 import_preview_id=preview_id if remaining_preview else "",
                 success="Oefening geupload." if imported_count else "Geen oefening geupload.",
@@ -9642,8 +13913,53 @@ def oefeningen_bibliotheek_page() -> str:
         active_page="oefeningen-bibliotheek",
         exercises=add_exercise_field_svgs(exercises),
         categories=list(EXERCISE_CATEGORY_OPTIONS),
+        age_groups=list(EXERCISE_AGE_GROUP_OPTIONS),
         import_preview=[],
         import_preview_id="",
+        success=success,
+        error=error,
+    )
+
+
+@app.get("/oefenstof")
+def oefenstof_page() -> str:
+    access_redirect = require_page_access("oefenstof")
+    if access_redirect is not None:
+        return access_redirect
+
+    return render_template("oefenstof.html", active_page="oefenstof")
+
+
+@app.route("/oefeningen-videos", methods=["GET", "POST"])
+def exercise_videos_page() -> str:
+    access_redirect = require_page_access("exercise-videos")
+    if access_redirect is not None:
+        return access_redirect
+    user = get_current_user()
+    if not user or not user.get("isAdmin"):
+        return redirect(url_for("oefeningen_bibliotheek_page", error="Alleen Admins mogen video's koppelen."))
+
+    success = request.args.get("success", "").strip()
+    error = request.args.get("error", "").strip()
+    if request.method == "POST":
+        action = request.form.get("action", "upload_video").strip() or "upload_video"
+        exercise_id = request.form.get("exercise_id")
+        if action == "delete_video":
+            if delete_exercise_video(exercise_id):
+                return redirect(url_for("exercise_videos_page", success="Video verwijderd."))
+            return redirect(url_for("exercise_videos_page", error="Video kon niet worden verwijderd."))
+
+        updated_exercise, upload_error = upload_exercise_video(exercise_id, request.files.get("exercise_video"))
+        if updated_exercise is None:
+            return redirect(url_for("exercise_videos_page", error=upload_error or "Video uploaden mislukt."))
+        return redirect(url_for("exercise_videos_page", success=f"Video gekoppeld aan {updated_exercise['title']}."))
+
+    exercises = load_exercises()
+    return render_template(
+        "exercise_videos.html",
+        active_page="exercise-videos",
+        exercises=exercises,
+        video_storage=get_exercise_video_storage_config(),
         success=success,
         error=error,
     )
@@ -9685,6 +14001,71 @@ def api_update_exercise():
     return jsonify({"ok": True, "exercise": updated_exercise})
 
 
+@app.post("/api/oefeningen-bibliotheek/field-image")
+def api_update_exercise_field_image():
+    access_redirect = require_page_access("oefeningen-bibliotheek")
+    if access_redirect is not None:
+        return access_redirect
+    user = get_current_user()
+    if not user or not user.get("isAdmin"):
+        return jsonify({"error": "Alleen Admins mogen oefeningen bewerken."}), 403
+
+    field, error = normalize_exercise_field_image_upload(request.files.get("field_image"))
+    if field is None:
+        return jsonify({"error": error or "Afbeelding uploaden mislukt."}), 400
+
+    updated_exercise = update_exercise_field_image(request.form.get("id"), field)
+    if updated_exercise is None:
+        return jsonify({"error": "Oefening niet gevonden."}), 404
+    return jsonify({"ok": True, "exercise": updated_exercise})
+
+
+@app.post("/api/oefeningen-bibliotheek/field-overlay")
+def api_update_exercise_field_overlay():
+    access_redirect = require_page_access("oefeningen-bibliotheek")
+    if access_redirect is not None:
+        return access_redirect
+    user = get_current_user()
+    if not user or not user.get("isAdmin"):
+        return jsonify({"error": "Alleen Admins mogen veldtekeningen bewerken."}), 403
+
+    payload = request.get_json(silent=True) or {}
+    updated_exercise = update_exercise_field_overlay(payload.get("id"), payload)
+    if updated_exercise is None:
+        return jsonify({"error": "Veldtekening kon niet worden opgeslagen."}), 400
+    return jsonify({"ok": True, "exercise": updated_exercise})
+
+
+@app.post("/api/oefeningen-bibliotheek/video")
+def api_update_exercise_video():
+    access_redirect = require_page_access("exercise-videos")
+    if access_redirect is not None:
+        return access_redirect
+    user = get_current_user()
+    if not user or not user.get("isAdmin"):
+        return jsonify({"error": "Alleen Admins mogen video's koppelen."}), 403
+
+    updated_exercise, error = upload_exercise_video(request.form.get("id"), request.files.get("exercise_video"))
+    if updated_exercise is None:
+        return jsonify({"error": error or "Video uploaden mislukt."}), 400
+    return jsonify({"ok": True, "exercise": updated_exercise})
+
+
+@app.post("/api/oefeningen-bibliotheek/video/delete")
+def api_delete_exercise_video():
+    access_redirect = require_page_access("exercise-videos")
+    if access_redirect is not None:
+        return access_redirect
+    user = get_current_user()
+    if not user or not user.get("isAdmin"):
+        return jsonify({"error": "Alleen Admins mogen video's verwijderen."}), 403
+
+    payload = request.get_json(silent=True) or {}
+    if not delete_exercise_video(payload.get("id")):
+        return jsonify({"error": "Video niet gevonden."}), 404
+    return jsonify({"ok": True})
+
+
 @app.post("/api/oefeningen-bibliotheek/delete")
 def api_delete_exercise():
     access_redirect = require_page_access("oefeningen-bibliotheek")
@@ -9698,6 +14079,56 @@ def api_delete_exercise():
     if not delete_exercise(payload.get("id")):
         return jsonify({"error": "Oefening niet gevonden."}), 404
     return jsonify({"ok": True})
+
+
+@app.get("/trainingen")
+def trainingen_page() -> str:
+    access_redirect = require_page_access("trainingen")
+    if access_redirect is not None:
+        return access_redirect
+
+    return render_trainingen_page("home")
+
+
+@app.get("/trainingen/opgeslagen")
+def trainingen_saved_page() -> str:
+    access_redirect = require_page_access("trainingen")
+    if access_redirect is not None:
+        return access_redirect
+
+    return render_trainingen_page("saved")
+
+
+@app.get("/trainingen/maker")
+def trainingen_maker_page() -> str:
+    access_redirect = require_page_access("trainingen")
+    if access_redirect is not None:
+        return access_redirect
+
+    return render_trainingen_page("maker")
+
+
+def render_trainingen_page(training_mode: str) -> str:
+    return render_template(
+        "trainingen.html",
+        active_page="trainingen",
+        training_mode=training_mode,
+        exercises=add_exercise_field_svgs(load_exercises()),
+        trainings=load_training_sessions(),
+    )
+
+
+@app.post("/api/trainingen")
+def api_save_training():
+    access_redirect = require_page_access("trainingen")
+    if access_redirect is not None:
+        return access_redirect
+
+    payload = request.get_json(silent=True) or {}
+    training = save_training_session(payload)
+    if training is None:
+        return jsonify({"error": "Geef de training een titel en voeg minimaal één oefening toe."}), 400
+    return jsonify({"ok": True, "training": training, "trainings": load_training_sessions()})
 
 
 @app.route("/taken", methods=["GET", "POST"])
@@ -9743,37 +14174,75 @@ def tasks_page() -> str:
 
 @app.get("/voetbaldagen")
 def football_days_page() -> str:
-    access_redirect = require_page_access("voetbaldagen")
+    return render_football_playbook_overview("voetbaldagen")
+
+
+@app.get("/samenwerkende-amateurclubs")
+def amateur_clubs_page() -> str:
+    return render_football_playbook_overview("samenwerkende-amateurclubs")
+
+
+def render_football_playbook_overview(playbook_type: str) -> str:
+    context = get_football_playbook_context(playbook_type)
+    access_redirect = require_page_access(context["pageKey"])
     if access_redirect is not None:
         return access_redirect
 
     return render_template(
         "voetbaldagen.html",
-        active_page="voetbaldagen",
-        playbooks=attach_football_days_registration_counts(load_football_days_playbooks(), cached_only=True),
+        active_page=context["pageKey"],
+        page_context=context,
+        playbooks=attach_football_days_registration_counts(load_football_days_playbooks(context["playbookType"]), cached_only=True),
         success=request.args.get("success", "").strip(),
     )
 
 
 @app.route("/voetbaldagen/nieuw", methods=["GET", "POST"])
 def football_days_new_page() -> str:
-    access_redirect = require_page_access("voetbaldagen")
+    return render_football_playbook_new_page("voetbaldagen")
+
+
+@app.route("/samenwerkende-amateurclubs/nieuw", methods=["GET", "POST"])
+def amateur_clubs_new_page() -> str:
+    return render_football_playbook_new_page("samenwerkende-amateurclubs")
+
+
+@app.post("/samenwerkende-amateurclubs/<int:playbook_id>/dupliceren")
+def amateur_clubs_duplicate_page(playbook_id: int) -> str:
+    context = get_football_playbook_context("samenwerkende-amateurclubs")
+    access_redirect = require_page_access(context["pageKey"])
+    if access_redirect is not None:
+        return access_redirect
+
+    duplicate_id = duplicate_football_days_playbook(playbook_id, context["playbookType"])
+    if duplicate_id is None:
+        return redirect(context["overviewPath"])
+    return redirect(f"{context['editPathPrefix']}/{duplicate_id}?success=Draaiboek gedupliceerd.")
+
+
+def render_football_playbook_new_page(playbook_type: str) -> str:
+    context = get_football_playbook_context(playbook_type)
+    access_redirect = require_page_access(context["pageKey"])
     if access_redirect is not None:
         return access_redirect
 
     if request.method == "POST":
-        playbook_id = save_football_days_playbook(build_football_days_playbook_from_form())
-        return redirect(url_for("football_days_edit_page", playbook_id=playbook_id, success="Draaiboek opgeslagen."))
+        playbook_id = save_football_days_playbook(
+            build_football_days_playbook_from_form(context["playbookType"]),
+            playbook_type=context["playbookType"],
+        )
+        return redirect(f"{context['editPathPrefix']}/{playbook_id}?success=Draaiboek opgeslagen.")
 
-    playbook = create_empty_football_days_playbook()
+    playbook = create_empty_football_days_playbook(context["playbookType"])
 
     return render_template(
         "voetbaldagen_form.html",
-        active_page="voetbaldagen",
+        active_page=context["pageKey"],
+        page_context=context,
         playbook=playbook,
-        exercises=load_exercises(),
-        previous_playbooks=attach_football_days_registration_counts(load_football_days_playbooks(), cached_only=True),
-        form_action=url_for("football_days_new_page"),
+        exercises=add_exercise_field_svgs(load_exercises()),
+        previous_playbooks=attach_football_days_registration_counts(load_football_days_playbooks(context["playbookType"]), cached_only=True),
+        form_action=context["newPath"],
         page_mode="new",
         success=request.args.get("success", "").strip(),
     )
@@ -9781,17 +14250,31 @@ def football_days_new_page() -> str:
 
 @app.route("/voetbaldagen/<int:playbook_id>", methods=["GET", "POST"])
 def football_days_edit_page(playbook_id: int) -> str:
-    access_redirect = require_page_access("voetbaldagen")
+    return render_football_playbook_edit_page("voetbaldagen", playbook_id)
+
+
+@app.route("/samenwerkende-amateurclubs/<int:playbook_id>", methods=["GET", "POST"])
+def amateur_clubs_edit_page(playbook_id: int) -> str:
+    return render_football_playbook_edit_page("samenwerkende-amateurclubs", playbook_id)
+
+
+def render_football_playbook_edit_page(playbook_type: str, playbook_id: int) -> str:
+    context = get_football_playbook_context(playbook_type)
+    access_redirect = require_page_access(context["pageKey"])
     if access_redirect is not None:
         return access_redirect
 
-    playbook = load_football_days_playbook(playbook_id)
+    playbook = load_football_days_playbook(playbook_id, context["playbookType"])
     if playbook is None:
-        return redirect(url_for("football_days_page"))
+        return redirect(context["overviewPath"])
 
     if request.method == "POST":
-        save_football_days_playbook(build_football_days_playbook_from_form(), playbook_id=playbook_id)
-        return redirect(url_for("football_days_edit_page", playbook_id=playbook_id, success="Draaiboek opgeslagen."))
+        save_football_days_playbook(
+            build_football_days_playbook_from_form(context["playbookType"]),
+            playbook_id=playbook_id,
+            playbook_type=context["playbookType"],
+        )
+        return redirect(f"{context['editPathPrefix']}/{playbook_id}?success=Draaiboek opgeslagen.")
 
     if not playbook["staff"]:
         playbook["staff"] = [{"name": "", "role": "", "setupTask": ""}]
@@ -9801,14 +14284,15 @@ def football_days_edit_page(playbook_id: int) -> str:
 
     return render_template(
         "voetbaldagen_form.html",
-        active_page="voetbaldagen",
+        active_page=context["pageKey"],
+        page_context=context,
         playbook=playbook,
-        exercises=load_exercises(),
+        exercises=add_exercise_field_svgs(load_exercises()),
         previous_playbooks=attach_football_days_registration_counts(
-            [item for item in load_football_days_playbooks() if item["id"] != playbook_id],
+            [item for item in load_football_days_playbooks(context["playbookType"]) if item["id"] != playbook_id],
             cached_only=True,
         ),
-        form_action=url_for("football_days_edit_page", playbook_id=playbook_id),
+        form_action=f"{context['editPathPrefix']}/{playbook_id}",
         page_mode="edit",
         success=request.args.get("success", "").strip(),
     )
@@ -9951,6 +14435,152 @@ def voorstellen_maker_training_counts_api():
             "weekdayCounts": weekday_counts,
             "totalTrainings": sum(int(value or 0) for value in weekday_counts.values()),
         }
+    )
+
+
+@app.get("/overeenkomsten")
+def overeenkomsten_page() -> str:
+    access_redirect = require_page_access("overeenkomsten")
+    if access_redirect is not None:
+        return access_redirect
+
+    return render_template(
+        "overeenkomsten.html",
+        active_page="overeenkomsten",
+        contracts=load_contracts(),
+        success=request.args.get("success", "").strip(),
+    )
+
+
+@app.route("/overeenkomsten/nieuw", methods=["GET", "POST"])
+def overeenkomsten_new_page() -> str:
+    access_redirect = require_page_access("overeenkomsten")
+    if access_redirect is not None:
+        return access_redirect
+
+    if request.method == "POST":
+        contract = build_contract_from_form()
+        if not contract["clubName"]:
+            return render_template(
+                "overeenkomsten_form.html",
+                active_page="overeenkomsten",
+                contract=contract,
+                previous_contracts=load_contracts(),
+                agenda_attachment_options=build_contract_agenda_attachment_options(contract),
+                form_action=url_for("overeenkomsten_new_page"),
+                page_mode="new",
+                success="",
+                error="Vul minimaal een clubnaam in.",
+            )
+        contract_id = save_contract(contract)
+        return redirect(url_for("overeenkomsten_edit_page", contract_id=contract_id, success="Overeenkomst opgeslagen."))
+
+    return render_template(
+        "overeenkomsten_form.html",
+        active_page="overeenkomsten",
+        contract=normalize_contract(None),
+        previous_contracts=load_contracts(),
+        agenda_attachment_options=build_contract_agenda_attachment_options(normalize_contract(None)),
+        form_action=url_for("overeenkomsten_new_page"),
+        page_mode="new",
+        success=request.args.get("success", "").strip(),
+        error=request.args.get("error", "").strip(),
+    )
+
+
+@app.route("/overeenkomsten/<int:contract_id>", methods=["GET", "POST"])
+def overeenkomsten_edit_page(contract_id: int) -> str:
+    access_redirect = require_page_access("overeenkomsten")
+    if access_redirect is not None:
+        return access_redirect
+
+    contract = load_contract(contract_id)
+    if contract is None:
+        return redirect(url_for("overeenkomsten_page"))
+
+    if request.method == "POST":
+        action = request.form.get("action", "save").strip() or "save"
+        if action == "delete":
+            with get_db_connection() as connection:
+                connection.execute("DELETE FROM contracts WHERE id = ?", (contract_id,))
+            clear_local_data_cache()
+            return redirect(url_for("overeenkomsten_page", success="Overeenkomst verwijderd."))
+
+        updated_contract = build_contract_from_form()
+        if not updated_contract["clubName"]:
+            contract.update(updated_contract)
+            return render_template(
+                "overeenkomsten_form.html",
+                active_page="overeenkomsten",
+                contract=contract,
+                previous_contracts=[item for item in load_contracts() if item["id"] != contract_id],
+                agenda_attachment_options=build_contract_agenda_attachment_options(contract),
+                form_action=url_for("overeenkomsten_edit_page", contract_id=contract_id),
+                page_mode="edit",
+                success="",
+                error="Vul minimaal een clubnaam in.",
+            )
+        save_contract(updated_contract, contract_id=contract_id)
+        return redirect(url_for("overeenkomsten_edit_page", contract_id=contract_id, success="Overeenkomst opgeslagen."))
+
+    return render_template(
+        "overeenkomsten_form.html",
+        active_page="overeenkomsten",
+        contract=contract,
+        previous_contracts=[item for item in load_contracts() if item["id"] != contract_id],
+        agenda_attachment_options=build_contract_agenda_attachment_options(contract),
+        form_action=url_for("overeenkomsten_edit_page", contract_id=contract_id),
+        page_mode="edit",
+        success=request.args.get("success", "").strip(),
+        error=request.args.get("error", "").strip(),
+    )
+
+
+@app.get("/overeenkomsten/<int:contract_id>/export-pdf")
+def overeenkomsten_export_pdf(contract_id: int):
+    access_redirect = require_page_access("overeenkomsten")
+    if access_redirect is not None:
+        return access_redirect
+
+    contract = load_contract(contract_id)
+    if contract is None:
+        return redirect(url_for("overeenkomsten_page"))
+    try:
+        pdf_bytes = create_contract_pdf(contract)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+    return (
+        pdf_bytes,
+        200,
+        {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": f'attachment; filename="{contract_filename(contract, "pdf")}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.get("/overeenkomsten/<int:contract_id>/export-docx")
+def overeenkomsten_export_docx(contract_id: int):
+    access_redirect = require_page_access("overeenkomsten")
+    if access_redirect is not None:
+        return access_redirect
+
+    contract = load_contract(contract_id)
+    if contract is None:
+        return redirect(url_for("overeenkomsten_page"))
+    try:
+        docx_bytes = create_contract_docx(contract)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+    return (
+        docx_bytes,
+        200,
+        {
+            "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "Content-Disposition": f'attachment; filename="{contract_filename(contract, "docx")}"',
+            "Cache-Control": "no-store",
+        },
     )
 
 
@@ -10290,7 +14920,17 @@ def api_product_registration_count():
 
 @app.get("/api/voetbaldagen/registration-counts")
 def api_football_days_registration_counts():
-    access_redirect = require_page_access("voetbaldagen")
+    return football_playbook_registration_counts_api("voetbaldagen")
+
+
+@app.get("/api/samenwerkende-amateurclubs/registration-counts")
+def api_amateur_clubs_registration_counts():
+    return football_playbook_registration_counts_api("samenwerkende-amateurclubs")
+
+
+def football_playbook_registration_counts_api(playbook_type: str):
+    context = get_football_playbook_context(playbook_type)
+    access_redirect = require_page_access(context["pageKey"])
     if access_redirect is not None:
         return access_redirect
 
@@ -10299,7 +14939,7 @@ def api_football_days_registration_counts():
         for item in re.split(r"[, ]+", request.args.get("playbook_ids", "").strip())
         if item.isdigit()
     }
-    playbooks = load_football_days_playbooks()
+    playbooks = load_football_days_playbooks(context["playbookType"])
     if requested_ids:
         playbooks = [playbook for playbook in playbooks if int(playbook.get("id") or 0) in requested_ids]
 
