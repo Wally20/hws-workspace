@@ -473,6 +473,39 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Stripe STR-1002", [entry["invoiceId"] for entry in entries])
         self.assertNotIn("Stripe STR-1003", [entry["invoiceId"] for entry in entries])
 
+    def test_spaarpot_quarter_summary_includes_manual_reservations(self):
+        entries = legacy.build_spaarpot_payment_entries(
+            [
+                {
+                    "id": "1",
+                    "invoice_id": "2026-0001",
+                    "payments": [{"payment_date": "2026-01-15", "price": "100.00"}],
+                }
+            ]
+        )
+        entries.append(
+            {
+                "source": "manual",
+                "date": "2026-02-01",
+                "dateLabel": "01-02-2026",
+                "year": 2026,
+                "quarter": 1,
+                "quarterLabel": "JAN-FEB-MAA",
+                "invoiceId": "Handmatig",
+                "contactName": "",
+                "accountLabel": "Reservering trainersvergoedingen",
+                "amount": 0.0,
+                "reserve": 250.0,
+            }
+        )
+
+        summary = legacy.build_spaarpot_quarter_summary(entries, 2026)
+
+        self.assertEqual(summary["quarters"][0]["income"], 100.0)
+        self.assertEqual(summary["quarters"][0]["reserve"], 259.0)
+        self.assertEqual(summary["quarters"][0]["paymentCount"], 1)
+        self.assertEqual(summary["quarters"][0]["manualCount"], 1)
+
     def test_spaarpot_page_renders_moneybird_quarters(self):
         moneybird = {
             "invoices": [
@@ -496,16 +529,40 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             ],
             "message": None,
         }
+        payload = {
+            "moneybird": moneybird,
+            "message": None,
+            "cachedAt": 1767222000.0,
+        }
+        manual_entries = [
+            {
+                "source": "manual",
+                "id": 1,
+                "date": "2026-01-22",
+                "dateLabel": "22-01-2026",
+                "year": 2026,
+                "quarter": 1,
+                "quarterLabel": "JAN-FEB-MAA",
+                "invoiceId": "Handmatig",
+                "contactName": "",
+                "accountLabel": "Reservering trainersvergoedingen",
+                "amount": 0.0,
+                "reserve": 125.0,
+            }
+        ]
 
         with patch.object(legacy, "get_current_user", return_value={"id": "admin", "isAdmin": True}), patch.object(
             legacy,
-            "fetch_moneybird_summary",
-            return_value=moneybird,
-        ), patch.object(legacy, "fetch_orders_non_blocking") as fetch_orders_non_blocking:
+            "fetch_orders_non_blocking",
+            return_value=payload,
+        ) as fetch_orders_non_blocking, patch.object(legacy, "fetch_moneybird_summary") as fetch_moneybird_summary, patch.object(
+            legacy, "load_spaarpot_manual_entries", return_value=manual_entries
+        ):
             response = Client().get("/spaarpot?year=2026", secure=True)
 
         self.assertEqual(response.status_code, 200)
-        fetch_orders_non_blocking.assert_not_called()
+        fetch_orders_non_blocking.assert_called_once()
+        fetch_moneybird_summary.assert_not_called()
         content = response.content.decode("utf-8")
         self.assertIn("Spaarpot", content)
         self.assertIn("JAN-FEB-MAA", content)
@@ -515,7 +572,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Voetbal Ouder - NL91ABNA0417164300", content)
         self.assertIn("Stripe STR-1001", content)
         self.assertIn("STRIPE", content)
-        self.assertIn("€ 13,50", content)
+        self.assertIn("Reservering trainersvergoedingen", content)
+        self.assertIn("€ 138,50", content)
 
     def test_football_days_new_page_renders_for_authenticated_user(self):
         response = self.build_authenticated_client().get("/voetbaldagen/nieuw", secure=True)

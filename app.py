@@ -2696,6 +2696,18 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_registration_email_statuses_product_key
             ON registration_email_statuses (product_key);
+
+            CREATE TABLE IF NOT EXISTS spaarpot_manual_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                year INTEGER NOT NULL,
+                quarter INTEGER NOT NULL,
+                description TEXT NOT NULL,
+                amount REAL NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_spaarpot_manual_entries_period
+            ON spaarpot_manual_entries (year, quarter);
             """
         )
 
@@ -12171,6 +12183,7 @@ def build_spaarpot_payment_entries(
             reserve = amount * VAT_SAVINGS_RATE
             entries.append(
                 {
+                    "source": "payment",
                     "date": payment_date.isoformat(),
                     "dateLabel": payment_date.strftime("%d-%m-%Y"),
                     "year": payment_date.year,
@@ -12197,6 +12210,7 @@ def build_spaarpot_payment_entries(
         ).strip()
         entries.append(
             {
+                "source": "stripe",
                 "date": mutation_date.isoformat(),
                 "dateLabel": mutation_date.strftime("%d-%m-%Y"),
                 "year": mutation_date.year,
@@ -12211,6 +12225,64 @@ def build_spaarpot_payment_entries(
         )
 
     return sorted(entries, key=lambda item: (item["date"], item["invoiceId"]), reverse=True)
+
+
+def normalize_spaarpot_manual_entry(row: sqlite3.Row) -> Dict[str, Any]:
+    amount = decimal_from_value(row["amount"])
+    created_at = str(row["created_at"] or "").strip()
+    created_date = parse_iso_date(created_at[:10]) if created_at else None
+    date_label = created_date.strftime("%d-%m-%Y") if created_date is not None else ""
+    quarter = int(row["quarter"])
+    return {
+        "source": "manual",
+        "id": int(row["id"]),
+        "date": created_at[:10],
+        "dateLabel": date_label,
+        "year": int(row["year"]),
+        "quarter": quarter,
+        "quarterLabel": get_quarter_label(quarter),
+        "invoiceId": "Handmatig",
+        "contactName": "",
+        "accountLabel": str(row["description"] or "").strip(),
+        "amount": 0.0,
+        "reserve": round(float(amount), 2),
+    }
+
+
+def load_spaarpot_manual_entries() -> List[Dict[str, Any]]:
+    def loader() -> List[Dict[str, Any]]:
+        with get_db_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, year, quarter, description, amount, created_at
+                FROM spaarpot_manual_entries
+                ORDER BY year DESC, quarter DESC, created_at DESC, id DESC
+                """
+            ).fetchall()
+        return [normalize_spaarpot_manual_entry(row) for row in rows]
+
+    return get_cached_local_data("spaarpot_manual_entries", (), loader)
+
+
+def create_spaarpot_manual_entry(year: int, quarter: int, description: str, amount: Decimal) -> int:
+    created_at = datetime.now().isoformat(timespec="seconds")
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO spaarpot_manual_entries (year, quarter, description, amount, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (year, quarter, description.strip(), round(float(amount), 2), created_at),
+        )
+        entry_id = int(cursor.lastrowid)
+    clear_local_data_cache()
+    return entry_id
+
+
+def delete_spaarpot_manual_entry(entry_id: int) -> None:
+    with get_db_connection() as connection:
+        connection.execute("DELETE FROM spaarpot_manual_entries WHERE id = ?", (entry_id,))
+    clear_local_data_cache()
 
 
 def build_spaarpot_year_options(payment_entries: List[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -12237,9 +12309,11 @@ def build_spaarpot_quarter_summary(
         ]
         income = sum(decimal_from_value(entry["amount"]) for entry in quarter_entries)
         reserve = sum(decimal_from_value(entry["reserve"]) for entry in quarter_entries)
+        payment_count = sum(1 for entry in quarter_entries if entry.get("source") != "manual")
+        manual_count = sum(1 for entry in quarter_entries if entry.get("source") == "manual")
         year_income += income
         year_reserve += reserve
-        year_payment_count += len(quarter_entries)
+        year_payment_count += payment_count
         quarters.append(
             {
                 "quarter": quarter,
@@ -12247,7 +12321,9 @@ def build_spaarpot_quarter_summary(
                 "periodLabel": get_quarter_period_label(selected_year, quarter),
                 "income": round(float(income), 2),
                 "reserve": round(float(reserve), 2),
-                "paymentCount": len(quarter_entries),
+                "paymentCount": payment_count,
+                "manualCount": manual_count,
+                "entryCount": len(quarter_entries),
                 "payments": quarter_entries,
             }
         )
@@ -13216,17 +13292,50 @@ def revenue_season_page() -> str:
     )
 
 
-@app.get("/spaarpot")
+@app.route("/spaarpot", methods=["GET", "POST"])
 def spaarpot_page() -> str:
     access_redirect = require_page_access("spaarpot")
     if access_redirect is not None:
         return access_redirect
 
-    moneybird = fetch_moneybird_summary()
+    if request.method == "POST":
+        action = request.form.get("action", "").strip()
+        selected_year = request.form.get("year", "").strip() or str(date.today().year)
+        selected_quarter = request.form.get("quarter", "").strip() or "1"
+        try:
+            year_number = int(selected_year)
+            quarter_number = int(selected_quarter)
+        except ValueError:
+            return redirect(url_for("spaarpot_page"))
+        if quarter_number not in {1, 2, 3, 4}:
+            return redirect(url_for("spaarpot_page", year=year_number))
+
+        if action == "add_manual_entry":
+            description = request.form.get("description", "").strip()
+            amount = parse_decimal_amount(request.form.get("amount", ""))
+            if description and amount > 0:
+                create_spaarpot_manual_entry(year_number, quarter_number, description, amount)
+            return redirect(url_for("spaarpot_page", year=year_number, quarter=quarter_number))
+
+        if action == "delete_manual_entry":
+            try:
+                entry_id = int(request.form.get("entry_id", "0"))
+            except ValueError:
+                entry_id = 0
+            if entry_id > 0:
+                delete_spaarpot_manual_entry(entry_id)
+            return redirect(url_for("spaarpot_page", year=year_number, quarter=quarter_number))
+
+        return redirect(url_for("spaarpot_page", year=year_number, quarter=quarter_number))
+
+    payload = fetch_orders_non_blocking()
+    moneybird = payload.get("moneybird", {})
     payment_entries = build_spaarpot_payment_entries(
         moneybird.get("invoices", []),
         moneybird.get("financialMutations", []),
     )
+    payment_entries.extend(load_spaarpot_manual_entries())
+    payment_entries = sorted(payment_entries, key=lambda item: (item["date"], item["invoiceId"]), reverse=True)
     year_options = build_spaarpot_year_options(payment_entries)
 
     selected_year = request.args.get("year", "").strip()
@@ -13242,7 +13351,7 @@ def spaarpot_page() -> str:
             (
                 str(quarter["quarter"])
                 for quarter in spaarpot_summary["quarters"]
-                if quarter["paymentCount"] > 0
+                if quarter["entryCount"] > 0
             ),
             "1",
         )
@@ -13260,8 +13369,8 @@ def spaarpot_page() -> str:
         spaarpot_summary=spaarpot_summary,
         selected_quarter=selected_quarter_number,
         selected_quarter_summary=selected_quarter_summary,
-        last_updated=format_cache_timestamp(time.time()),
-        message=moneybird.get("message"),
+        last_updated=format_cache_timestamp(payload.get("cachedAt", 0.0)),
+        message=payload.get("message"),
     )
 
 

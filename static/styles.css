@@ -4229,7 +4229,7 @@ body.sidebar-collapsed #footballFieldWizardModal {
 }
 
 .spaarpot-quarter-stats {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .spaarpot-quarter-stats > div {
@@ -4249,7 +4249,7 @@ body.sidebar-collapsed #footballFieldWizardModal {
 }
 
 .spaarpot-payment-row {
-  grid-template-columns: 120px 140px minmax(220px, 1fr) 120px 110px;
+  grid-template-columns: 120px 140px minmax(220px, 1fr) 120px 110px 90px;
   padding: 12px 14px;
   border-top: 1px solid var(--line);
   font-size: 0.9rem;
@@ -4262,10 +4262,57 @@ body.sidebar-collapsed #footballFieldWizardModal {
 
 .spaarpot-payment-row span:nth-child(4),
 .spaarpot-payment-row span:nth-child(5),
+.spaarpot-payment-row span:nth-child(6),
 .spaarpot-year-row span:nth-child(2),
 .spaarpot-year-row span:nth-child(3),
 .spaarpot-year-row span:nth-child(4) {
   text-align: right;
+}
+
+.spaarpot-manual-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 160px auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-soft);
+}
+
+.spaarpot-manual-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.spaarpot-manual-form input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.spaarpot-delete-form {
+  display: inline-flex;
+  justify-content: flex-end;
+}
+
+.spaarpot-delete-form button {
+  border: 0;
+  background: transparent;
+  color: #b3261e;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0;
 }
 
 .spaarpot-payment-head,
@@ -5201,8 +5248,13 @@ a.spaarpot-year-row:hover {
     grid-template-columns: 1fr;
   }
 
+  .spaarpot-manual-form {
+    grid-template-columns: 1fr;
+  }
+
   .spaarpot-payment-row span:nth-child(4),
   .spaarpot-payment-row span:nth-child(5),
+  .spaarpot-payment-row span:nth-child(6),
   .spaarpot-year-row span:nth-child(2),
   .spaarpot-year-row span:nth-child(3),
   .spaarpot-year-row span:nth-child(4) {

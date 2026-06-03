@@ -44,7 +44,10 @@
       >
         <span class="panel-title">Q{{ quarter.quarter }} · {{ quarter.label }}</span>
         <strong>€ {{ "{:,.2f}".format(quarter.reserve).replace(",", "X").replace(".", ",").replace("X", ".") }}</strong>
-        <span>{{ quarter.paymentCount }} betalingen · € {{ "{:,.2f}".format(quarter.income).replace(",", "X").replace(".", ",").replace("X", ".") }} inkomsten</span>
+        <span>
+          {{ quarter.paymentCount }} betalingen{% if quarter.manualCount %} · {{ quarter.manualCount }} handmatig{% endif %}
+          · € {{ "{:,.2f}".format(quarter.income).replace(",", "X").replace(".", ",").replace("X", ".") }} inkomsten
+        </span>
       </a>
     {% endfor %}
   </section>
@@ -70,7 +73,27 @@
         <span>Betalingen</span>
         <strong>{{ selected_quarter_summary.paymentCount }}</strong>
       </div>
+      <div>
+        <span>Handmatig</span>
+        <strong>{{ selected_quarter_summary.manualCount }}</strong>
+      </div>
     </div>
+
+    <form method="post" action="/spaarpot" class="spaarpot-manual-form">
+      <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+      <input type="hidden" name="action" value="add_manual_entry">
+      <input type="hidden" name="year" value="{{ spaarpot_summary.selectedYear }}">
+      <input type="hidden" name="quarter" value="{{ selected_quarter_summary.quarter }}">
+      <label>
+        <span>Omschrijving</span>
+        <input type="text" name="description" placeholder="Reservering trainersvergoedingen" required>
+      </label>
+      <label>
+        <span>Bedrag</span>
+        <input type="text" name="amount" inputmode="decimal" placeholder="0,00" required>
+      </label>
+      <button type="submit" class="refresh-button orders-toolbar-button">Toevoegen</button>
+    </form>
 
     {% if selected_quarter_summary.payments %}
       <div class="spaarpot-payment-list">
@@ -80,14 +103,27 @@
           <span>Rekening</span>
           <span>Bedrag</span>
           <span>9%</span>
+          <span></span>
         </div>
         {% for payment in selected_quarter_summary.payments %}
           <div class="spaarpot-payment-row">
             <span>{{ payment.dateLabel }}</span>
             <span>{{ payment.invoiceId or "MoneyBird" }}</span>
             <span>{{ payment.accountLabel }}</span>
-            <span>€ {{ "{:,.2f}".format(payment.amount).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
+            <span>{% if payment.source == "manual" %}-{% else %}€ {{ "{:,.2f}".format(payment.amount).replace(",", "X").replace(".", ",").replace("X", ".") }}{% endif %}</span>
             <span>€ {{ "{:,.2f}".format(payment.reserve).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
+            <span>
+              {% if payment.source == "manual" %}
+                <form method="post" action="/spaarpot" class="spaarpot-delete-form">
+                  <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+                  <input type="hidden" name="action" value="delete_manual_entry">
+                  <input type="hidden" name="year" value="{{ spaarpot_summary.selectedYear }}">
+                  <input type="hidden" name="quarter" value="{{ selected_quarter_summary.quarter }}">
+                  <input type="hidden" name="entry_id" value="{{ payment.id }}">
+                  <button type="submit" aria-label="Handmatige regel verwijderen">Verwijder</button>
+                </form>
+              {% endif %}
+            </span>
           </div>
         {% endfor %}
       </div>
