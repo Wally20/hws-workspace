@@ -185,4 +185,13 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = CONTENT_UPLOAD_MAX_REQUEST_MB * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 DATA_UPLOAD_MAX_NUMBER_FILES = CONTENT_UPLOAD_MAX_FILES
 
+EMAIL_BACKEND = env("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = env("EMAIL_HOST", "smtp.strato.de")
+EMAIL_PORT = env_int("EMAIL_PORT", 587)
+EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", "info@hwsvoetbalschool.nl")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "info@hwsvoetbalschool.nl")
+
 Path(SESSION_FILE_PATH).mkdir(parents=True, exist_ok=True)

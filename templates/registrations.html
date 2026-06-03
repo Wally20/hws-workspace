@@ -56,16 +56,19 @@
       {% for product in products %}
         <a
           href="{{ product.detailUrl }}"
-          class="registrations-product-card registrations-product-card-overview"
+          class="registrations-product-card registrations-product-card-overview {% if product.eventCanceled %}registrations-product-card-canceled{% elif product.eventCompleted %}registrations-product-card-completed{% else %}registrations-product-card-open{% endif %}"
           data-product-search="{{ product.searchText }}"
           data-product-name="{{ product.name|lower }}"
           data-product-sku="{{ product.sku|lower }}"
+          data-event-completed="{{ 'true' if product.eventCompleted else 'false' }}"
+          data-event-canceled="{{ 'true' if product.eventCanceled else 'false' }}"
         >
           <div>
             <p class="registrations-product-name">{{ product.name }}</p>
             <p class="registrations-product-meta">
               {% if product.sku %}SKU: {{ product.sku }}{% else %}Open productdetails{% endif %}
             </p>
+            <p class="registrations-product-status">{{ product.eventStatusLabel }}</p>
           </div>
         </a>
       {% else %}

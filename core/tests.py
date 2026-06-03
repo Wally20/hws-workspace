@@ -19,6 +19,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         with legacy.get_db_connection() as connection:
             connection.execute("DELETE FROM rate_limit_attempts")
             connection.execute("DELETE FROM registration_email_statuses")
+            connection.execute("DELETE FROM registration_event_statuses")
             connection.execute("DELETE FROM football_days_playbooks WHERE title LIKE 'Test draaiboek%'")
         super().tearDown()
 
@@ -906,6 +907,67 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(response.json()["ecwidUpdatedOrderIds"], [])
         mocked_put.assert_not_called()
 
+    def test_cancel_registration_event_updates_ecwid_to_returned_and_marks_event_canceled(self):
+        client = self.build_authenticated_client()
+        mocked_response = Mock()
+        mocked_response.raise_for_status.return_value = None
+        mocked_response.content = b'{"updateCount": 1}'
+        mocked_response.json.return_value = {"updateCount": 1}
+        catalog_payload = {
+            "items": [
+                {"id": "101", "name": "Meivakantie Camp", "sku": "MVC-1", "price": 79.0, "enabled": True},
+            ],
+            "source": "ecwid",
+        }
+        orders_payload = {
+            "items": [
+                {
+                    "id": "ORDER-1",
+                    "orderNumber": "ORDER-1",
+                    "createdAt": "2026-05-01T10:00:00+00:00",
+                    "customerName": "Klant Een",
+                    "email": "een@example.com",
+                    "items": [
+                        {"productId": 101, "name": "Meivakantie Camp", "quantity": 2, "price": 79.0, "sku": "MVC-1"},
+                    ],
+                },
+            ],
+            "summary": legacy.build_summary([]),
+            "cachedAt": 0.0,
+            "source": "ecwid",
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "ECWID_STORE_ID": "87654321",
+                "ECWID_SECRET_TOKEN": "secret_abcdefghijklmnopqrstuvwxyz123456",
+            },
+            clear=False,
+        ), patch.object(legacy, "fetch_catalog_products", return_value=catalog_payload), patch.object(
+            legacy,
+            "fetch_ecwid_orders",
+            return_value=orders_payload,
+        ), patch.object(legacy.requests, "put", return_value=mocked_response) as mocked_put:
+            response = client.post(
+                "/api/registrations/event-canceled",
+                data='{"productKey":"id:101"}',
+                content_type="application/json",
+                HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["eventCanceled"])
+        self.assertFalse(response.json()["eventCompleted"])
+        self.assertTrue(legacy.is_registration_event_canceled("id:101"))
+        self.assertFalse(legacy.is_registration_event_completed("id:101"))
+        mocked_put.assert_called_once()
+        self.assertEqual(
+            mocked_put.call_args.kwargs["json"],
+            {"fulfillmentStatus": legacy.ECWID_RETURNED_FULFILLMENT_STATUS},
+        )
+
     def test_registration_email_status_returns_error_when_ecwid_update_fails(self):
         client = self.build_authenticated_client()
 
@@ -1094,6 +1156,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Komt iets later.", content)
         self.assertIn("Kopieer alle e-mailadressen", content)
         self.assertIn("Kopieer e-mailadressen die nog niet gemaild zijn", content)
+        self.assertIn("Event afgerond", content)
+        self.assertIn("Event geannuleerd", content)
         self.assertIn('data-product-key="id:101"', content)
         self.assertIn('data-order-id="ORDER-1"', content)
         self.assertIn('data-order-id="ORDER-2"', content)
@@ -1106,13 +1170,21 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
     def test_registration_email_status_api_updates_and_clears_status(self):
         client = self.build_authenticated_client()
 
-        set_response = client.post(
-            "/api/registrations/email-status",
-            data='{"productKey":"id:101","orderIds":["ORDER-1","ORDER-2"],"emailed":true}',
-            content_type="application/json",
-            HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
-            secure=True,
-        )
+        with patch.dict(
+            os.environ,
+            {
+                "ECWID_STORE_ID": "HIER_JOUW_ECWID_STORE_ID",
+                "ECWID_SECRET_TOKEN": "HIER_JOUW_ECWID_SECRET_TOKEN",
+            },
+            clear=False,
+        ):
+            set_response = client.post(
+                "/api/registrations/email-status",
+                data='{"productKey":"id:101","orderIds":["ORDER-1","ORDER-2"],"emailed":true}',
+                content_type="application/json",
+                HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+                secure=True,
+            )
 
         self.assertEqual(set_response.status_code, 200)
         self.assertEqual(
@@ -1129,6 +1201,58 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         )
 
         self.assertEqual(clear_response.status_code, 200)
+        self.assertEqual(legacy.load_registration_emailed_order_ids("id:101"), {"ORDER-1"})
+
+    def test_auto_email_new_registration_orders_sends_once_and_marks_emailed(self):
+        mock_order = {
+            "id": "ORDER-1",
+            "orderNumber": "ORDER-1",
+            "createdAt": "2026-04-10T10:00:00+02:00",
+            "status": "PAID",
+            "paymentStatus": "PAID",
+            "email": "klant@example.com",
+            "customerName": "Klant Een",
+            "orderExtraFields": [
+                {"title": "Voornaam", "value": "Klant"},
+                {"title": "Achternaam", "value": "Een"},
+            ],
+            "items": [
+                {"productId": 101, "name": "Meivakantie Camp", "quantity": 1, "price": 79.0, "sku": "MVC-1"},
+            ],
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "REGISTRATION_AUTO_EMAILS_ENABLED": "1",
+                "REGISTRATION_AUTO_EMAILS_START_DATE": "2026-04-01",
+                "REGISTRATION_EMAIL_SYNC_ECWID_PROCESSING": "0",
+            },
+            clear=False,
+        ), patch.object(settings, "EMAIL_HOST", "smtp.strato.de"), patch.object(
+            settings,
+            "EMAIL_HOST_USER",
+            "info@hwsvoetbalschool.nl",
+        ), patch.object(
+            settings,
+            "EMAIL_HOST_PASSWORD",
+            "test-password",
+        ), patch.object(
+            settings,
+            "DEFAULT_FROM_EMAIL",
+            "info@hwsvoetbalschool.nl",
+        ), patch.object(
+            legacy,
+            "EmailMessage",
+        ) as mocked_email_message:
+            first_result = legacy.auto_email_new_registration_orders([mock_order])
+            second_result = legacy.auto_email_new_registration_orders([mock_order])
+
+        self.assertEqual(first_result["sentOrderIds"], ["id:101:ORDER-1"])
+        self.assertEqual(first_result["failedOrderIds"], [])
+        self.assertEqual(second_result["sentOrderIds"], [])
+        self.assertEqual(mocked_email_message.call_count, 1)
+        mocked_email_message.return_value.send.assert_called_once_with(fail_silently=False)
         self.assertEqual(legacy.load_registration_emailed_order_ids("id:101"), {"ORDER-1"})
 
     def test_registrations_page_redirects_legacy_product_query_to_detail_page(self):

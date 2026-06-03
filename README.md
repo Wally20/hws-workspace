@@ -69,6 +69,7 @@ Zorg op je server voor:
    - `ECWID_SECRET_TOKEN`
    - `MONEYBIRD_API_TOKEN`
    - `MONEYBIRD_ADMINISTRATION_ID`
+   - `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` en `REGISTRATION_AUTO_EMAILS_ENABLED=1` voor automatische inschrijvingsmails via STRATO
    - `DJANGO_SECRET_KEY`
    - `FLASK_SECRET_KEY` (nog gebruikt door de legacy compatibiliteitslaag)
    - `DATA_DIR` (bijvoorbeeld `/var/lib/overzicht/data`)
@@ -114,3 +115,27 @@ Als `.env` of de Ecwid-omgevingsvariabelen ontbreken, draait het besteloverzicht
 
 Voor live gebruik draait productie via Gunicorn met `config.wsgi:application`.
 Open je `templates/index.html` direct in Five Server, dan werkt het dashboard in statische demo-modus.
+
+## Automatische inschrijvingsmails via STRATO
+
+De app kan nieuwe betaalde Ecwid-inschrijvingen automatisch een bevestigingsmail sturen. Zet hiervoor in `.env`:
+
+```dotenv
+EMAIL_HOST=smtp.strato.de
+EMAIL_PORT=587
+EMAIL_USE_SSL=0
+EMAIL_USE_TLS=1
+EMAIL_HOST_USER=info@hwsvoetbalschool.nl
+EMAIL_HOST_PASSWORD=<strato-mailbox-wachtwoord>
+DEFAULT_FROM_EMAIL=info@hwsvoetbalschool.nl
+REGISTRATION_AUTO_EMAILS_ENABLED=1
+REGISTRATION_AUTO_EMAILS_START_DATE=2026-06-03
+REGISTRATION_EMAIL_ONLY_PAID=1
+REGISTRATION_EMAIL_SYNC_ECWID_PROCESSING=1
+REGISTRATION_EMAIL_FROM_NAME=HWS Voetbalschool
+REGISTRATION_EMAIL_SUBJECT=Bevestiging inschrijving HWS Voetbalschool
+REGISTRATION_EMAIL_BCC=david.van.walstijn@gmail.com
+REGISTRATION_EMAIL_REPLY_TO=info@hwsvoetbalschool.nl
+```
+
+Laat `REGISTRATION_AUTO_EMAILS_ENABLED=0` staan zolang je alleen wilt testen zonder echte mails te versturen. Zet `REGISTRATION_AUTO_EMAILS_START_DATE` op de datum waarop automatische mails live mogen gaan, zodat oude orders niet alsnog worden gemaild.

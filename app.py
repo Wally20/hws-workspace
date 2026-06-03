@@ -27,6 +27,8 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from xml.etree import ElementTree as XmlElementTree
 
 import requests
+from django.conf import settings
+from django.core.mail import EmailMessage
 from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -311,6 +313,8 @@ ECWID_RESPONSE_FIELDS = (
     "extraFields,orderExtraFields(id,title,value))"
 )
 ECWID_PROCESSING_FULFILLMENT_STATUS = "PROCESSING"
+ECWID_DELIVERED_FULFILLMENT_STATUS = "DELIVERED"
+ECWID_RETURNED_FULFILLMENT_STATUS = "RETURNED"
 
 app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 31536000
@@ -1650,11 +1654,17 @@ def build_registration_detail_url(product_key: str) -> str:
 
 
 def build_registrations_overview_entries(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    completed_product_keys = load_completed_registration_event_keys()
+    canceled_product_keys = load_canceled_registration_event_keys()
     entries = []
 
     for product in products:
         normalized_product = normalize_product(product)
         product_key = build_catalog_product_key(normalized_product)
+        event_completed = product_key in completed_product_keys
+        event_canceled = product_key in canceled_product_keys
+        event_status_label = "Event geannuleerd" if event_canceled else ("Event afgerond" if event_completed else "Event open")
+        event_status_sort = 2 if event_canceled else (1 if event_completed else 0)
         search_parts = [
             normalized_product["name"],
             normalized_product["sku"],
@@ -1673,11 +1683,16 @@ def build_registrations_overview_entries(products: List[Dict[str, Any]]) -> List
                     if str(part or "").strip()
                 ),
                 "detailUrl": build_registration_detail_url(product_key),
+                "eventCompleted": event_completed,
+                "eventCanceled": event_canceled,
+                "eventStatusLabel": event_status_label,
+                "eventStatusSort": event_status_sort,
             }
         )
 
     entries.sort(
         key=lambda item: (
+            item["eventStatusSort"],
             item["name"].lower(),
             item["sku"].lower(),
             item["productKey"],
@@ -1880,6 +1895,14 @@ def build_registration_product_detail(
     if detail_entry is None:
         return None
 
+    detail_entry["eventCompleted"] = is_registration_event_completed(normalized_product_key)
+    detail_entry["eventCanceled"] = is_registration_event_canceled(normalized_product_key)
+    detail_entry["eventStatusLabel"] = (
+        "Event geannuleerd"
+        if detail_entry["eventCanceled"]
+        else ("Event afgerond" if detail_entry["eventCompleted"] else "Event open")
+    )
+    detail_entry["eventCompletedLabel"] = detail_entry["eventStatusLabel"]
     emailed_order_ids = load_registration_emailed_order_ids(normalized_product_key, known_order_ids)
     pending_emails: List[str] = []
     pending_email_keys: Set[str] = set()
@@ -1995,6 +2018,256 @@ def set_registration_orders_emailed(product_key: str, order_ids: List[str], emai
             )
 
     return normalized_order_ids
+
+
+def registration_auto_email_is_configured() -> bool:
+    return bool(
+        get_env_bool("REGISTRATION_AUTO_EMAILS_ENABLED", False)
+        and settings.EMAIL_HOST
+        and settings.EMAIL_HOST_USER
+        and settings.EMAIL_HOST_PASSWORD
+        and settings.DEFAULT_FROM_EMAIL
+    )
+
+
+def registration_order_is_paid(order: Dict[str, Any]) -> bool:
+    payment_status = str(order.get("paymentStatus", "") or "").strip().upper()
+    order_status = str(order.get("status", "") or "").strip().upper()
+    paid_statuses = {"PAID", "ACCEPTED", "COMPLETE", "COMPLETED"}
+    return payment_status in paid_statuses or order_status in paid_statuses
+
+
+def registration_order_is_after_auto_email_start(order: Dict[str, Any]) -> bool:
+    start_date_value = get_env("REGISTRATION_AUTO_EMAILS_START_DATE")
+    if not start_date_value:
+        start_date = date.today()
+    else:
+        start_date = parse_iso_date(start_date_value[:10])
+        if start_date is None:
+            return False
+
+    created_at = parse_iso_datetime(str(order.get("createdAt", "") or ""))
+    if created_at is None:
+        return False
+    return created_at.date() >= start_date
+
+
+def get_registration_confirmation_subject(product_name: str) -> str:
+    configured_subject = get_env("REGISTRATION_EMAIL_SUBJECT")
+    if configured_subject:
+        return configured_subject
+    clean_product_name = str(product_name or "").strip()
+    if clean_product_name:
+        return f"Bevestiging inschrijving {clean_product_name}"
+    return "Bevestiging inschrijving HWS Voetbalschool"
+
+
+def build_registration_confirmation_body(order: Dict[str, Any], item: Dict[str, Any]) -> str:
+    customer_name = str(order.get("customerName", "") or "").strip() or "ouder/verzorger"
+    product_name = str(item.get("name", "") or "").strip() or "de activiteit"
+    order_number = str(order.get("orderNumber", "") or order.get("id", "") or "").strip()
+    details = extract_registration_details(order, customer_name)
+    participant_name = normalize_registration_person_name(
+        str(details.get("firstName", "") or ""),
+        str(details.get("lastName", "") or ""),
+    )
+
+    intro_name = participant_name or customer_name
+    lines = [
+        f"Beste {customer_name},",
+        "",
+        f"Bedankt voor je inschrijving voor {product_name}.",
+    ]
+    if participant_name:
+        lines.append(f"We hebben de aanmelding van {intro_name} goed ontvangen.")
+    else:
+        lines.append("We hebben je aanmelding goed ontvangen.")
+    if order_number:
+        lines.append(f"Ordernummer: {order_number}.")
+
+    extra_text = get_env("REGISTRATION_EMAIL_EXTRA_TEXT")
+    if extra_text:
+        lines.extend(["", extra_text])
+
+    lines.extend(
+        [
+            "",
+            "Je ontvangt later eventuele praktische informatie over de activiteit.",
+            "",
+            "Met sportieve groet,",
+            "HWS Voetbalschool",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def parse_email_list(value: str) -> List[str]:
+    emails: List[str] = []
+    seen: Set[str] = set()
+    for email in re.split(r"[\s,;]+", str(value or "")):
+        normalized_email = email.strip()
+        email_key = normalized_email.lower()
+        if not normalized_email or email_key in seen:
+            continue
+        seen.add(email_key)
+        emails.append(normalized_email)
+    return emails
+
+
+def send_registration_confirmation_email(order: Dict[str, Any], item: Dict[str, Any]) -> bool:
+    recipient_email = str(order.get("email", "") or "").strip()
+    if not recipient_email:
+        return False
+
+    product_name = str(item.get("name", "") or "").strip()
+    from_name = get_env("REGISTRATION_EMAIL_FROM_NAME") or "HWS Voetbalschool"
+    from_email = settings.DEFAULT_FROM_EMAIL
+    sender = f"{from_name} <{from_email}>" if from_name else from_email
+    bcc = parse_email_list(get_env("REGISTRATION_EMAIL_BCC"))
+    reply_to = parse_email_list(get_env("REGISTRATION_EMAIL_REPLY_TO"))
+
+    email_message = EmailMessage(
+        subject=get_registration_confirmation_subject(product_name),
+        body=build_registration_confirmation_body(order, item),
+        from_email=sender,
+        to=[recipient_email],
+        bcc=bcc,
+        reply_to=reply_to or None,
+    )
+    email_message.send(fail_silently=False)
+    return True
+
+
+def auto_email_new_registration_orders(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
+    result = {"sentOrderIds": [], "failedOrderIds": []}
+    if not registration_auto_email_is_configured():
+        return result
+
+    only_paid = get_env_bool("REGISTRATION_EMAIL_ONLY_PAID", True)
+    sync_ecwid = get_env_bool("REGISTRATION_EMAIL_SYNC_ECWID_PROCESSING", True)
+    sent_order_keys: Set[str] = set()
+    failed_order_ids: Set[str] = set()
+
+    for order in orders:
+        order_id = str(order.get("id", "") or "").strip()
+        if not order_id or not str(order.get("email", "") or "").strip():
+            continue
+        if not registration_order_is_after_auto_email_start(order):
+            continue
+        if only_paid and not registration_order_is_paid(order):
+            continue
+
+        for item in order.get("items", []):
+            product_key = build_order_item_product_key(item)
+            if not product_key:
+                continue
+            if order_id in load_registration_emailed_order_ids(product_key, {order_id}):
+                continue
+
+            try:
+                email_sent = send_registration_confirmation_email(order, item)
+            except Exception as exc:
+                failed_order_ids.add(order_id)
+                app.logger.warning("Automatische inschrijvingsmail mislukt voor order %s: %s", order_id, exc)
+                continue
+
+            if not email_sent:
+                continue
+
+            set_registration_orders_emailed(product_key, [order_id], True)
+            sent_order_keys.add(f"{product_key}:{order_id}")
+            if sync_ecwid:
+                try:
+                    update_ecwid_order_to_processing(order_id)
+                except RuntimeError as exc:
+                    app.logger.warning("Ecwid-status na automatische mail niet bijgewerkt voor order %s: %s", order_id, exc)
+
+    result["sentOrderIds"] = sorted(sent_order_keys)
+    result["failedOrderIds"] = sorted(failed_order_ids)
+    return result
+
+
+def load_completed_registration_event_keys() -> Set[str]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT product_key
+            FROM registration_event_statuses
+            WHERE completed_at IS NOT NULL
+              AND canceled_at IS NULL
+              AND trim(product_key) != ''
+            """
+        ).fetchall()
+
+    return {str(row["product_key"] or "").strip() for row in rows if str(row["product_key"] or "").strip()}
+
+
+def load_canceled_registration_event_keys() -> Set[str]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT product_key
+            FROM registration_event_statuses
+            WHERE canceled_at IS NOT NULL
+              AND trim(product_key) != ''
+            """
+        ).fetchall()
+
+    return {str(row["product_key"] or "").strip() for row in rows if str(row["product_key"] or "").strip()}
+
+
+def is_registration_event_completed(product_key: str) -> bool:
+    normalized_product_key = str(product_key or "").strip()
+    if not normalized_product_key:
+        return False
+    return normalized_product_key in load_completed_registration_event_keys()
+
+
+def is_registration_event_canceled(product_key: str) -> bool:
+    normalized_product_key = str(product_key or "").strip()
+    if not normalized_product_key:
+        return False
+    return normalized_product_key in load_canceled_registration_event_keys()
+
+
+def set_registration_event_completed(product_key: str) -> bool:
+    normalized_product_key = str(product_key or "").strip()
+    if not normalized_product_key:
+        return False
+
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO registration_event_statuses (product_key, completed_at, canceled_at)
+            VALUES (?, ?, NULL)
+            ON CONFLICT(product_key) DO UPDATE SET
+                completed_at = excluded.completed_at,
+                canceled_at = NULL
+            """,
+            (normalized_product_key, utcnow_iso()),
+        )
+
+    return True
+
+
+def set_registration_event_canceled(product_key: str) -> bool:
+    normalized_product_key = str(product_key or "").strip()
+    if not normalized_product_key:
+        return False
+
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO registration_event_statuses (product_key, completed_at, canceled_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(product_key) DO UPDATE SET
+                completed_at = NULL,
+                canceled_at = excluded.canceled_at
+            """,
+            (normalized_product_key, utcnow_iso(), utcnow_iso()),
+        )
+
+    return True
 
 
 def build_orders_filter_options(orders: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, str]]]:
@@ -2988,6 +3261,12 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_registration_email_statuses_product_key
             ON registration_email_statuses (product_key);
 
+            CREATE TABLE IF NOT EXISTS registration_event_statuses (
+                product_key TEXT PRIMARY KEY,
+                completed_at TEXT,
+                canceled_at TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS spaarpot_manual_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 year INTEGER NOT NULL,
@@ -3026,6 +3305,13 @@ def init_db() -> None:
             connection.execute("ALTER TABLE trainer_profiles ADD COLUMN education TEXT")
         if "availability_days" not in existing_columns:
             connection.execute("ALTER TABLE trainer_profiles ADD COLUMN availability_days TEXT")
+
+        registration_event_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(registration_event_statuses)").fetchall()
+        }
+        if "canceled_at" not in registration_event_columns:
+            connection.execute("ALTER TABLE registration_event_statuses ADD COLUMN canceled_at TEXT")
 
         agenda_training_columns = {
             row["name"]
@@ -11707,6 +11993,12 @@ def fetch_orders_from_ecwid() -> Dict[str, Any]:
         }
 
     normalized_orders = [normalize_order(order) for order in all_orders]
+    auto_email_result = auto_email_new_registration_orders(normalized_orders)
+    if auto_email_result["sentOrderIds"]:
+        app.logger.info(
+            "%s automatische inschrijvingsmail(s) verzonden.",
+            len(auto_email_result["sentOrderIds"]),
+        )
 
     return {
         "source": "ecwid",
@@ -11731,10 +12023,13 @@ def invalidate_ecwid_orders_cache() -> None:
         ecwid_orders_cache["config_fingerprint"] = None
 
 
-def update_ecwid_order_to_processing(order_id: str) -> bool:
+def update_ecwid_order_fulfillment_status(order_id: str, fulfillment_status: str) -> bool:
     normalized_order_id = str(order_id or "").strip()
     if not normalized_order_id:
         raise ValueError("Bestelling ontbreekt.")
+    normalized_fulfillment_status = str(fulfillment_status or "").strip().upper()
+    if not normalized_fulfillment_status:
+        raise ValueError("Afhandelstatus ontbreekt.")
 
     config = get_config()
     if not config["store_id"] or not config["secret_token"]:
@@ -11744,12 +12039,12 @@ def update_ecwid_order_to_processing(order_id: str) -> bool:
         response = requests.put(
             f"{ECWID_API_BASE}/{config['store_id']}/orders/{normalized_order_id}",
             headers=get_ecwid_headers(config["secret_token"]),
-            json={"fulfillmentStatus": ECWID_PROCESSING_FULFILLMENT_STATUS},
+            json={"fulfillmentStatus": normalized_fulfillment_status},
             timeout=20,
         )
         response.raise_for_status()
     except requests.RequestException as exc:
-        raise RuntimeError("Ecwid-bestelling kon niet op in verwerking worden gezet.") from exc
+        raise RuntimeError("Ecwid-bestelling kon niet worden bijgewerkt.") from exc
 
     response_content = getattr(response, "content", b"")
     payload = response.json() if response_content else {}
@@ -11762,6 +12057,27 @@ def update_ecwid_order_to_processing(order_id: str) -> bool:
     return True
 
 
+def update_ecwid_order_to_processing(order_id: str) -> bool:
+    try:
+        return update_ecwid_order_fulfillment_status(order_id, ECWID_PROCESSING_FULFILLMENT_STATUS)
+    except RuntimeError as exc:
+        raise RuntimeError("Ecwid-bestelling kon niet op in verwerking worden gezet.") from exc
+
+
+def update_ecwid_order_to_delivered(order_id: str) -> bool:
+    try:
+        return update_ecwid_order_fulfillment_status(order_id, ECWID_DELIVERED_FULFILLMENT_STATUS)
+    except RuntimeError as exc:
+        raise RuntimeError("Ecwid-bestelling kon niet op geleverd worden gezet.") from exc
+
+
+def update_ecwid_order_to_returned(order_id: str) -> bool:
+    try:
+        return update_ecwid_order_fulfillment_status(order_id, ECWID_RETURNED_FULFILLMENT_STATUS)
+    except RuntimeError as exc:
+        raise RuntimeError("Ecwid-bestelling kon niet op geretourneerd worden gezet.") from exc
+
+
 def sync_emailed_registration_orders_to_ecwid(order_ids: Optional[List[str]] = None) -> Dict[str, Any]:
     normalized_order_ids = normalize_registration_email_status_order_ids(
         load_all_registration_emailed_order_ids() if order_ids is None else order_ids
@@ -11772,6 +12088,50 @@ def sync_emailed_registration_orders_to_ecwid(order_ids: Optional[List[str]] = N
     for order_id in normalized_order_ids:
         try:
             updated = update_ecwid_order_to_processing(order_id)
+        except RuntimeError:
+            failed_order_ids.append(order_id)
+            continue
+
+        if updated:
+            synced_order_ids.append(order_id)
+
+    return {
+        "orderIds": normalized_order_ids,
+        "syncedOrderIds": synced_order_ids,
+        "failedOrderIds": failed_order_ids,
+    }
+
+
+def sync_registration_event_orders_to_delivered(order_ids: List[str]) -> Dict[str, Any]:
+    normalized_order_ids = normalize_registration_email_status_order_ids(order_ids)
+    synced_order_ids: List[str] = []
+    failed_order_ids: List[str] = []
+
+    for order_id in normalized_order_ids:
+        try:
+            updated = update_ecwid_order_to_delivered(order_id)
+        except RuntimeError:
+            failed_order_ids.append(order_id)
+            continue
+
+        if updated:
+            synced_order_ids.append(order_id)
+
+    return {
+        "orderIds": normalized_order_ids,
+        "syncedOrderIds": synced_order_ids,
+        "failedOrderIds": failed_order_ids,
+    }
+
+
+def sync_registration_event_orders_to_returned(order_ids: List[str]) -> Dict[str, Any]:
+    normalized_order_ids = normalize_registration_email_status_order_ids(order_ids)
+    synced_order_ids: List[str] = []
+    failed_order_ids: List[str] = []
+
+    for order_id in normalized_order_ids:
+        try:
+            updated = update_ecwid_order_to_returned(order_id)
         except RuntimeError:
             failed_order_ids.append(order_id)
             continue
@@ -13384,6 +13744,148 @@ def api_sync_emailed_registration_orders():
             }
         ),
         status_code,
+    )
+
+
+@app.post("/api/registrations/event-completed")
+def api_complete_registration_event():
+    access_redirect = require_page_access("orders")
+    if access_redirect is not None:
+        return access_redirect
+
+    config = get_config()
+    if not config["store_id"] or not config["secret_token"]:
+        return jsonify({"error": "Live Ecwid-koppeling staat nog niet aan."}), 400
+
+    payload = request.get_json(silent=True) or {}
+    product_key = str(payload.get("productKey", "") or "").strip()
+    if not product_key:
+        return jsonify({"error": "Product ontbreekt."}), 400
+
+    products_payload = fetch_catalog_products()
+    orders_payload = fetch_ecwid_orders(force_refresh=True)
+    selected_product = build_registration_product_detail(
+        products_payload.get("items", []),
+        orders_payload.get("items", []),
+        product_key,
+    )
+    if selected_product is None:
+        return jsonify({"error": "Product niet gevonden."}), 404
+
+    order_ids = normalize_registration_email_status_order_ids(
+        [order.get("id", "") for order in selected_product.get("orders", [])]
+    )
+    if len(order_ids) > 500:
+        return jsonify({"error": "Te veel bestellingen in één verzoek."}), 400
+
+    sync_result = sync_registration_event_orders_to_delivered(order_ids)
+    if sync_result["failedOrderIds"]:
+        message = (
+            f"{len(sync_result['syncedOrderIds'])} bestellingen op geleverd gezet, "
+            f"{len(sync_result['failedOrderIds'])} niet bijgewerkt."
+        )
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "productKey": product_key,
+                    "orderIds": sync_result["orderIds"],
+                    "syncedOrderIds": sync_result["syncedOrderIds"],
+                    "failedOrderIds": sync_result["failedOrderIds"],
+                    "message": message,
+                }
+            ),
+            502,
+        )
+
+    set_registration_event_completed(product_key)
+    message = (
+        "Event afgerond. Er waren geen Ecwid-bestellingen om bij te werken."
+        if not sync_result["orderIds"]
+        else f"Event afgerond. {len(sync_result['syncedOrderIds'])} bestellingen zijn op geleverd gezet."
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "productKey": product_key,
+            "orderIds": sync_result["orderIds"],
+            "syncedOrderIds": sync_result["syncedOrderIds"],
+            "failedOrderIds": [],
+            "eventCompleted": True,
+            "eventCanceled": False,
+            "message": message,
+        }
+    )
+
+
+@app.post("/api/registrations/event-canceled")
+def api_cancel_registration_event():
+    access_redirect = require_page_access("orders")
+    if access_redirect is not None:
+        return access_redirect
+
+    config = get_config()
+    if not config["store_id"] or not config["secret_token"]:
+        return jsonify({"error": "Live Ecwid-koppeling staat nog niet aan."}), 400
+
+    payload = request.get_json(silent=True) or {}
+    product_key = str(payload.get("productKey", "") or "").strip()
+    if not product_key:
+        return jsonify({"error": "Product ontbreekt."}), 400
+
+    products_payload = fetch_catalog_products()
+    orders_payload = fetch_ecwid_orders(force_refresh=True)
+    selected_product = build_registration_product_detail(
+        products_payload.get("items", []),
+        orders_payload.get("items", []),
+        product_key,
+    )
+    if selected_product is None:
+        return jsonify({"error": "Product niet gevonden."}), 404
+
+    order_ids = normalize_registration_email_status_order_ids(
+        [order.get("id", "") for order in selected_product.get("orders", [])]
+    )
+    if len(order_ids) > 500:
+        return jsonify({"error": "Te veel bestellingen in één verzoek."}), 400
+
+    sync_result = sync_registration_event_orders_to_returned(order_ids)
+    if sync_result["failedOrderIds"]:
+        message = (
+            f"{len(sync_result['syncedOrderIds'])} bestellingen op geretourneerd gezet, "
+            f"{len(sync_result['failedOrderIds'])} niet bijgewerkt."
+        )
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "productKey": product_key,
+                    "orderIds": sync_result["orderIds"],
+                    "syncedOrderIds": sync_result["syncedOrderIds"],
+                    "failedOrderIds": sync_result["failedOrderIds"],
+                    "message": message,
+                }
+            ),
+            502,
+        )
+
+    set_registration_event_canceled(product_key)
+    message = (
+        "Event geannuleerd. Er waren geen Ecwid-bestellingen om bij te werken."
+        if not sync_result["orderIds"]
+        else f"Event geannuleerd. {len(sync_result['syncedOrderIds'])} bestellingen zijn op geretourneerd gezet."
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "productKey": product_key,
+            "orderIds": sync_result["orderIds"],
+            "syncedOrderIds": sync_result["syncedOrderIds"],
+            "failedOrderIds": [],
+            "eventCompleted": False,
+            "eventCanceled": True,
+            "message": message,
+        }
     )
 
 

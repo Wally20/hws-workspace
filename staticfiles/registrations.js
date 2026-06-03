@@ -6,6 +6,10 @@ const copyPendingEmailsButton = document.querySelector("#copyPendingRegistration
 const copyFeedback = document.querySelector("#registrationCopyFeedback");
 const syncEmailedOrdersButton = document.querySelector("#syncEmailedOrdersButton");
 const syncEmailedOrdersFeedback = document.querySelector("#syncEmailedOrdersFeedback");
+const completeRegistrationEventButton = document.querySelector("#completeRegistrationEventButton");
+const cancelRegistrationEventButton = document.querySelector("#cancelRegistrationEventButton");
+const registrationEventFeedback = document.querySelector("#registrationEventFeedback");
+const registrationEventStatusText = document.querySelector("#registrationEventStatusText");
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
 const emailedOrderCount = document.querySelector("#registrationEmailedOrderCount");
 const pendingEmailCount = document.querySelector("#registrationPendingEmailCount");
@@ -131,13 +135,17 @@ function filterProducts() {
       rankedCards.push({
         card,
         matchScore,
+        canceledRank: card.dataset.eventCanceled === "true" ? 1 : 0,
         originalIndex: Number(card.dataset.originalIndex || 0),
       });
     }
   });
 
   rankedCards
-    .sort((left, right) => left.matchScore - right.matchScore || left.originalIndex - right.originalIndex)
+    .sort(
+      (left, right) =>
+        left.canceledRank - right.canceledRank || left.matchScore - right.matchScore || left.originalIndex - right.originalIndex
+    )
     .forEach(({ card }) => {
       productList?.appendChild(card);
     });
@@ -310,6 +318,58 @@ async function syncEmailedOrdersToEcwid() {
   return payload;
 }
 
+async function completeRegistrationEventInEcwid() {
+  const productKey = String(completeRegistrationEventButton?.dataset.productKey || "").trim();
+  if (!productKey) {
+    return null;
+  }
+
+  const response = await fetch("/api/registrations/event-completed", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: JSON.stringify({ productKey }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const errorMessage = typeof payload.error === "string" && payload.error ? payload.error : "Event afronden lukte niet.";
+    const error = new Error(errorMessage);
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+}
+
+async function cancelRegistrationEventInEcwid() {
+  const productKey = String(cancelRegistrationEventButton?.dataset.productKey || "").trim();
+  if (!productKey) {
+    return null;
+  }
+
+  const response = await fetch("/api/registrations/event-canceled", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: JSON.stringify({ productKey }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const errorMessage = typeof payload.error === "string" && payload.error ? payload.error : "Event annuleren lukte niet.";
+    const error = new Error(errorMessage);
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+}
+
 async function copyPendingRegistrationEmails() {
   const { pendingEmails, pendingOrderIds } = getRegistrationEmailState();
   const emails = pendingEmails.join(", ");
@@ -401,6 +461,87 @@ async function handleSyncEmailedOrders() {
   }
 }
 
+async function handleCompleteRegistrationEvent() {
+  if (!(completeRegistrationEventButton instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "Weet je zeker dat je dit event wilt afronden en alle bijbehorende Ecwid-bestellingen op geleverd wilt zetten?"
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  completeRegistrationEventButton.disabled = true;
+  if (cancelRegistrationEventButton instanceof HTMLButtonElement) {
+    cancelRegistrationEventButton.disabled = true;
+  }
+  if (registrationEventFeedback) {
+    registrationEventFeedback.textContent = "Event afronden en Ecwid bijwerken...";
+  }
+
+  try {
+    const payload = await completeRegistrationEventInEcwid();
+    if (registrationEventStatusText) {
+      registrationEventStatusText.textContent = "Event afgerond";
+    }
+    if (registrationEventFeedback) {
+      registrationEventFeedback.textContent = payload?.message || "Event afgerond en bestellingen op geleverd gezet.";
+    }
+  } catch (error) {
+    completeRegistrationEventButton.disabled = false;
+    if (cancelRegistrationEventButton instanceof HTMLButtonElement) {
+      cancelRegistrationEventButton.disabled = false;
+    }
+    if (registrationEventFeedback) {
+      registrationEventFeedback.textContent =
+        error instanceof Error && error.message ? error.message : "Event afronden lukte niet. Probeer het opnieuw.";
+    }
+  }
+}
+
+async function handleCancelRegistrationEvent() {
+  if (!(cancelRegistrationEventButton instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "Weet je zeker dat je dit event wilt annuleren en alle bijbehorende Ecwid-bestellingen op geretourneerd wilt zetten?"
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  cancelRegistrationEventButton.disabled = true;
+  if (completeRegistrationEventButton instanceof HTMLButtonElement) {
+    completeRegistrationEventButton.disabled = true;
+  }
+  if (registrationEventFeedback) {
+    registrationEventFeedback.textContent = "Event annuleren en Ecwid bijwerken...";
+  }
+
+  try {
+    const payload = await cancelRegistrationEventInEcwid();
+    if (registrationEventStatusText) {
+      registrationEventStatusText.textContent = "Event geannuleerd";
+    }
+    if (registrationEventFeedback) {
+      registrationEventFeedback.textContent =
+        payload?.message || "Event geannuleerd en bestellingen op geretourneerd gezet.";
+    }
+  } catch (error) {
+    cancelRegistrationEventButton.disabled = false;
+    if (completeRegistrationEventButton instanceof HTMLButtonElement) {
+      completeRegistrationEventButton.disabled = false;
+    }
+    if (registrationEventFeedback) {
+      registrationEventFeedback.textContent =
+        error instanceof Error && error.message ? error.message : "Event annuleren lukte niet. Probeer het opnieuw.";
+    }
+  }
+}
+
 productSearchInput?.addEventListener("input", filterProducts);
 productSearchInput?.addEventListener("search", filterProducts);
 productSearchInput?.addEventListener("change", filterProducts);
@@ -410,6 +551,8 @@ emailedCheckboxes.forEach((checkbox) => {
   checkbox.addEventListener("change", handleRegistrationEmailedToggle);
 });
 syncEmailedOrdersButton?.addEventListener("click", handleSyncEmailedOrders);
+completeRegistrationEventButton?.addEventListener("click", handleCompleteRegistrationEvent);
+cancelRegistrationEventButton?.addEventListener("click", handleCancelRegistrationEvent);
 
 filterProducts();
 syncRegistrationOrderUI();

@@ -49,6 +49,36 @@ services:
         sync: false
       - key: MONEYBIRD_ADMINISTRATION_ID
         sync: false
+      - key: EMAIL_HOST
+        value: smtp.strato.de
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_USE_SSL
+        value: "0"
+      - key: EMAIL_USE_TLS
+        value: "1"
+      - key: EMAIL_HOST_USER
+        value: info@hwsvoetbalschool.nl
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        value: info@hwsvoetbalschool.nl
+      - key: REGISTRATION_AUTO_EMAILS_ENABLED
+        value: "1"
+      - key: REGISTRATION_AUTO_EMAILS_START_DATE
+        value: "2026-06-03"
+      - key: REGISTRATION_EMAIL_ONLY_PAID
+        value: "1"
+      - key: REGISTRATION_EMAIL_SYNC_ECWID_PROCESSING
+        value: "1"
+      - key: REGISTRATION_EMAIL_FROM_NAME
+        value: HWS Voetbalschool
+      - key: REGISTRATION_EMAIL_SUBJECT
+        value: Bevestiging inschrijving HWS Voetbalschool
+      - key: REGISTRATION_EMAIL_BCC
+        value: david.van.walstijn@gmail.com
+      - key: REGISTRATION_EMAIL_REPLY_TO
+        value: info@hwsvoetbalschool.nl
       - key: BUNNY_STORAGE_REGION
         sync: false
       - key: BUNNY_STORAGE_ZONE

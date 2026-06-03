@@ -138,6 +138,16 @@ urlpatterns = [
         name="api_sync_emailed_registration_orders",
     ),
     path(
+        "api/registrations/event-completed",
+        views.api_complete_registration_event,
+        name="api_complete_registration_event",
+    ),
+    path(
+        "api/registrations/event-canceled",
+        views.api_cancel_registration_event,
+        name="api_cancel_registration_event",
+    ),
+    path(
         "api/leads/blocked-emails",
         views.api_save_leads_blocked_emails,
         name="api_save_leads_blocked_emails",

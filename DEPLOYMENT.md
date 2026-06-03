@@ -44,6 +44,21 @@ ECWID_STORE_ID=<ecwid-store-id>
 ECWID_SECRET_TOKEN=<ecwid-secret-token>
 MONEYBIRD_API_TOKEN=<moneybird-api-token>
 MONEYBIRD_ADMINISTRATION_ID=<moneybird-administratie-id>
+EMAIL_HOST=smtp.strato.de
+EMAIL_PORT=587
+EMAIL_USE_SSL=0
+EMAIL_USE_TLS=1
+EMAIL_HOST_USER=info@hwsvoetbalschool.nl
+EMAIL_HOST_PASSWORD=<strato-mailbox-wachtwoord>
+DEFAULT_FROM_EMAIL=info@hwsvoetbalschool.nl
+REGISTRATION_AUTO_EMAILS_ENABLED=1
+REGISTRATION_AUTO_EMAILS_START_DATE=2026-06-03
+REGISTRATION_EMAIL_ONLY_PAID=1
+REGISTRATION_EMAIL_SYNC_ECWID_PROCESSING=1
+REGISTRATION_EMAIL_FROM_NAME=HWS Voetbalschool
+REGISTRATION_EMAIL_SUBJECT=Bevestiging inschrijving HWS Voetbalschool
+REGISTRATION_EMAIL_BCC=david.van.walstijn@gmail.com
+REGISTRATION_EMAIL_REPLY_TO=info@hwsvoetbalschool.nl
 ```
 
 Optioneel voor Bunny image storage:

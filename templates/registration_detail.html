@@ -60,6 +60,32 @@
       <span class="registrations-copy-feedback" id="registrationCopyFeedback" aria-live="polite"></span>
     </div>
 
+    <div class="registrations-actions registrations-event-actions">
+      <div class="registrations-actions-copy">
+        <p class="orders-toolbar-title">Eventstatus</p>
+        <p class="orders-toolbar-text" id="registrationEventStatusText">{{ selected_product.eventStatusLabel }}</p>
+      </div>
+      <button
+        type="button"
+        class="team-primary-button"
+        id="completeRegistrationEventButton"
+        data-product-key="{{ selected_product.productKey }}"
+        {% if selected_product.eventCompleted or selected_product.eventCanceled %}disabled{% endif %}
+      >
+        Event afgerond
+      </button>
+      <button
+        type="button"
+        class="danger-button"
+        id="cancelRegistrationEventButton"
+        data-product-key="{{ selected_product.productKey }}"
+        {% if selected_product.eventCompleted or selected_product.eventCanceled %}disabled{% endif %}
+      >
+        Event geannuleerd
+      </button>
+      <span class="registrations-copy-feedback" id="registrationEventFeedback" aria-live="polite"></span>
+    </div>
+
     <form method="post" action="{{ team_assignment_export_url }}" class="registrations-team-export-form">
       <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
       <div class="registrations-actions-copy">
