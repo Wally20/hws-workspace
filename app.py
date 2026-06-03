@@ -1895,6 +1895,11 @@ def build_registration_product_detail(
     if detail_entry is None:
         return None
 
+    email_settings = load_registration_event_email_settings(normalized_product_key)
+    detail_entry["eventDate"] = email_settings.get("eventDate", "")
+    detail_entry["emailSubject"] = email_settings.get("emailSubject", "")
+    detail_entry["emailBody"] = email_settings.get("emailBody", "")
+    detail_entry["emailSettingsUpdatedAt"] = email_settings.get("updatedAt", "")
     detail_entry["eventCompleted"] = is_registration_event_completed(normalized_product_key)
     detail_entry["eventCanceled"] = is_registration_event_canceled(normalized_product_key)
     detail_entry["eventStatusLabel"] = (
@@ -2020,6 +2025,138 @@ def set_registration_orders_emailed(product_key: str, order_ids: List[str], emai
     return normalized_order_ids
 
 
+def normalize_registration_event_date(value: Any) -> str:
+    normalized_value = str(value or "").strip()[:10]
+    if not normalized_value:
+        return ""
+    parsed_date = parse_iso_date(normalized_value)
+    return parsed_date.isoformat() if parsed_date is not None else ""
+
+
+def load_registration_event_email_settings(product_key: str) -> Dict[str, str]:
+    normalized_product_key = str(product_key or "").strip()
+    if not normalized_product_key:
+        return {
+            "productKey": "",
+            "productName": "",
+            "eventDate": "",
+            "emailSubject": "",
+            "emailBody": "",
+            "updatedAt": "",
+        }
+
+    with get_db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT product_key, product_name, event_date, email_subject, email_body, updated_at
+            FROM registration_event_email_settings
+            WHERE product_key = ?
+            """,
+            (normalized_product_key,),
+        ).fetchone()
+
+    if row is None:
+        return {
+            "productKey": normalized_product_key,
+            "productName": "",
+            "eventDate": "",
+            "emailSubject": "",
+            "emailBody": "",
+            "updatedAt": "",
+        }
+
+    return {
+        "productKey": str(row["product_key"] or "").strip(),
+        "productName": str(row["product_name"] or "").strip(),
+        "eventDate": str(row["event_date"] or "").strip(),
+        "emailSubject": str(row["email_subject"] or "").strip(),
+        "emailBody": str(row["email_body"] or "").strip(),
+        "updatedAt": str(row["updated_at"] or "").strip(),
+    }
+
+
+def load_registration_event_email_templates(exclude_product_key: str = "") -> List[Dict[str, str]]:
+    normalized_excluded_key = str(exclude_product_key or "").strip()
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT product_key, product_name, event_date, email_subject, email_body, updated_at
+            FROM registration_event_email_settings
+            WHERE trim(email_body) != ''
+            ORDER BY updated_at DESC, product_name COLLATE NOCASE
+            """
+        ).fetchall()
+
+    templates: List[Dict[str, str]] = []
+    for row in rows:
+        product_key = str(row["product_key"] or "").strip()
+        if product_key and product_key == normalized_excluded_key:
+            continue
+        product_name = str(row["product_name"] or "").strip() or product_key
+        event_date = str(row["event_date"] or "").strip()
+        templates.append(
+            {
+                "productKey": product_key,
+                "productName": product_name,
+                "eventDate": event_date,
+                "emailSubject": str(row["email_subject"] or "").strip(),
+                "emailBody": str(row["email_body"] or "").strip(),
+                "updatedAt": str(row["updated_at"] or "").strip(),
+                "label": f"{product_name} ({format_display_date(event_date)})" if event_date else product_name,
+            }
+        )
+    return templates
+
+
+def save_registration_event_email_settings(
+    product_key: str,
+    product_name: str,
+    event_date: Any,
+    email_subject: Any,
+    email_body: Any,
+) -> Dict[str, str]:
+    normalized_product_key = str(product_key or "").strip()
+    if not normalized_product_key:
+        raise ValueError("Product ontbreekt.")
+
+    normalized_product_name = str(product_name or "").strip()[:300]
+    normalized_event_date = normalize_registration_event_date(event_date)
+    raw_event_date = str(event_date or "").strip()
+    if raw_event_date and not normalized_event_date:
+        raise ValueError("Vul een geldige eventdatum in.")
+
+    normalized_subject = str(email_subject or "").strip()[:300]
+    normalized_body = str(email_body or "").strip()
+    if len(normalized_body) > 20000:
+        raise ValueError("De mailtekst is te lang.")
+
+    updated_at = utcnow_iso()
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO registration_event_email_settings
+                (product_key, product_name, event_date, email_subject, email_body, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(product_key) DO UPDATE SET
+                product_name = excluded.product_name,
+                event_date = excluded.event_date,
+                email_subject = excluded.email_subject,
+                email_body = excluded.email_body,
+                updated_at = excluded.updated_at
+            """,
+            (
+                normalized_product_key,
+                normalized_product_name,
+                normalized_event_date,
+                normalized_subject,
+                normalized_body,
+                updated_at,
+            ),
+        )
+
+    return load_registration_event_email_settings(normalized_product_key)
+
+
 def registration_auto_email_is_configured() -> bool:
     return bool(
         get_env_bool("REGISTRATION_AUTO_EMAILS_ENABLED", False)
@@ -2062,6 +2199,41 @@ def get_registration_confirmation_subject(product_name: str) -> str:
     return "Bevestiging inschrijving HWS Voetbalschool"
 
 
+def format_display_date(value: Any) -> str:
+    parsed_date = parse_iso_date(str(value or "").strip()[:10])
+    if parsed_date is None:
+        return ""
+    month_name = DUTCH_MONTH_NAMES[parsed_date.month - 1].lower()
+    weekday_name = DUTCH_WEEKDAY_NAMES[parsed_date.weekday()].lower()
+    return f"{weekday_name} {parsed_date.day} {month_name} {parsed_date.year}"
+
+
+def render_registration_email_template(template: str, order: Dict[str, Any], item: Dict[str, Any], settings_row: Dict[str, str]) -> str:
+    customer_name = str(order.get("customerName", "") or "").strip() or "ouder/verzorger"
+    product_name = str(item.get("name", "") or "").strip() or "de activiteit"
+    order_number = str(order.get("orderNumber", "") or order.get("id", "") or "").strip()
+    details = extract_registration_details(order, customer_name)
+    participant_name = normalize_registration_person_name(
+        str(details.get("firstName", "") or ""),
+        str(details.get("lastName", "") or ""),
+    )
+    event_date = str(settings_row.get("eventDate", "") or "").strip()
+    replacements = {
+        "klant_naam": customer_name,
+        "deelnemer_naam": participant_name or customer_name,
+        "voornaam": str(details.get("firstName", "") or "").strip() or customer_name,
+        "achternaam": str(details.get("lastName", "") or "").strip(),
+        "product_naam": product_name,
+        "event_datum": format_display_date(event_date) or event_date,
+        "eventdatum": format_display_date(event_date) or event_date,
+        "ordernummer": order_number,
+    }
+    rendered = str(template or "")
+    for key, value in replacements.items():
+        rendered = rendered.replace("{" + key + "}", value)
+    return rendered
+
+
 def build_registration_confirmation_body(order: Dict[str, Any], item: Dict[str, Any]) -> str:
     customer_name = str(order.get("customerName", "") or "").strip() or "ouder/verzorger"
     product_name = str(item.get("name", "") or "").strip() or "de activiteit"
@@ -2101,6 +2273,17 @@ def build_registration_confirmation_body(order: Dict[str, Any], item: Dict[str, 
     return "\n".join(lines)
 
 
+def build_registration_event_email_body(
+    order: Dict[str, Any],
+    item: Dict[str, Any],
+    settings_row: Dict[str, str],
+) -> str:
+    configured_body = str(settings_row.get("emailBody", "") or "").strip()
+    if configured_body:
+        return render_registration_email_template(configured_body, order, item, settings_row)
+    return build_registration_confirmation_body(order, item)
+
+
 def parse_email_list(value: str) -> List[str]:
     emails: List[str] = []
     seen: Set[str] = set()
@@ -2120,6 +2303,9 @@ def send_registration_confirmation_email(order: Dict[str, Any], item: Dict[str, 
         return False
 
     product_name = str(item.get("name", "") or "").strip()
+    product_key = build_order_item_product_key(item)
+    email_settings = load_registration_event_email_settings(product_key)
+    configured_subject = str(email_settings.get("emailSubject", "") or "").strip()
     from_name = get_env("REGISTRATION_EMAIL_FROM_NAME") or "HWS Voetbalschool"
     from_email = settings.DEFAULT_FROM_EMAIL
     sender = f"{from_name} <{from_email}>" if from_name else from_email
@@ -2127,8 +2313,12 @@ def send_registration_confirmation_email(order: Dict[str, Any], item: Dict[str, 
     reply_to = parse_email_list(get_env("REGISTRATION_EMAIL_REPLY_TO"))
 
     email_message = EmailMessage(
-        subject=get_registration_confirmation_subject(product_name),
-        body=build_registration_confirmation_body(order, item),
+        subject=(
+            render_registration_email_template(configured_subject, order, item, email_settings)
+            if configured_subject
+            else get_registration_confirmation_subject(product_name)
+        ),
+        body=build_registration_event_email_body(order, item, email_settings),
         from_email=sender,
         to=[recipient_email],
         bcc=bcc,
@@ -3266,6 +3456,18 @@ def init_db() -> None:
                 completed_at TEXT,
                 canceled_at TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS registration_event_email_settings (
+                product_key TEXT PRIMARY KEY,
+                product_name TEXT NOT NULL DEFAULT '',
+                event_date TEXT,
+                email_subject TEXT NOT NULL DEFAULT '',
+                email_body TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_registration_event_email_settings_updated_at
+            ON registration_event_email_settings (updated_at);
 
             CREATE TABLE IF NOT EXISTS spaarpot_manual_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -13607,6 +13809,7 @@ def registrations_detail_page(product_key: str) -> str:
         "registration_detail.html",
         active_page="registrations",
         selected_product=selected_product,
+        email_templates=load_registration_event_email_templates(normalized_product_key),
         refresh_url=build_registration_detail_url(normalized_product_key),
         team_assignment_export_url=url_for("export_registration_team_assignment", product_key=normalized_product_key),
         back_url=build_registrations_page_url(),
@@ -13697,6 +13900,39 @@ def api_update_registration_email_status():
             "orderIds": updated_order_ids,
             "emailed": emailed,
             "ecwidUpdatedOrderIds": ecwid_updated_order_ids,
+        }
+    )
+
+
+@app.post("/api/registrations/event-email-settings")
+def api_save_registration_event_email_settings():
+    access_redirect = require_page_access("orders")
+    if access_redirect is not None:
+        return access_redirect
+
+    payload = request.get_json(silent=True) or {}
+    product_key = str(payload.get("productKey", "") or "").strip()
+    product_name = str(payload.get("productName", "") or "").strip()
+    if not product_key:
+        return jsonify({"error": "Product ontbreekt."}), 400
+
+    try:
+        settings_row = save_registration_event_email_settings(
+            product_key=product_key,
+            product_name=product_name,
+            event_date=payload.get("eventDate", ""),
+            email_subject=payload.get("emailSubject", ""),
+            email_body=payload.get("emailBody", ""),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify(
+        {
+            "ok": True,
+            "settings": settings_row,
+            "templates": load_registration_event_email_templates(product_key),
+            "message": "Mailinstellingen opgeslagen.",
         }
     )
 

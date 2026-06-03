@@ -27,6 +27,62 @@
   {% endif %}
 
   <section class="orders-panel registrations-detail-panel">
+    <form class="registrations-email-settings-form" id="registrationEmailSettingsForm">
+      <input type="hidden" id="registrationEmailProductKey" value="{{ selected_product.productKey }}">
+      <input type="hidden" id="registrationEmailProductName" value="{{ selected_product.name }}">
+      <div class="registrations-actions-copy">
+        <p class="orders-toolbar-title">Automatische mail</p>
+        <p class="orders-toolbar-text">
+          Deze mail wordt automatisch verstuurd naar nieuwe betaalde Ecwid-aanmeldingen voor dit product.
+        </p>
+      </div>
+      <div class="registrations-email-settings-grid">
+        <label class="field">
+          <span>Eventdatum</span>
+          <input
+            type="date"
+            id="registrationEventDateInput"
+            value="{{ selected_product.eventDate }}"
+          >
+        </label>
+        <label class="field">
+          <span>Onderwerp</span>
+          <input
+            type="text"
+            id="registrationEmailSubjectInput"
+            value="{{ selected_product.emailSubject }}"
+            placeholder="Bevestiging inschrijving {{ selected_product.name }}"
+          >
+        </label>
+        <label class="field registrations-email-template-field">
+          <span>Tekst van vorige mail</span>
+          <select id="registrationEmailTemplateSelect">
+            <option value="">Kies een eerdere mailtekst</option>
+            {% for template in email_templates %}
+              <option value="{{ template.productKey }}">{{ template.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <label class="field">
+        <span>Mailtekst</span>
+        <textarea
+          id="registrationEmailBodyInput"
+          rows="12"
+          placeholder="Beste {klant_naam},&#10;&#10;Bedankt voor je inschrijving voor {product_naam} op {event_datum}.&#10;&#10;Met sportieve groet,&#10;HWS Voetbalschool"
+        >{{ selected_product.emailBody }}</textarea>
+      </label>
+      <div class="registrations-email-settings-footer">
+        <p class="orders-toolbar-text">
+          Beschikbare velden: {klant_naam}, {deelnemer_naam}, {voornaam}, {achternaam}, {product_naam}, {event_datum}, {ordernummer}
+        </p>
+        <button type="submit" class="team-primary-button" id="saveRegistrationEmailSettingsButton">
+          Mail opslaan
+        </button>
+        <span class="registrations-copy-feedback" id="registrationEmailSettingsFeedback" aria-live="polite"></span>
+      </div>
+    </form>
+
     <div class="registrations-actions">
       <div class="registrations-actions-copy">
         <p class="orders-toolbar-title">E-mailadressen</p>
@@ -193,5 +249,6 @@
     </div>
   </section>
 
+  <script type="application/json" id="registrationEmailTemplatesJson">{{ email_templates|tojson }}</script>
   <script src="../static/registrations.js?v={{ asset_version }}" defer></script>
 {% endblock %}

@@ -133,6 +133,11 @@ urlpatterns = [
         name="api_update_registration_email_status",
     ),
     path(
+        "api/registrations/event-email-settings",
+        views.api_save_registration_event_email_settings,
+        name="api_save_registration_event_email_settings",
+    ),
+    path(
         "api/registrations/sync-emailed-orders",
         views.api_sync_emailed_registration_orders,
         name="api_sync_emailed_registration_orders",

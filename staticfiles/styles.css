@@ -5732,6 +5732,35 @@ a.spaarpot-year-row:hover {
   border-top: 1px solid rgba(15, 23, 42, 0.08);
 }
 
+.registrations-email-settings-form {
+  display: grid;
+  gap: 18px;
+  margin: 0 0 22px;
+  padding: 0 0 22px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.registrations-email-settings-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 180px minmax(220px, 1fr) minmax(220px, 1fr);
+}
+
+.registrations-email-settings-form textarea {
+  min-height: 260px;
+}
+
+.registrations-email-settings-footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.registrations-email-settings-footer .orders-toolbar-text {
+  flex: 1 1 420px;
+}
+
 .registrations-team-count-field {
   display: grid;
   gap: 8px;
@@ -7529,6 +7558,10 @@ body.sidebar-collapsed .exercise-modal {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .registrations-email-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
   .registrations-team-export-form {
     align-items: stretch;
   }
@@ -7614,6 +7647,7 @@ body.sidebar-collapsed .exercise-modal {
 
   .registrations-team-count-field,
   .registrations-team-count-field input,
+  .registrations-email-settings-footer .team-primary-button,
   .registrations-team-export-form .team-primary-button {
     width: 100%;
   }

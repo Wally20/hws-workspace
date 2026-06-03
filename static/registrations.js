@@ -16,6 +16,17 @@ const pendingEmailCount = document.querySelector("#registrationPendingEmailCount
 const totalEmailCount = document.querySelector("#registrationEmailCount");
 const emailedCheckboxes = Array.from(document.querySelectorAll(".registration-emailed-checkbox"));
 const registrationOrderCards = Array.from(document.querySelectorAll("[data-registration-order]"));
+const registrationEmailSettingsForm = document.querySelector("#registrationEmailSettingsForm");
+const registrationEmailProductKey = document.querySelector("#registrationEmailProductKey");
+const registrationEmailProductName = document.querySelector("#registrationEmailProductName");
+const registrationEventDateInput = document.querySelector("#registrationEventDateInput");
+const registrationEmailSubjectInput = document.querySelector("#registrationEmailSubjectInput");
+const registrationEmailBodyInput = document.querySelector("#registrationEmailBodyInput");
+const registrationEmailTemplateSelect = document.querySelector("#registrationEmailTemplateSelect");
+const registrationEmailSettingsFeedback = document.querySelector("#registrationEmailSettingsFeedback");
+const saveRegistrationEmailSettingsButton = document.querySelector("#saveRegistrationEmailSettingsButton");
+const registrationEmailTemplatesJson = document.querySelector("#registrationEmailTemplatesJson");
+let registrationEmailTemplates = parseRegistrationEmailTemplates();
 
 productCards.forEach((card, index) => {
   card.dataset.originalIndex = String(index);
@@ -33,6 +44,19 @@ function tokenizeSearchValue(value) {
   return normalizeSearchValue(value)
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
+}
+
+function parseRegistrationEmailTemplates() {
+  if (!registrationEmailTemplatesJson?.textContent) {
+    return [];
+  }
+
+  try {
+    const parsedTemplates = JSON.parse(registrationEmailTemplatesJson.textContent);
+    return Array.isArray(parsedTemplates) ? parsedTemplates : [];
+  } catch (error) {
+    return [];
+  }
 }
 
 function scoreProductMatch(card, query) {
@@ -297,6 +321,79 @@ async function updateRegistrationEmailStatus(orderIds, emailed) {
   }
 }
 
+async function saveRegistrationEmailSettings() {
+  const productKey = String(registrationEmailProductKey?.value || "").trim();
+  if (!productKey) {
+    return null;
+  }
+
+  const response = await fetch("/api/registrations/event-email-settings", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: JSON.stringify({
+      productKey,
+      productName: String(registrationEmailProductName?.value || "").trim(),
+      eventDate: String(registrationEventDateInput?.value || "").trim(),
+      emailSubject: String(registrationEmailSubjectInput?.value || "").trim(),
+      emailBody: String(registrationEmailBodyInput?.value || "").trim(),
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const errorMessage = typeof payload.error === "string" && payload.error ? payload.error : "Opslaan lukte niet.";
+    const error = new Error(errorMessage);
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+function refreshRegistrationEmailTemplateOptions(templates) {
+  if (!(registrationEmailTemplateSelect instanceof HTMLSelectElement) || !Array.isArray(templates)) {
+    return;
+  }
+
+  registrationEmailTemplates = templates;
+  const currentValue = registrationEmailTemplateSelect.value;
+  registrationEmailTemplateSelect.innerHTML = '<option value="">Kies een eerdere mailtekst</option>';
+  registrationEmailTemplates.forEach((template) => {
+    const option = document.createElement("option");
+    option.value = String(template.productKey || "");
+    option.textContent = String(template.label || template.productName || template.productKey || "Eerdere mail");
+    registrationEmailTemplateSelect.append(option);
+  });
+  registrationEmailTemplateSelect.value = registrationEmailTemplates.some((template) => template.productKey === currentValue)
+    ? currentValue
+    : "";
+}
+
+function applySelectedRegistrationEmailTemplate() {
+  if (!(registrationEmailTemplateSelect instanceof HTMLSelectElement)) {
+    return;
+  }
+
+  const selectedTemplate = registrationEmailTemplates.find(
+    (template) => String(template.productKey || "") === String(registrationEmailTemplateSelect.value || "")
+  );
+  if (!selectedTemplate) {
+    return;
+  }
+
+  if (registrationEmailSubjectInput instanceof HTMLInputElement && selectedTemplate.emailSubject) {
+    registrationEmailSubjectInput.value = String(selectedTemplate.emailSubject || "");
+  }
+  if (registrationEmailBodyInput instanceof HTMLTextAreaElement) {
+    registrationEmailBodyInput.value = String(selectedTemplate.emailBody || "");
+  }
+  if (registrationEmailSettingsFeedback) {
+    registrationEmailSettingsFeedback.textContent = "Tekst overgenomen. Sla op om deze mail aan dit product te koppelen.";
+  }
+}
+
 async function syncEmailedOrdersToEcwid() {
   const response = await fetch("/api/registrations/sync-emailed-orders", {
     method: "POST",
@@ -435,6 +532,33 @@ async function handleRegistrationEmailedToggle(event) {
   }
 }
 
+async function handleRegistrationEmailSettingsSubmit(event) {
+  event.preventDefault();
+  if (!(saveRegistrationEmailSettingsButton instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  saveRegistrationEmailSettingsButton.disabled = true;
+  if (registrationEmailSettingsFeedback) {
+    registrationEmailSettingsFeedback.textContent = "Mailinstellingen opslaan...";
+  }
+
+  try {
+    const payload = await saveRegistrationEmailSettings();
+    refreshRegistrationEmailTemplateOptions(payload?.templates || []);
+    if (registrationEmailSettingsFeedback) {
+      registrationEmailSettingsFeedback.textContent = payload?.message || "Mailinstellingen opgeslagen.";
+    }
+  } catch (error) {
+    if (registrationEmailSettingsFeedback) {
+      registrationEmailSettingsFeedback.textContent =
+        error instanceof Error && error.message ? error.message : "Opslaan lukte niet. Probeer het opnieuw.";
+    }
+  } finally {
+    saveRegistrationEmailSettingsButton.disabled = false;
+  }
+}
+
 async function handleSyncEmailedOrders() {
   if (!(syncEmailedOrdersButton instanceof HTMLButtonElement)) {
     return;
@@ -547,6 +671,8 @@ productSearchInput?.addEventListener("search", filterProducts);
 productSearchInput?.addEventListener("change", filterProducts);
 copyEmailsButton?.addEventListener("click", copyRegistrationEmails);
 copyPendingEmailsButton?.addEventListener("click", copyPendingRegistrationEmails);
+registrationEmailSettingsForm?.addEventListener("submit", handleRegistrationEmailSettingsSubmit);
+registrationEmailTemplateSelect?.addEventListener("change", applySelectedRegistrationEmailTemplate);
 emailedCheckboxes.forEach((checkbox) => {
   checkbox.addEventListener("change", handleRegistrationEmailedToggle);
 });
