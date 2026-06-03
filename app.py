@@ -2310,6 +2310,48 @@ def build_registration_event_email_body(
     return build_registration_confirmation_body(order, item)
 
 
+def render_registration_email_inline_html(text: str) -> str:
+    escaped_text = html.escape(str(text or ""))
+    escaped_text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped_text)
+    escaped_text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<em>\1</em>", escaped_text)
+    return escaped_text
+
+
+def render_registration_email_body_html(body: str) -> str:
+    lines = str(body or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    html_parts: List[str] = []
+    paragraph_lines: List[str] = []
+    list_items: List[str] = []
+
+    def flush_paragraph() -> None:
+        if paragraph_lines:
+            html_parts.append(f"<p>{'<br>'.join(paragraph_lines)}</p>")
+            paragraph_lines.clear()
+
+    def flush_list() -> None:
+        if list_items:
+            html_parts.append(f"<ul>{''.join(list_items)}</ul>")
+            list_items.clear()
+
+    for raw_line in lines:
+        stripped_line = raw_line.strip()
+        bullet_match = re.match(r"^(?:[-*]|•|&bull;)\s+(.+)$", stripped_line)
+        if bullet_match:
+            flush_paragraph()
+            list_items.append(f"<li>{render_registration_email_inline_html(bullet_match.group(1))}</li>")
+            continue
+        if not stripped_line:
+            flush_paragraph()
+            flush_list()
+            continue
+        flush_list()
+        paragraph_lines.append(render_registration_email_inline_html(raw_line))
+
+    flush_paragraph()
+    flush_list()
+    return "\n".join(html_parts) or "<p></p>"
+
+
 def parse_email_list(value: str) -> List[str]:
     emails: List[str] = []
     seen: Set[str] = set()
@@ -2363,18 +2405,20 @@ def send_registration_confirmation_email(
         append_unique_email(manual_bcc, "david.van.walstijn@gmail.com", excluded_bcc)
         bcc = manual_bcc
 
+    body = build_registration_event_email_body(order, item, email_settings)
     email_message = EmailMessage(
         subject=(
             render_registration_email_template(configured_subject, order, item, email_settings)
             if configured_subject
             else get_registration_confirmation_subject(product_name)
         ),
-        body=build_registration_event_email_body(order, item, email_settings),
+        body=render_registration_email_body_html(body),
         from_email=sender,
         to=to,
         bcc=bcc,
         reply_to=reply_to or None,
     )
+    email_message.content_subtype = "html"
     email_message.send(fail_silently=False)
     return True
 

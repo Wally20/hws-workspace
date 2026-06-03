@@ -1294,11 +1294,24 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         mocked_email_message.assert_called_once()
         email_kwargs = mocked_email_message.call_args.kwargs
         self.assertEqual(email_kwargs["to"], ["info@hwsvoetbalschool.nl"])
+        self.assertIn("<p>", email_kwargs["body"])
         self.assertEqual(
             email_kwargs["bcc"],
             ["klant@example.com", "david.van.walstijn@gmail.com"],
         )
+        self.assertEqual(mocked_email_message.return_value.content_subtype, "html")
         mocked_email_message.return_value.send.assert_called_once_with(fail_silently=False)
+
+    def test_registration_email_body_renders_basic_formatting_as_html(self):
+        rendered_body = legacy.render_registration_email_body_html(
+            "Beste ouder,\n\n**Belangrijk** en *schuin*\n- Neem voetbalschoenen mee\n- Neem **water** mee"
+        )
+
+        self.assertIn("<strong>Belangrijk</strong>", rendered_body)
+        self.assertIn("<em>schuin</em>", rendered_body)
+        self.assertIn("<ul>", rendered_body)
+        self.assertIn("<li>Neem voetbalschoenen mee</li>", rendered_body)
+        self.assertIn("<li>Neem <strong>water</strong> mee</li>", rendered_body)
 
     def test_registrations_page_redirects_legacy_product_query_to_detail_page(self):
         response = self.build_authenticated_client().get("/aanmeldingen?product=id:101", secure=True)

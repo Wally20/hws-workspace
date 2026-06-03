@@ -26,6 +26,7 @@ const registrationSecondEventDateField = document.querySelector("#registrationSe
 const registrationEventDate2Input = document.querySelector("#registrationEventDate2Input");
 const registrationEmailSubjectInput = document.querySelector("#registrationEmailSubjectInput");
 const registrationEmailBodyInput = document.querySelector("#registrationEmailBodyInput");
+const registrationEmailFormatButtons = Array.from(document.querySelectorAll("[data-email-format]"));
 const registrationEmailTemplateSelect = document.querySelector("#registrationEmailTemplateSelect");
 const registrationEmailSettingsFeedback = document.querySelector("#registrationEmailSettingsFeedback");
 const saveRegistrationEmailSettingsButton = document.querySelector("#saveRegistrationEmailSettingsButton");
@@ -378,6 +379,61 @@ function syncSecondEventDateField() {
     if (!useSecondDate) {
       registrationEventDate2Input.value = "";
     }
+  }
+}
+
+function replaceRegistrationEmailSelection(nextValue, selectionStart, selectionEnd) {
+  if (!(registrationEmailBodyInput instanceof HTMLTextAreaElement)) {
+    return;
+  }
+  registrationEmailBodyInput.value = nextValue;
+  registrationEmailBodyInput.focus();
+  registrationEmailBodyInput.setSelectionRange(selectionStart, selectionEnd);
+}
+
+function formatRegistrationEmailSelection(format) {
+  if (!(registrationEmailBodyInput instanceof HTMLTextAreaElement)) {
+    return;
+  }
+
+  const start = registrationEmailBodyInput.selectionStart;
+  const end = registrationEmailBodyInput.selectionEnd;
+  const value = registrationEmailBodyInput.value;
+  const selectedText = value.slice(start, end);
+
+  if (format === "bold" || format === "italic") {
+    const marker = format === "bold" ? "**" : "*";
+    const fallbackText = format === "bold" ? "tekst" : "tekst";
+    const innerText = selectedText || fallbackText;
+    const formattedText = `${marker}${innerText}${marker}`;
+    replaceRegistrationEmailSelection(
+      `${value.slice(0, start)}${formattedText}${value.slice(end)}`,
+      start + marker.length,
+      start + marker.length + innerText.length
+    );
+    return;
+  }
+
+  if (format === "bullet") {
+    const lineStart = value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+    const lineEnd = end;
+    const selectedLines = value.slice(lineStart, lineEnd);
+    const sourceLines = selectedLines ? selectedLines.split("\n") : [""];
+    const formattedLines = sourceLines
+      .map((line) => {
+        const trimmedLine = line.trimStart();
+        if (!trimmedLine) {
+          return "- ";
+        }
+        if (/^([-*]|&bull;|•)\s+/.test(trimmedLine)) {
+          return line;
+        }
+        return `${line.slice(0, line.length - trimmedLine.length)}- ${trimmedLine}`;
+      })
+      .join("\n");
+    const nextValue = `${value.slice(0, lineStart)}${formattedLines}${value.slice(lineEnd)}`;
+    const nextCursor = lineStart + formattedLines.length;
+    replaceRegistrationEmailSelection(nextValue, nextCursor, nextCursor);
   }
 }
 
@@ -770,6 +826,9 @@ productSearchInput?.addEventListener("change", filterProducts);
 copyEmailsButton?.addEventListener("click", copyRegistrationEmails);
 copyPendingEmailsButton?.addEventListener("click", copyPendingRegistrationEmails);
 sendPendingEmailsButton?.addEventListener("click", handleSendPendingRegistrationEmails);
+registrationEmailFormatButtons.forEach((button) => {
+  button.addEventListener("click", () => formatRegistrationEmailSelection(String(button.dataset.emailFormat || "")));
+});
 registrationEmailSettingsForm?.addEventListener("submit", handleRegistrationEmailSettingsSubmit);
 registrationEmailTemplateSelect?.addEventListener("change", applySelectedRegistrationEmailTemplate);
 registrationUseSecondEventDateInput?.addEventListener("change", syncSecondEventDateField);
