@@ -69,6 +69,7 @@ ENDPOINTS = {
     "overeenkomsten_edit_page": "overeenkomsten_edit_page",
     "overeenkomsten_export_pdf": "overeenkomsten_export_pdf",
     "overeenkomsten_export_docx": "overeenkomsten_export_docx",
+    "marketing_page": "marketing_page",
     "social_media_page": "social_media_page",
     "content_page": "content_page",
     "content_album_page": "content_album_page",

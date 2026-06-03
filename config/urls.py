@@ -98,6 +98,7 @@ urlpatterns = [
     path("overeenkomsten/<int:contract_id>", views.overeenkomsten_edit_page, name="overeenkomsten_edit_page"),
     path("overeenkomsten/<int:contract_id>/export-pdf", views.overeenkomsten_export_pdf, name="overeenkomsten_export_pdf"),
     path("overeenkomsten/<int:contract_id>/export-docx", views.overeenkomsten_export_docx, name="overeenkomsten_export_docx"),
+    path("marketing", views.marketing_page, name="marketing_page"),
     path("social-media", views.social_media_page, name="social_media_page"),
     path("content", views.content_page, name="content_page"),
     path("content/<int:album_id>", views.content_album_page, name="content_album_page"),

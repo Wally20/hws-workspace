@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Marketing | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Marketing</h1>
+      <p class="welcome-line">Beheer contentplanning en fotoalbums vanuit een overzicht.</p>
+    </div>
+  </header>
+
+  <section class="training-home-grid" aria-label="Marketing">
+    {% if 'social-media' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/social-media">
+        <span class="panel-title">Contentplanning</span>
+        <span class="feature-list-subtitle">Plan posts, ideeën en afspraken voor de contentkalender.</span>
+      </a>
+    {% endif %}
+
+    {% if 'content' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/content">
+        <span class="panel-title">Content</span>
+        <span class="feature-list-subtitle">Beheer fotoalbums en uploads voor marketingmateriaal.</span>
+      </a>
+    {% endif %}
+  </section>
+{% endblock %}

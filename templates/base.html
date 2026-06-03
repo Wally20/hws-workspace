@@ -157,26 +157,14 @@
             <span>Trainersvergoedingen</span>
           </a>
           {% endif %}
-          {% if 'social-media' in visible_pages %}
-          <a class="nav-item {% if active_page == 'social-media' %}nav-item-active{% endif %}" href="/social-media">
+          {% if 'marketing' in visible_pages %}
+          <a class="nav-item {% if active_page == 'marketing' or active_page == 'social-media' or active_page == 'content' %}nav-item-active{% endif %}" href="/marketing">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none">
                 <path d="M8 5v14M16 5v14M5 8h14M5 16h14"></path>
               </svg>
             </span>
-            <span>Social Media</span>
-          </a>
-          {% endif %}
-          {% if 'content' in visible_pages %}
-          <a class="nav-item {% if active_page == 'content' %}nav-item-active{% endif %}" href="/content">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <rect x="4" y="5" width="16" height="14" rx="2"></rect>
-                <circle cx="9" cy="10" r="1.6"></circle>
-                <path d="m6.5 17 4.5-4.5 2.8 2.8 2.2-2.2 2.5 3.9"></path>
-              </svg>
-            </span>
-            <span>Content</span>
+            <span>Marketing</span>
           </a>
           {% endif %}
           {% if 'trainers' in visible_pages %}

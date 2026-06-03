@@ -10009,6 +10009,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "oefeningen-bibliotheek",
             "trainingen",
             "exercise-videos",
+            "marketing",
             "social-media",
             "content",
             "trainers",
@@ -10027,6 +10028,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "oefenstof",
             "oefeningen-bibliotheek",
             "trainingen",
+            "marketing",
             "social-media",
             "content",
             "profile",
@@ -14699,6 +14701,15 @@ def social_media_page() -> str:
         error=request.args.get("error", "").strip(),
         success=request.args.get("success", "").strip(),
     )
+
+
+@app.get("/marketing")
+def marketing_page() -> str:
+    access_redirect = require_page_access("marketing")
+    if access_redirect is not None:
+        return access_redirect
+
+    return render_template("marketing.html", active_page="marketing")
 
 
 @app.route("/content", methods=["GET", "POST"])
