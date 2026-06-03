@@ -146,6 +146,7 @@
         {% block content %}{% endblock %}
       </main>
     </div>
+    <script id="workspaceSearchPages" type="application/json" nonce="{{ csp_nonce }}">{{ workspace_search_pages|tojson }}</script>
     <script nonce="{{ csp_nonce }}" src="../static/base.js?v={{ asset_version }}" defer></script>
   </body>
 </html>

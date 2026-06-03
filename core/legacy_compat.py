@@ -240,6 +240,7 @@ def legacy_render_template(template_name: str, **context: Any) -> HttpResponse:
         "csp_nonce": getattr(request, "csp_nonce", ""),
         "current_user": user,
         "visible_pages": legacy.get_visible_pages_for_user(user),
+        "workspace_search_pages": legacy.get_workspace_search_pages_for_user(user),
         "can_view_revenue": bool(user and user.get("isAdmin")),
         "is_social_media_manager": legacy.is_social_media_manager(user),
         **context,
