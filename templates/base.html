@@ -66,29 +66,15 @@
             <span>Draaiboeken</span>
           </a>
           {% endif %}
-          {% if 'voorstellen-maker' in visible_pages %}
-          <a class="nav-item {% if active_page == 'voorstellen-maker' %}nav-item-active{% endif %}" href="/voorstellen-maker">
+          {% if 'management' in visible_pages %}
+          <a class="nav-item {% if active_page == 'management' or active_page == 'voorstellen-maker' or active_page == 'overeenkomsten' or active_page == 'registrations' or active_page == 'trainers' %}nav-item-active{% endif %}" href="/management">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none">
-                <path d="M7 4.5h7l5 5V19a1 1 0 0 1-1 1H7a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path>
-                <path d="M14 4.5V10h5"></path>
-                <path d="M9 13h6M9 16h6"></path>
+                <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM16.5 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"></path>
+                <path d="M3.5 19a4.5 4.5 0 0 1 9 0M13 19a3.5 3.5 0 0 1 7 0"></path>
               </svg>
             </span>
-            <span>Voorstellen Maker</span>
-          </a>
-          {% endif %}
-          {% if 'overeenkomsten' in visible_pages %}
-          <a class="nav-item {% if active_page == 'overeenkomsten' %}nav-item-active{% endif %}" href="/overeenkomsten">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path d="M7 4.5h7l5 5V19a1 1 0 0 1-1 1H7a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path>
-                <path d="M14 4.5V10h5"></path>
-                <path d="M8.5 13h7M8.5 16h5"></path>
-                <path d="M9 19.5h4"></path>
-              </svg>
-            </span>
-            <span>Overeenkomsten</span>
+            <span>Management</span>
           </a>
           {% endif %}
           {% if 'oefenstof' in visible_pages %}
@@ -101,17 +87,6 @@
               </svg>
             </span>
             <span>Oefenstof</span>
-          </a>
-          {% endif %}
-          {% if 'orders' in visible_pages %}
-          <a class="nav-item {% if active_page == 'registrations' %}nav-item-active{% endif %}" href="/aanmeldingen">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path d="M7 6h10a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"></path>
-                <path d="M8.5 10.5h7M8.5 14h5"></path>
-              </svg>
-            </span>
-            <span>Aanmeldingen</span>
           </a>
           {% endif %}
           {% if 'financien' in visible_pages %}
@@ -144,17 +119,6 @@
               </svg>
             </span>
             <span>Marketing</span>
-          </a>
-          {% endif %}
-          {% if 'trainers' in visible_pages %}
-          <a class="nav-item {% if active_page == 'trainers' %}nav-item-active{% endif %}" href="/trainers">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM16.5 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"></path>
-                <path d="M3.5 19a4.5 4.5 0 0 1 9 0M13 19a3.5 3.5 0 0 1 7 0"></path>
-              </svg>
-            </span>
-            <span>Team</span>
           </a>
           {% endif %}
           {% if 'profile' in visible_pages %}

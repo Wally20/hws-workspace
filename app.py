@@ -9996,6 +9996,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "draaiboeken",
             "voetbaldagen",
             "samenwerkende-amateurclubs",
+            "management",
             "orders",
             "leads",
             "financien",
@@ -10020,6 +10021,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "draaiboeken",
             "voetbaldagen",
             "samenwerkende-amateurclubs",
+            "management",
             "orders",
             "leads",
             "voorstellen-maker",
@@ -10032,7 +10034,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "content",
             "profile",
         }
-    return {"orders", "leads", "draaiboeken", "voetbaldagen", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "marketing", "profile"}
+    return {"management", "orders", "leads", "draaiboeken", "voetbaldagen", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "marketing", "profile"}
 
 
 def user_can_access_page(user: Optional[Dict[str, Any]], page_key: str) -> bool:
@@ -12835,6 +12837,15 @@ def api_save_leads_blocked_emails():
             "blockedCount": blocked_count,
         }
     )
+
+
+@app.get("/management")
+def management_page() -> str:
+    access_redirect = require_page_access("management")
+    if access_redirect is not None:
+        return access_redirect
+
+    return render_template("management.html", active_page="management")
 
 
 @app.get("/aanmeldingen/<path:product_key>")
