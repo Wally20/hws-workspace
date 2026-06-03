@@ -113,17 +113,6 @@
             </span>
             <span>Aanmeldingen</span>
           </a>
-          {% if 'leads' in visible_pages %}
-          <a class="nav-item {% if active_page == 'leads' %}nav-item-active{% endif %}" href="/leads">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z"></path>
-                <path d="m6 8 6 5 6-5"></path>
-              </svg>
-            </span>
-            <span>Leads</span>
-          </a>
-          {% endif %}
           {% endif %}
           {% if 'financien' in visible_pages %}
           <a class="nav-item {% if active_page == 'financien' or active_page == 'revenue' or active_page == 'spaarpot' %}nav-item-active{% endif %}" href="/financien">
@@ -148,7 +137,7 @@
           </a>
           {% endif %}
           {% if 'marketing' in visible_pages %}
-          <a class="nav-item {% if active_page == 'marketing' or active_page == 'social-media' or active_page == 'content' %}nav-item-active{% endif %}" href="/marketing">
+          <a class="nav-item {% if active_page == 'marketing' or active_page == 'social-media' or active_page == 'content' or active_page == 'leads' %}nav-item-active{% endif %}" href="/marketing">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none">
                 <path d="M8 5v14M16 5v14M5 8h14M5 16h14"></path>

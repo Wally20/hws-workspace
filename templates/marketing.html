@@ -6,7 +6,7 @@
   <header class="page-header">
     <div>
       <h1>Marketing</h1>
-      <p class="welcome-line">Beheer contentplanning en fotoalbums vanuit een overzicht.</p>
+      <p class="welcome-line">Beheer contentplanning, fotoalbums en leads vanuit een overzicht.</p>
     </div>
   </header>
 
@@ -22,6 +22,13 @@
       <a class="summary-card training-home-tile" href="/content">
         <span class="panel-title">Content</span>
         <span class="feature-list-subtitle">Beheer fotoalbums en uploads voor marketingmateriaal.</span>
+      </a>
+    {% endif %}
+
+    {% if 'leads' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/leads">
+        <span class="panel-title">Leads</span>
+        <span class="feature-list-subtitle">Bekijk en volg binnengekomen leads op.</span>
       </a>
     {% endif %}
   </section>
