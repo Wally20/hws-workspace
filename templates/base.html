@@ -64,29 +64,16 @@
             <span>Taken</span>
           </a>
           {% endif %}
-          {% if 'voetbaldagen' in visible_pages %}
-          <a class="nav-item {% if active_page == 'voetbaldagen' %}nav-item-active{% endif %}" href="/voetbaldagen">
+          {% if 'draaiboeken' in visible_pages %}
+          <a class="nav-item {% if active_page == 'draaiboeken' or active_page == 'voetbaldagen' or active_page == 'samenwerkende-amateurclubs' %}nav-item-active{% endif %}" href="/draaiboeken">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none">
-                <path d="M4 6.5h16M6 4v5M18 4v5M6 11.5h12M6 16h8"></path>
-                <path d="M5 20h14a1 1 0 0 0 1-1V6.5H4V19a1 1 0 0 0 1 1Z"></path>
-                <circle cx="17" cy="16" r="2"></circle>
+                <path d="M6 4.5h9l3 3V19a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1Z"></path>
+                <path d="M15 4.5V8h3"></path>
+                <path d="M8.5 11.5h7M8.5 15h5"></path>
               </svg>
             </span>
-            <span>Voetbaldagen</span>
-          </a>
-          {% endif %}
-          {% if 'samenwerkende-amateurclubs' in visible_pages %}
-          <a class="nav-item {% if active_page == 'samenwerkende-amateurclubs' %}nav-item-active{% endif %}" href="/samenwerkende-amateurclubs">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path d="M7 20v-7M17 20v-7M4.5 20h15"></path>
-                <path d="M5 12.5 12 6l7 6.5"></path>
-                <path d="M9 20v-5h6v5"></path>
-                <path d="M4 8.5l3-2.8M20 8.5l-3-2.8"></path>
-              </svg>
-            </span>
-            <span>Samenwerkende Amateurclubs</span>
+            <span>Draaiboeken</span>
           </a>
           {% endif %}
           {% if 'voorstellen-maker' in visible_pages %}

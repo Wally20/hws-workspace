@@ -9993,6 +9993,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
         return {
             "dashboard",
             "agenda",
+            "draaiboeken",
             "voetbaldagen",
             "samenwerkende-amateurclubs",
             "tasks",
@@ -10015,6 +10016,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
     if is_social_media_manager(user):
         return {
             "dashboard",
+            "draaiboeken",
             "voetbaldagen",
             "samenwerkende-amateurclubs",
             "orders",
@@ -10028,7 +10030,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "content",
             "profile",
         }
-    return {"orders", "leads", "voetbaldagen", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "profile"}
+    return {"orders", "leads", "draaiboeken", "voetbaldagen", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "profile"}
 
 
 def user_can_access_page(user: Optional[Dict[str, Any]], page_key: str) -> bool:
@@ -14175,6 +14177,15 @@ def tasks_page() -> str:
 @app.get("/voetbaldagen")
 def football_days_page() -> str:
     return render_football_playbook_overview("voetbaldagen")
+
+
+@app.get("/draaiboeken")
+def draaiboeken_page() -> str:
+    access_redirect = require_page_access("draaiboeken")
+    if access_redirect is not None:
+        return access_redirect
+
+    return render_template("draaiboeken.html", active_page="draaiboeken")
 
 
 @app.get("/samenwerkende-amateurclubs")

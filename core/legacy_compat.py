@@ -38,6 +38,7 @@ ENDPOINTS = {
     "personal_profile_page": "personal_profile_page",
     "trainers_page": "trainers_page",
     "agenda_page": "agenda_page",
+    "draaiboeken_page": "draaiboeken_page",
     "football_days_page": "football_days_page",
     "football_days_new_page": "football_days_new_page",
     "football_days_edit_page": "football_days_edit_page",

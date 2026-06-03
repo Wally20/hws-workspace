@@ -30,6 +30,7 @@ urlpatterns = [
     path("profiel", views.personal_profile_page, name="personal_profile_page"),
     path("trainers", views.trainers_page, name="trainers_page"),
     path("agenda", views.agenda_page, name="agenda_page"),
+    path("draaiboeken", views.draaiboeken_page, name="draaiboeken_page"),
     path("voetbaldagen", views.football_days_page, name="football_days_page"),
     path("voetbaldagen/nieuw", views.football_days_new_page, name="football_days_new_page"),
     path("voetbaldagen/<int:playbook_id>", views.football_days_edit_page, name="football_days_edit_page"),

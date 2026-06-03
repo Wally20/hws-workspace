@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Draaiboeken | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Draaiboeken</h1>
+      <p class="welcome-line">Open en beheer draaiboeken voor voetbaldagen en samenwerkende amateurclubs.</p>
+    </div>
+  </header>
+
+  <section class="training-home-grid" aria-label="Draaiboeken">
+    {% if 'voetbaldagen' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/voetbaldagen">
+        <span class="panel-title">Voetbaldagen</span>
+        <span class="feature-list-subtitle">Maak, bekijk en exporteer draaiboeken voor voetbaldagen.</span>
+      </a>
+    {% endif %}
+
+    {% if 'samenwerkende-amateurclubs' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/samenwerkende-amateurclubs">
+        <span class="panel-title">Samenwerkende Amateurclubs</span>
+        <span class="feature-list-subtitle">Beheer draaiboeken voor samenwerkingen met amateurclubs.</span>
+      </a>
+    {% endif %}
+  </section>
+{% endblock %}
