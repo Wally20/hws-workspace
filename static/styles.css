@@ -473,6 +473,13 @@ body.sidebar-collapsed .sidebar-toggle {
   align-items: start;
 }
 
+.automatic-invoices-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
 .feature-form,
 .agenda-form {
   display: grid;
@@ -483,6 +490,24 @@ body.sidebar-collapsed .sidebar-toggle {
 .feature-list-card {
   display: grid;
   gap: 18px;
+}
+
+.automatic-invoice-dialog {
+  width: min(920px, 100%);
+}
+
+.automatic-invoice-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+
+.automatic-invoice-form .field,
+.automatic-invoice-form-grid > *,
+.automatic-invoice-form input,
+.automatic-invoice-form select {
+  min-width: 0;
 }
 
 .social-ideas-overview {

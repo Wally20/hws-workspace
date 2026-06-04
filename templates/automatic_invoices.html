@@ -10,10 +10,11 @@
     </div>
     <div class="agenda-header-actions">
       <a href="/financien" class="subtle-button">Terug naar Financiën</a>
+      <button type="button" class="subtle-button subtle-button-strong" id="openAutomaticInvoiceModal">Nieuwe instelling</button>
       <form method="post" action="/financien/automatisch-facturen">
         <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="action" value="process_today">
-        <button type="submit" class="subtle-button subtle-button-strong">Vandaag verwerken</button>
+        <button type="submit" class="subtle-button">Vandaag verwerken</button>
       </form>
     </div>
   </header>
@@ -25,78 +26,7 @@
     <div class="form-feedback form-feedback-error">{{ error }}</div>
   {% endif %}
 
-  <section class="feature-layout">
-    <article class="summary-card old-function-card">
-      <div class="feature-list-head">
-        <div>
-          <p class="panel-title">Nieuwe instelling</p>
-          <p class="feature-list-subtitle">Conceptfacturen worden alleen op de ingestelde factuurdag aangemaakt.</p>
-        </div>
-      </div>
-
-      <form class="feature-form" method="post" action="/financien/automatisch-facturen">
-        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
-        <input type="hidden" name="action" value="save_setting">
-
-        <div class="proposal-form-grid">
-          <label class="field">
-            <span>Club</span>
-            <select name="club_name" required>
-              <option value="">Selecteer club</option>
-              {% for club in agenda_club_options %}
-                <option value="{{ club }}">{{ club }}</option>
-              {% endfor %}
-            </select>
-          </label>
-
-          <label class="field">
-            <span>Standaard factuurbedrag</span>
-            <input type="text" name="standard_amount" inputmode="decimal" placeholder="Bijvoorbeeld: 100,00" required>
-          </label>
-
-          <label class="field">
-            <span>Factuurdag van de maand</span>
-            <input type="number" name="invoice_day" min="1" max="31" value="1" required>
-          </label>
-
-          <label class="field">
-            <span>Bedrag per training</span>
-            <input type="text" name="training_amount" inputmode="decimal" placeholder="Bijvoorbeeld: 25,00" required>
-          </label>
-
-          <label class="field">
-            <span>Herhalen</span>
-            <select name="repeat_enabled">
-              <option value="1">Ja</option>
-              <option value="0">Nee, eenmalig</option>
-            </select>
-          </label>
-
-          <label class="field">
-            <span>Actief</span>
-            <select name="active">
-              <option value="1">Actief</option>
-              <option value="0">Inactief</option>
-            </select>
-          </label>
-
-          <label class="field">
-            <span>Begin periode</span>
-            <input type="date" name="period_start">
-          </label>
-
-          <label class="field">
-            <span>Einde periode</span>
-            <input type="date" name="period_end">
-          </label>
-        </div>
-
-        <div class="agenda-form-actions">
-          <button type="submit" class="subtle-button subtle-button-strong">Instelling opslaan</button>
-        </div>
-      </form>
-    </article>
-
+  <section class="automatic-invoices-layout">
     <section class="feature-list-card">
       <div class="feature-list-head">
         <div>
@@ -159,4 +89,81 @@
       {% endif %}
     </section>
   </section>
+
+  <div id="automaticInvoiceModal" class="agenda-modal" hidden>
+    <div class="agenda-modal-backdrop" data-close-automatic-invoice-modal="1"></div>
+    <div class="agenda-modal-dialog automatic-invoice-dialog">
+      <div class="agenda-modal-header">
+        <div>
+          <h2>Nieuwe instelling</h2>
+          <p class="feature-list-subtitle">Conceptfacturen worden alleen op de ingestelde factuurdag aangemaakt.</p>
+        </div>
+        <button type="button" class="subtle-button" id="closeAutomaticInvoiceModal">Sluiten</button>
+      </div>
+
+      <form class="feature-form automatic-invoice-form" method="post" action="/financien/automatisch-facturen">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <input type="hidden" name="action" value="save_setting">
+
+        <div class="automatic-invoice-form-grid">
+          <label class="field">
+            <span>Club</span>
+            <select name="club_name" required>
+              <option value="">Selecteer club</option>
+              {% for club in agenda_club_options %}
+                <option value="{{ club }}">{{ club }}</option>
+              {% endfor %}
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Standaard factuurbedrag</span>
+            <input type="text" name="standard_amount" inputmode="decimal" placeholder="Bijvoorbeeld: 100,00" required>
+          </label>
+
+          <label class="field">
+            <span>Factuurdag van de maand</span>
+            <input type="number" name="invoice_day" min="1" max="31" value="1" required>
+          </label>
+
+          <label class="field">
+            <span>Bedrag per training</span>
+            <input type="text" name="training_amount" inputmode="decimal" placeholder="Bijvoorbeeld: 25,00" required>
+          </label>
+
+          <label class="field">
+            <span>Herhalen</span>
+            <select name="repeat_enabled">
+              <option value="1">Ja</option>
+              <option value="0">Nee, eenmalig</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Actief</span>
+            <select name="active">
+              <option value="1">Actief</option>
+              <option value="0">Inactief</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Begin periode</span>
+            <input type="date" name="period_start">
+          </label>
+
+          <label class="field">
+            <span>Einde periode</span>
+            <input type="date" name="period_end">
+          </label>
+        </div>
+
+        <div class="agenda-form-actions">
+          <button type="submit" class="subtle-button subtle-button-strong">Instelling opslaan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="../static/automatic-invoices.js?v={{ asset_version }}" defer></script>
 {% endblock %}
