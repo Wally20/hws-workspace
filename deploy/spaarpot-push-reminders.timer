@@ -1,0 +1,10 @@
+[Unit]
+Description=Run HWS weekly spaarpot push reminders every Monday morning
+
+[Timer]
+OnCalendar=Mon *-*-* 07:00:00 Europe/Amsterdam
+Persistent=true
+Unit=spaarpot-push-reminders.service
+
+[Install]
+WantedBy=timers.target

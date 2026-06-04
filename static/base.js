@@ -306,9 +306,92 @@ initWorkspacePageSearch();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker
-      .getRegistrations()
-      .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
-      .catch(() => {});
+    navigator.serviceWorker.register("/service-worker.js").catch(() => {});
   });
 }
+
+function urlBase64ToUint8Array(value) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((character) => character.charCodeAt(0)));
+}
+
+async function initSpaarpotPushControls() {
+  const root = document.querySelector("[data-spaarpot-push]");
+  if (!root || !("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+    return;
+  }
+
+  const button = root.querySelector("[data-spaarpot-push-button]");
+  const status = root.querySelector("[data-spaarpot-push-status]");
+  if (!(button instanceof HTMLButtonElement) || !status) {
+    return;
+  }
+
+  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
+  const setStatus = (message) => {
+    status.textContent = message;
+  };
+
+  try {
+    const statusResponse = await fetch("/api/push/status");
+    const pushConfig = await statusResponse.json();
+    if (!statusResponse.ok || !pushConfig.enabled || !pushConfig.publicKey) {
+      button.disabled = true;
+      setStatus(pushConfig.message || "Pushmeldingen staan nog niet aan op de server.");
+      return;
+    }
+
+    const registration = await navigator.serviceWorker.ready;
+    const existingSubscription = await registration.pushManager.getSubscription();
+    if (existingSubscription) {
+      button.textContent = "Pushmelding actief";
+      button.disabled = true;
+      setStatus("Je ontvangt elke maandagochtend om 07:00 een spaarpotmelding.");
+      return;
+    }
+
+    button.hidden = false;
+    setStatus("Zet de wekelijkse spaarpotmelding aan voor deze browser.");
+
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      setStatus("Pushmelding wordt aangezet...");
+
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        button.disabled = false;
+        setStatus("Browsertoestemming is nodig om pushmeldingen te ontvangen.");
+        return;
+      }
+
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(pushConfig.publicKey),
+      });
+
+      const response = await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({ subscription }),
+      });
+
+      if (!response.ok) {
+        button.disabled = false;
+        setStatus("Opslaan van de pushmelding is mislukt.");
+        return;
+      }
+
+      button.textContent = "Pushmelding actief";
+      setStatus("Je ontvangt elke maandagochtend om 07:00 een spaarpotmelding.");
+    });
+  } catch (error) {
+    setStatus("Pushmeldingen kunnen nu niet worden ingesteld.");
+  }
+}
+
+initSpaarpotPushControls();

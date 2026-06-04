@@ -3,6 +3,7 @@ import re
 import sqlite3
 import tempfile
 import time
+from datetime import date
 from importlib import import_module
 from unittest.mock import Mock, patch
 
@@ -544,6 +545,24 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(summary["quarters"][0]["reserve"], 259.0)
         self.assertEqual(summary["quarters"][0]["paymentCount"], 1)
         self.assertEqual(summary["quarters"][0]["manualCount"], 1)
+
+    def test_spaarpot_weekly_reminder_uses_previous_monday_window(self):
+        entries = [
+            {"source": "payment", "date": "2026-05-24", "reserve": 4.5},
+            {"source": "payment", "date": "2026-05-25", "reserve": 9.0},
+            {"source": "stripe", "date": "2026-05-31", "reserve": 18.0},
+            {"source": "payment", "date": "2026-06-01", "reserve": 36.0},
+        ]
+
+        reminder = legacy.build_spaarpot_weekly_reminder(entries, date(2026, 6, 1))
+
+        self.assertEqual(reminder["weekStart"], "2026-05-25")
+        self.assertEqual(reminder["weekEnd"], "2026-06-01")
+        self.assertEqual(reminder["previousBalance"], 4.5)
+        self.assertEqual(reminder["weeklyAdded"], 27.0)
+        self.assertEqual(reminder["topUpAmount"], 27.0)
+        self.assertEqual(reminder["currentBalance"], 31.5)
+        self.assertEqual(reminder["paymentCount"], 2)
 
     def test_spaarpot_page_renders_moneybird_quarters(self):
         moneybird = {

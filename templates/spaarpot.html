@@ -35,6 +35,18 @@
     <section class="notice">{{ message }}</section>
   {% endif %}
 
+  <section class="orders-toolbar spaarpot-push-panel" data-spaarpot-push>
+    <div class="orders-toolbar-copy">
+      <p class="orders-toolbar-title">Maandagochtend pushmelding</p>
+      <p class="orders-toolbar-text" data-spaarpot-push-status>
+        Controleert of pushmeldingen beschikbaar zijn voor deze browser.
+      </p>
+    </div>
+    <button type="button" class="refresh-button orders-toolbar-button" data-spaarpot-push-button hidden>
+      Pushmelding aanzetten
+    </button>
+  </section>
+
   <section class="spaarpot-quarter-tabs" aria-label="Kwartalen">
     {% for quarter in spaarpot_summary.quarters %}
       <a

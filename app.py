@@ -36,6 +36,12 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
+try:
+    from pywebpush import WebPushException, webpush
+except ImportError:  # pragma: no cover - optional in local development until requirements are installed.
+    WebPushException = None
+    webpush = None
+
 
 ECWID_API_BASE = "https://app.ecwid.com/api/v3"
 MONEYBIRD_API_BASE = "https://moneybird.com/api/v2"
@@ -3886,6 +3892,21 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_spaarpot_manual_entries_period
             ON spaarpot_manual_entries (year, quarter);
+
+            CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                endpoint TEXT NOT NULL UNIQUE,
+                subscription_json TEXT NOT NULL,
+                user_agent TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_sent_at TEXT,
+                last_error TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_user_id
+            ON web_push_subscriptions (user_id);
             """
         )
 
@@ -14053,6 +14074,223 @@ def delete_spaarpot_manual_entry(entry_id: int) -> None:
     clear_local_data_cache()
 
 
+def format_euro_amount(amount: Decimal) -> str:
+    quantized = amount.quantize(Decimal("0.01"))
+    return f"EUR {quantized:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def build_spaarpot_weekly_reminder(
+    payment_entries: List[Dict[str, Any]],
+    monday: date,
+) -> Dict[str, Any]:
+    week_start = monday - timedelta(days=7)
+    week_end = monday
+    previous_balance = Decimal("0")
+    weekly_added = Decimal("0")
+    weekly_payment_count = 0
+
+    for entry in payment_entries:
+        entry_date = parse_iso_date(str(entry.get("date", "")).strip())
+        if entry_date is None:
+            continue
+
+        reserve = decimal_from_value(entry.get("reserve"))
+        if entry_date < week_start:
+            previous_balance += reserve
+        elif week_start <= entry_date < week_end:
+            weekly_added += reserve
+            if entry.get("source") != "manual":
+                weekly_payment_count += 1
+
+    current_balance = previous_balance + weekly_added
+    return {
+        "monday": monday.isoformat(),
+        "weekStart": week_start.isoformat(),
+        "weekEnd": week_end.isoformat(),
+        "weekLabel": f"{week_start.strftime('%d-%m-%Y')} t/m {(week_end - timedelta(days=1)).strftime('%d-%m-%Y')}",
+        "previousBalance": round(float(previous_balance), 2),
+        "weeklyAdded": round(float(weekly_added), 2),
+        "topUpAmount": round(float(weekly_added), 2),
+        "currentBalance": round(float(current_balance), 2),
+        "paymentCount": weekly_payment_count,
+        "previousBalanceLabel": format_euro_amount(previous_balance),
+        "weeklyAddedLabel": format_euro_amount(weekly_added),
+        "topUpAmountLabel": format_euro_amount(weekly_added),
+        "currentBalanceLabel": format_euro_amount(current_balance),
+    }
+
+
+def build_current_spaarpot_weekly_reminder(target_date: Optional[date] = None) -> Dict[str, Any]:
+    monday = target_date or date.today()
+    monday = monday - timedelta(days=monday.weekday())
+    payload = fetch_orders(force_refresh=True)
+    moneybird = payload.get("moneybird", {})
+    payment_entries = build_spaarpot_payment_entries(
+        moneybird.get("invoices", []),
+        moneybird.get("financialMutations", []),
+    )
+    payment_entries.extend(load_spaarpot_manual_entries())
+    reminder = build_spaarpot_weekly_reminder(payment_entries, monday)
+    reminder["message"] = payload.get("message") or ""
+    reminder["lastUpdated"] = format_cache_timestamp(payload.get("cachedAt", 0.0))
+    return reminder
+
+
+def get_web_push_vapid_public_key() -> str:
+    return get_env("WEB_PUSH_VAPID_PUBLIC_KEY")
+
+
+def get_web_push_vapid_private_key() -> str:
+    return get_env("WEB_PUSH_VAPID_PRIVATE_KEY")
+
+
+def get_web_push_vapid_subject() -> str:
+    return get_env("WEB_PUSH_VAPID_SUBJECT") or f"mailto:{get_env('ADMIN_EMAIL') or 'info@hwsvoetbalschool.nl'}"
+
+
+def is_web_push_configured() -> bool:
+    return bool(webpush and get_web_push_vapid_public_key() and get_web_push_vapid_private_key())
+
+
+def normalize_push_subscription(subscription: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    endpoint = str(subscription.get("endpoint") or "").strip()
+    keys = subscription.get("keys") if isinstance(subscription.get("keys"), dict) else {}
+    p256dh = str(keys.get("p256dh") or "").strip()
+    auth = str(keys.get("auth") or "").strip()
+    if not endpoint or not p256dh or not auth:
+        return None
+    return {"endpoint": endpoint, "keys": {"p256dh": p256dh, "auth": auth}}
+
+
+def save_web_push_subscription(user_id: str, subscription: Dict[str, Any], user_agent: str = "") -> None:
+    normalized = normalize_push_subscription(subscription)
+    if normalized is None:
+        raise ValueError("Ongeldige push-subscription.")
+
+    now_value = datetime.now().isoformat(timespec="seconds")
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO web_push_subscriptions (
+                user_id, endpoint, subscription_json, user_agent, created_at, updated_at, last_error
+            )
+            VALUES (?, ?, ?, ?, ?, ?, NULL)
+            ON CONFLICT(endpoint) DO UPDATE SET
+                user_id = excluded.user_id,
+                subscription_json = excluded.subscription_json,
+                user_agent = excluded.user_agent,
+                updated_at = excluded.updated_at,
+                last_error = NULL
+            """,
+            (
+                user_id,
+                normalized["endpoint"],
+                json.dumps(normalized, separators=(",", ":")),
+                user_agent[:500],
+                now_value,
+                now_value,
+            ),
+        )
+
+
+def delete_web_push_subscription(endpoint: str) -> None:
+    normalized_endpoint = str(endpoint or "").strip()
+    if not normalized_endpoint:
+        return
+    with get_db_connection() as connection:
+        connection.execute("DELETE FROM web_push_subscriptions WHERE endpoint = ?", (normalized_endpoint,))
+
+
+def load_web_push_subscriptions() -> List[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, user_id, endpoint, subscription_json
+            FROM web_push_subscriptions
+            ORDER BY updated_at DESC, id DESC
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def mark_web_push_subscription_sent(subscription_id: int) -> None:
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            UPDATE web_push_subscriptions
+            SET last_sent_at = ?, last_error = NULL
+            WHERE id = ?
+            """,
+            (datetime.now().isoformat(timespec="seconds"), subscription_id),
+        )
+
+
+def mark_web_push_subscription_error(subscription_id: int, error: str) -> None:
+    with get_db_connection() as connection:
+        connection.execute(
+            "UPDATE web_push_subscriptions SET last_error = ? WHERE id = ?",
+            (str(error)[:500], subscription_id),
+        )
+
+
+def build_spaarpot_push_payload(reminder: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "title": "Spaarpot bijstorten",
+        "body": (
+            f"Bijstorten: {reminder['topUpAmountLabel']}. "
+            f"Vorige maandag stond er {reminder['previousBalanceLabel']} in de spaarpot; "
+            f"deze week kwam er {reminder['weeklyAddedLabel']} bij."
+        ),
+        "url": "/spaarpot",
+        "tag": f"spaarpot-week-{reminder['monday']}",
+        "data": reminder,
+    }
+
+
+def send_spaarpot_push_reminders(target_date: Optional[date] = None) -> Dict[str, Any]:
+    if not is_web_push_configured():
+        return {
+            "sent": 0,
+            "failed": 0,
+            "deleted": 0,
+            "error": "Web Push is nog niet geconfigureerd. Zet WEB_PUSH_VAPID_PUBLIC_KEY en WEB_PUSH_VAPID_PRIVATE_KEY.",
+        }
+
+    reminder = build_current_spaarpot_weekly_reminder(target_date)
+    notification_payload = build_spaarpot_push_payload(reminder)
+    subscriptions = load_web_push_subscriptions()
+    sent = 0
+    failed = 0
+    deleted = 0
+
+    for subscription in subscriptions:
+        try:
+            webpush(
+                subscription_info=json.loads(subscription["subscription_json"]),
+                data=json.dumps(notification_payload),
+                vapid_private_key=get_web_push_vapid_private_key(),
+                vapid_claims={"sub": get_web_push_vapid_subject()},
+            )
+            mark_web_push_subscription_sent(int(subscription["id"]))
+            sent += 1
+        except Exception as exc:
+            status_code = getattr(getattr(exc, "response", None), "status_code", 0)
+            if status_code in {404, 410}:
+                delete_web_push_subscription(subscription["endpoint"])
+                deleted += 1
+            else:
+                mark_web_push_subscription_error(int(subscription["id"]), str(exc))
+                failed += 1
+
+    return {
+        "sent": sent,
+        "failed": failed,
+        "deleted": deleted,
+        "reminder": reminder,
+        "subscriptionCount": len(subscriptions),
+    }
+
+
 def build_spaarpot_year_options(payment_entries: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     years = sorted({int(entry["year"]) for entry in payment_entries}, reverse=True)
     if not years:
@@ -15426,6 +15664,52 @@ def spaarpot_page() -> str:
         last_updated=format_cache_timestamp(payload.get("cachedAt", 0.0)),
         message=payload.get("message"),
     )
+
+
+@app.get("/api/push/status")
+def api_push_status():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Je bent niet ingelogd."}), 401
+
+    return jsonify(
+        {
+            "enabled": is_web_push_configured(),
+            "publicKey": get_web_push_vapid_public_key(),
+            "message": ""
+            if is_web_push_configured()
+            else "Pushmeldingen zijn nog niet volledig geconfigureerd op de server.",
+        }
+    )
+
+
+@app.post("/api/push/subscribe")
+def api_push_subscribe():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Je bent niet ingelogd."}), 401
+    if not is_web_push_configured():
+        return jsonify({"error": "Pushmeldingen zijn nog niet volledig geconfigureerd op de server."}), 503
+
+    payload = request.get_json(silent=True) or {}
+    subscription = payload.get("subscription") if isinstance(payload.get("subscription"), dict) else payload
+    try:
+        save_web_push_subscription(str(user["id"]), subscription, request.headers.get("User-Agent", ""))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify({"ok": True})
+
+
+@app.post("/api/push/unsubscribe")
+def api_push_unsubscribe():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Je bent niet ingelogd."}), 401
+
+    payload = request.get_json(silent=True) or {}
+    delete_web_push_subscription(str(payload.get("endpoint") or "").strip())
+    return jsonify({"ok": True})
 
 
 @app.get("/trainersvergoedingen")

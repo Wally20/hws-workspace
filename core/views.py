@@ -99,6 +99,9 @@ api_sync_emailed_registration_orders = legacy_view("api_sync_emailed_registratio
 api_complete_registration_event = legacy_view("api_complete_registration_event")
 api_cancel_registration_event = legacy_view("api_cancel_registration_event")
 api_save_leads_blocked_emails = legacy_view("api_save_leads_blocked_emails")
+api_push_status = legacy_view("api_push_status")
+api_push_subscribe = legacy_view("api_push_subscribe")
+api_push_unsubscribe = legacy_view("api_push_unsubscribe")
 
 
 def service_worker(request, *args, **kwargs):
