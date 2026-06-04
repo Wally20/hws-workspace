@@ -55,11 +55,15 @@
                   <span class="compact-stat-value">{{ setting.standardAmountLabel }}</span>
                 </div>
                 <div class="compact-stat-row">
+                  <span class="summary-label">Factuurregel</span>
+                  <span class="compact-stat-value">Factuurbedrag {{ setting.preview.sequenceNumber }} seizoen {{ setting.preview.seasonLabel }}</span>
+                </div>
+                <div class="compact-stat-row">
                   <span class="summary-label">Bedrag per training</span>
                   <span class="compact-stat-value">{{ setting.trainingAmountLabel }}</span>
                 </div>
                 <div class="compact-stat-row">
-                  <span class="summary-label">Geannuleerd deze maand</span>
+                  <span class="summary-label">Niet gegeven in {{ setting.preview.deductionMonthLabel }}</span>
                   <span class="compact-stat-value">{{ setting.preview.cancelledCount }}</span>
                 </div>
               </div>

@@ -12068,6 +12068,10 @@ def build_month_label(month_start: date) -> str:
     return f"{DUTCH_MONTH_NAMES[month_start.month - 1]} {month_start.year}"
 
 
+def build_full_month_label(month_start: date) -> str:
+    return f"{DUTCH_FULL_MONTH_NAMES[month_start.month - 1]} {month_start.year}"
+
+
 def build_agenda_month_days(month_start: date) -> List[List[Dict[str, Any]]]:
     sunday_first_calendar = calendar.Calendar(firstweekday=6)
     month_weeks: List[List[Dict[str, Any]]] = []
@@ -12919,6 +12923,33 @@ def get_month_bounds(process_date: date) -> Tuple[date, date]:
     return month_start, month_end
 
 
+def get_previous_month_bounds(process_date: date) -> Tuple[date, date]:
+    previous_month_start = add_months(process_date.replace(day=1), -1)
+    previous_month_end = process_date.replace(day=1) - timedelta(days=1)
+    return previous_month_start, previous_month_end
+
+
+def build_automatic_invoice_season_label(setting: Dict[str, Any], process_date: date) -> str:
+    period_start = parse_iso_date(setting.get("periodStart", ""))
+    period_end = parse_iso_date(setting.get("periodEnd", ""))
+    if period_start and period_end:
+        return f"{period_start.year}/{period_end.year}"
+    month_start = process_date.replace(day=1)
+    season_start_year = month_start.year if month_start.month >= 7 else month_start.year - 1
+    return f"{season_start_year}/{season_start_year + 1}"
+
+
+def get_automatic_invoice_sequence_number(setting: Dict[str, Any], process_date: date) -> int:
+    period_start = parse_iso_date(setting.get("periodStart", ""))
+    invoice_month = process_date.replace(day=1)
+    if not period_start:
+        return 1
+    period_month = period_start.replace(day=1)
+    if invoice_month < period_month:
+        return 1
+    return ((invoice_month.year - period_month.year) * 12) + invoice_month.month - period_month.month + 1
+
+
 def load_automatic_invoice_settings(active_only: bool = False) -> List[Dict[str, Any]]:
     query = """
         SELECT id, club_name, standard_amount, training_amount, invoice_day, repeat_enabled,
@@ -13091,7 +13122,8 @@ def automatic_invoice_run_exists(setting_id: int, invoice_month: Optional[str] =
 
 def build_automatic_invoice_lines(setting: Dict[str, Any], process_date: date) -> Dict[str, Any]:
     month_start, month_end = get_month_bounds(process_date)
-    trainings = load_agenda_trainings(month_start.isoformat(), month_end.isoformat())
+    previous_month_start, previous_month_end = get_previous_month_bounds(process_date)
+    trainings = load_agenda_trainings(previous_month_start.isoformat(), previous_month_end.isoformat())
     cancelled_trainings = [
         training
         for training in trainings
@@ -13101,27 +13133,31 @@ def build_automatic_invoice_lines(setting: Dict[str, Any], process_date: date) -
     ]
     standard_amount = decimal_from_value(setting.get("standardAmount"))
     training_amount = decimal_from_value(setting.get("trainingAmount"))
+    cancelled_total = training_amount * Decimal(len(cancelled_trainings))
+    sequence_number = get_automatic_invoice_sequence_number(setting, process_date)
+    season_label = build_automatic_invoice_season_label(setting, process_date)
     invoice_lines = [
         {
-            "description": f"Samenwerking {setting['clubName']} - {build_month_label(month_start)}",
+            "description": f"Factuurbedrag {sequence_number} seizoen {season_label}",
             "amount": "1",
             "price": format_invoice_decimal(standard_amount),
         }
     ]
-    for training in cancelled_trainings:
-        training_date = parse_iso_date(training.get("date", ""))
-        date_label = training_date.strftime("%d-%m-%Y") if training_date else str(training.get("date", "")).strip()
+    if cancelled_trainings:
         invoice_lines.append(
             {
-                "description": f"Aftrek geannuleerde training {date_label}",
+                "description": f"Niet gegeven trainingen {build_full_month_label(previous_month_start)}",
                 "amount": "1",
-                "price": format_invoice_decimal(-training_amount),
+                "price": format_invoice_decimal(-cancelled_total),
             }
         )
-    total_amount = standard_amount - (training_amount * Decimal(len(cancelled_trainings)))
+    total_amount = standard_amount - cancelled_total
     return {
         "invoiceMonth": month_start.strftime("%Y-%m"),
         "monthLabel": build_month_label(month_start),
+        "deductionMonthLabel": build_full_month_label(previous_month_start),
+        "sequenceNumber": sequence_number,
+        "seasonLabel": season_label,
         "cancelledTrainings": cancelled_trainings,
         "cancelledCount": len(cancelled_trainings),
         "invoiceLines": invoice_lines,

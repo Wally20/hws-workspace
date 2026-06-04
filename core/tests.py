@@ -59,6 +59,42 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_automatic_invoice_lines_deduct_previous_month_cancellations(self):
+        setting = {
+            "id": 1,
+            "clubName": "VV Gorssel",
+            "standardAmount": "100.00",
+            "trainingAmount": "25.00",
+            "periodStart": "2026-09-01",
+            "periodEnd": "2027-06-01",
+        }
+        trainings = [
+            {
+                "location": "VV Gorssel",
+                "trainingType": "samenwerkende_amateurclub",
+                "status": "geannuleerd",
+                "date": "2026-09-14",
+                "time": "18:00",
+            },
+            {
+                "location": "VV Gorssel",
+                "trainingType": "samenwerkende_amateurclub",
+                "status": "geannuleerd",
+                "date": "2026-09-21",
+                "time": "18:00",
+            },
+        ]
+
+        with patch.object(legacy, "load_agenda_trainings", return_value=trainings) as mocked_load:
+            payload = legacy.build_automatic_invoice_lines(setting, legacy.date(2026, 10, 1))
+
+        mocked_load.assert_called_once_with("2026-09-01", "2026-09-30")
+        self.assertEqual(payload["invoiceLines"][0]["description"], "Factuurbedrag 2 seizoen 2026/2027")
+        self.assertEqual(payload["invoiceLines"][0]["price"], "100.00")
+        self.assertEqual(payload["invoiceLines"][1]["description"], "Niet gegeven trainingen september 2026")
+        self.assertEqual(payload["invoiceLines"][1]["price"], "-50.00")
+        self.assertEqual(payload["totalAmountLabel"], "€ 50,00")
+
     def test_login_rate_limit_blocks_repeated_attempts(self):
         client = Client()
         csrf_token = self.extract_csrf_token(client.get("/login", secure=True))
