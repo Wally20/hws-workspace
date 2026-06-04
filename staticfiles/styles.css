@@ -4736,6 +4736,34 @@ a.spaarpot-year-row:hover {
   font-size: 1rem;
 }
 
+.team-detail-tabs {
+  display: inline-flex;
+  gap: 6px;
+  margin-top: 24px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-soft);
+}
+
+.team-detail-tab {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #6f7787;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.team-detail-tab-active {
+  background: #111111;
+  color: #ffffff;
+}
+
 .team-member-form {
   display: grid;
   gap: 26px;
@@ -4848,6 +4876,53 @@ a.spaarpot-year-row:hover {
 .team-form-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+.team-fees-section {
+  gap: 20px;
+}
+
+.team-fees-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.team-fees-head p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.team-fee-add-button {
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.team-fee-rows {
+  display: grid;
+  gap: 14px;
+}
+
+.team-fee-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) minmax(140px, 0.8fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fafafa;
+}
+
+.team-fee-remove-button {
+  min-height: 48px;
+  white-space: nowrap;
 }
 
 .team-detail-card {
@@ -5465,8 +5540,19 @@ a.spaarpot-year-row:hover {
 
   .team-modal-identity,
   .team-availability-head,
+  .team-fees-head,
   .team-header {
     display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .team-detail-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .team-fee-row {
     grid-template-columns: 1fr;
   }
 

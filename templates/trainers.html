@@ -76,12 +76,14 @@
         data-trainer-created="{{ profile.createdAtDisplay }}"
         data-trainer-access="{% if profile.isAdmin %}Admin{% else %}Teamlid{% endif %}"
         data-trainer-status="{{ profile.status }}"
+        data-trainer-invite-link="{{ profile.inviteLink }}"
         data-trainer-license="{{ profile.knvbLicense or '-' }}"
         data-trainer-education="{{ profile.education or '-' }}"
         data-trainer-availability="{{ profile.availabilityLabel }}"
         data-trainer-availability-days="{{ profile.availabilityDays|join(',') }}"
         data-trainer-is-admin="{{ '1' if profile.isAdmin else '0' }}"
         data-trainer-notes="{{ profile.notes or 'Geen notities toegevoegd.' }}"
+        data-trainer-fees='{{ profile.trainerFees|tojson }}'
         data-trainer-initials="{{ profile.initials }}"
       >
         <span class="team-user-avatar-wrap">
@@ -137,6 +139,7 @@
             <label class="field">
               <span>Rol</span>
               <select id="trainerSystemRole" name="system_role" required>
+                <option value="Trainer">Trainer</option>
                 <option value="Admin">Admin</option>
                 <option value="Social media beheerder">Social media beheerder</option>
               </select>
@@ -191,8 +194,13 @@
           </div>
         </div>
 
+        <div class="team-detail-tabs" role="tablist" aria-label="Teamlid onderdelen">
+          <button type="button" class="team-detail-tab team-detail-tab-active" data-team-detail-tab="gegevens" aria-selected="true">Gegevens</button>
+          <button type="button" class="team-detail-tab" data-team-detail-tab="vergoedingen" aria-selected="false">Trainersvergoedingen</button>
+        </div>
+
         <section class="team-form-grid team-form-grid-single">
-          <article class="team-form-section">
+          <article class="team-form-section" data-team-detail-panel="gegevens">
             <h3>Gegevens</h3>
 
             <div class="team-field-grid">
@@ -210,6 +218,7 @@
             <label class="field">
               <span>Rol</span>
               <select name="system_role" id="trainerDetailSystemRoleInput" required>
+                <option value="Trainer">Trainer</option>
                 <option value="Admin">Admin</option>
                 <option value="Social media beheerder">Social media beheerder</option>
               </select>
@@ -227,6 +236,23 @@
               </label>
             </div>
 
+            <label class="field">
+              <span>Aanmeldlink</span>
+              <input type="text" id="trainerDetailInviteLinkInput" readonly>
+            </label>
+
+          </article>
+
+          <article class="team-form-section team-fees-section" data-team-detail-panel="vergoedingen" hidden>
+            <div class="team-fees-head">
+              <div>
+                <h3>Trainersvergoedingen</h3>
+                <p>Leg per club vast welke activiteit dit teamlid geeft en welk bedrag per training geldt.</p>
+              </div>
+              <button type="button" class="team-secondary-button team-fee-add-button" id="addTrainerFeeRow">Regel toevoegen</button>
+            </div>
+
+            <div class="team-fee-rows" id="trainerFeeRows"></div>
           </article>
 
         </section>
@@ -244,6 +270,37 @@
       </form>
     </div>
   </div>
+
+  <template id="trainerFeeRowTemplate">
+    <div class="team-fee-row">
+      <label class="field">
+        <span>Club</span>
+        <select name="fee_club">
+          <option value="">Selecteer club</option>
+          {% for club in agenda_club_options %}
+            <option value="{{ club }}">{{ club }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Activiteit</span>
+        <select name="fee_activity">
+          <option value="">Selecteer activiteit</option>
+          {% for option in trainer_fee_activity_options %}
+            <option value="{{ option.value }}">{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Bedrag per training</span>
+        <input type="text" name="fee_amount" inputmode="decimal" placeholder="Bijv. 35,00">
+      </label>
+
+      <button type="button" class="subtle-button action-small team-fee-remove-button" data-remove-trainer-fee-row>Verwijderen</button>
+    </div>
+  </template>
 
   <script src="../static/trainers.js?v={{ asset_version }}" defer></script>
 {% endblock %}

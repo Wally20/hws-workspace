@@ -9,6 +9,11 @@ const previewSystemRole = document.querySelector("#trainerSystemRole");
 const inviteLinkField = document.querySelector("#inviteLinkField");
 const copyInviteLinkButton = document.querySelector("#copyInviteLinkButton");
 const trainerDeleteForm = document.querySelector("#trainerDeleteForm");
+const trainerDetailTabs = document.querySelectorAll("[data-team-detail-tab]");
+const trainerDetailPanels = document.querySelectorAll("[data-team-detail-panel]");
+const trainerFeeRows = document.querySelector("#trainerFeeRows");
+const trainerFeeRowTemplate = document.querySelector("#trainerFeeRowTemplate");
+const addTrainerFeeRowButton = document.querySelector("#addTrainerFeeRow");
 
 function setTrainerModalOpen(modal, isOpen) {
   if (!modal) {
@@ -50,6 +55,68 @@ function updateTrainerPreview() {
   setDetailField("#trainerPreviewRolePill", systemRole);
 }
 
+function setTrainerDetailTab(activeTab) {
+  trainerDetailTabs.forEach((button) => {
+    const isActive = button.dataset.teamDetailTab === activeTab;
+    button.classList.toggle("team-detail-tab-active", isActive);
+    button.setAttribute("aria-selected", isActive ? "true" : "false");
+  });
+
+  trainerDetailPanels.forEach((panel) => {
+    panel.hidden = panel.dataset.teamDetailPanel !== activeTab;
+  });
+}
+
+function addTrainerFeeRow(rowData = {}) {
+  if (!trainerFeeRows || !(trainerFeeRowTemplate instanceof HTMLTemplateElement)) {
+    return;
+  }
+
+  const fragment = trainerFeeRowTemplate.content.cloneNode(true);
+  const row = fragment.querySelector(".team-fee-row");
+  if (!row) {
+    return;
+  }
+
+  const clubInput = row.querySelector('select[name="fee_club"]');
+  const activityInput = row.querySelector('select[name="fee_activity"]');
+  const amountInput = row.querySelector('input[name="fee_amount"]');
+  if (clubInput) {
+    clubInput.value = rowData.club || "";
+  }
+  if (activityInput) {
+    activityInput.value = rowData.activity || "";
+  }
+  if (amountInput) {
+    amountInput.value = rowData.amount || "";
+  }
+
+  trainerFeeRows.appendChild(fragment);
+}
+
+function setTrainerFeeRows(rows) {
+  if (!trainerFeeRows) {
+    return;
+  }
+
+  trainerFeeRows.innerHTML = "";
+  const normalizedRows = Array.isArray(rows) ? rows : [];
+  if (normalizedRows.length) {
+    normalizedRows.forEach((row) => addTrainerFeeRow(row));
+  } else {
+    addTrainerFeeRow();
+  }
+}
+
+function getTrainerFeesFromButton(button) {
+  try {
+    const parsedRows = JSON.parse(button.dataset.trainerFees || "[]");
+    return Array.isArray(parsedRows) ? parsedRows : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
 function openTrainerDetail(button) {
   const trainerName = button.dataset.trainerName || "Teamlid";
 
@@ -59,12 +126,15 @@ function openTrainerDetail(button) {
   setDetailInputValue("#trainerDetailLastName", button.dataset.trainerLastName || "");
   setDetailInputValue("#trainerDetailEmailInput", button.dataset.trainerEmail || "");
   setDetailInputValue("#trainerDetailPhoneInput", button.dataset.trainerPhone === "-" ? "" : (button.dataset.trainerPhone || ""));
+  setDetailInputValue("#trainerDetailInviteLinkInput", button.dataset.trainerInviteLink || "");
   setDetailInputValue("#trainerDetailLicenseInput", button.dataset.trainerLicense === "-" ? "" : (button.dataset.trainerLicense || ""));
   setDetailInputValue("#trainerDetailEducationInput", button.dataset.trainerEducation === "-" ? "" : (button.dataset.trainerEducation || ""));
   setDetailInputValue("#trainerDetailNotesInput", button.dataset.trainerNotes === "Geen notities toegevoegd." ? "" : (button.dataset.trainerNotes || ""));
   setDetailField("#trainerDetailName", trainerName);
   setDetailField("#trainerDetailRole", button.dataset.trainerSystemRole || "-");
   setDetailField("#trainerDetailAvatar", button.dataset.trainerInitials || "TM");
+  setTrainerFeeRows(getTrainerFeesFromButton(button));
+  setTrainerDetailTab("gegevens");
 
   const systemRoleInput = document.querySelector("#trainerDetailSystemRoleInput");
   if (systemRoleInput) {
@@ -89,6 +159,28 @@ openTrainerCreateModal?.addEventListener("click", () => {
 
 trainerTileButtons.forEach((button) => {
   button.addEventListener("click", () => openTrainerDetail(button));
+});
+
+trainerDetailTabs.forEach((button) => {
+  button.addEventListener("click", () => {
+    setTrainerDetailTab(button.dataset.teamDetailTab || "gegevens");
+  });
+});
+
+addTrainerFeeRowButton?.addEventListener("click", () => {
+  addTrainerFeeRow();
+});
+
+trainerFeeRows?.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement) || !target.dataset.removeTrainerFeeRow) {
+    return;
+  }
+  const row = target.closest(".team-fee-row");
+  row?.remove();
+  if (!trainerFeeRows.querySelector(".team-fee-row")) {
+    addTrainerFeeRow();
+  }
 });
 
 teamSearchInput?.addEventListener("input", filterTeamCards);

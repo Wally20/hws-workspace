@@ -247,6 +247,13 @@ AGENDA_TRAINING_STATUS_OPTIONS = (
         "className": "agenda-event-status-geannuleerd",
     },
 )
+TRAINER_FEE_ACTIVITY_OPTIONS = tuple(
+    {
+        "value": str(option["value"]),
+        "label": str(option["label"]),
+    }
+    for option in AGENDA_TRAINING_TYPE_OPTIONS
+)
 AGENDA_NO_ACTIVITY_COPY_REASONS = {
     "2026-10-19": "herfstvakantie",
     "2026-10-21": "herfstvakantie",
@@ -635,24 +642,8 @@ WORKSPACE_SEARCH_PAGES = (
         "title": "Trainersvergoedingen",
         "path": "/trainersvergoedingen",
         "section": "Financien",
-        "description": "Startpunt voor vergoedingen per training en maand.",
+        "description": "Trainersvergoedingen beheren.",
         "keywords": ("vergoeding", "trainers", "betaling"),
-    },
-    {
-        "key": "trainer-fees",
-        "title": "Vergoedingen per training",
-        "path": "/trainersvergoedingen/per-training",
-        "section": "Financien",
-        "description": "Trainersvergoeding per training bekijken.",
-        "keywords": ("vergoeding", "training", "trainers"),
-    },
-    {
-        "key": "trainer-fees",
-        "title": "Vergoedingen per maand",
-        "path": "/trainersvergoedingen/per-maand",
-        "section": "Financien",
-        "description": "Trainersvergoeding per maand bekijken.",
-        "keywords": ("vergoeding", "maand", "trainers"),
     },
     {
         "key": "oefenstof",
@@ -3650,6 +3641,7 @@ def init_db() -> None:
                 availability_days TEXT,
                 phone TEXT,
                 notes TEXT,
+                trainer_fees_json TEXT NOT NULL DEFAULT '[]',
                 is_admin INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL
@@ -3934,6 +3926,8 @@ def init_db() -> None:
             connection.execute("ALTER TABLE trainer_profiles ADD COLUMN education TEXT")
         if "availability_days" not in existing_columns:
             connection.execute("ALTER TABLE trainer_profiles ADD COLUMN availability_days TEXT")
+        if "trainer_fees_json" not in existing_columns:
+            connection.execute("ALTER TABLE trainer_profiles ADD COLUMN trainer_fees_json TEXT NOT NULL DEFAULT '[]'")
 
         registration_event_columns = {
             row["name"]
@@ -11242,7 +11236,7 @@ def normalize_system_role(role: str) -> str:
 
 
 def is_allowed_system_role(role: str) -> bool:
-    return normalize_system_role(role) in {"Admin", "Social media beheerder"}
+    return normalize_system_role(role) in {"Admin", "Social media beheerder", "Trainer"}
 
 
 def role_grants_admin_access(role: str) -> bool:
@@ -11322,8 +11316,64 @@ def require_page_access(page_key: str) -> Optional[Any]:
     return redirect(url_for("personal_profile_page"))
 
 
+def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, str]]:
+    rows = raw_rows if isinstance(raw_rows, list) else []
+    normalized_rows = []
+    valid_clubs = set(AGENDA_CLUB_OPTIONS)
+    valid_activities = {str(option["value"]): str(option["label"]) for option in TRAINER_FEE_ACTIVITY_OPTIONS}
+
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        club = str(item.get("club") or "").strip()
+        activity = str(item.get("activity") or item.get("activityType") or "").strip()
+        amount = str(item.get("amount") or "").strip()
+        if not club and not activity and not amount:
+            continue
+        if club not in valid_clubs:
+            club = ""
+        if activity not in valid_activities:
+            activity = ""
+        normalized_rows.append(
+            {
+                "club": club,
+                "activity": activity,
+                "activityLabel": valid_activities.get(activity, ""),
+                "amount": amount,
+            }
+        )
+
+    return normalized_rows
+
+
+def parse_trainer_fee_rows_from_form(form_data: Any) -> List[Dict[str, str]]:
+    clubs = form_data.getlist("fee_club")
+    activities = form_data.getlist("fee_activity")
+    amounts = form_data.getlist("fee_amount")
+    max_length = max(len(clubs), len(activities), len(amounts), 0)
+    raw_rows = []
+    for index in range(max_length):
+        raw_rows.append(
+            {
+                "club": clubs[index] if index < len(clubs) else "",
+                "activity": activities[index] if index < len(activities) else "",
+                "amount": amounts[index] if index < len(amounts) else "",
+            }
+        )
+    return normalize_trainer_fee_rows(raw_rows)
+
+
+def trainer_fees_json_dumps(rows: List[Dict[str, str]]) -> str:
+    return json.dumps(normalize_trainer_fee_rows(rows), ensure_ascii=False)
+
+
 def build_user_payload(row: sqlite3.Row) -> Dict[str, Any]:
     system_role = normalize_system_role(str(row["system_role"] or row["role"] or ""))
+    trainer_fees_json = str(row["trainer_fees_json"] or "[]") if "trainer_fees_json" in row.keys() else "[]"
+    try:
+        trainer_fees_payload = json.loads(trainer_fees_json)
+    except (TypeError, json.JSONDecodeError):
+        trainer_fees_payload = []
     return {
         "id": str(row["id"]),
         "fullName": str(row["full_name"] or "").strip(),
@@ -11341,6 +11391,7 @@ def build_user_payload(row: sqlite3.Row) -> Dict[str, Any]:
         "availabilityDays": [day for day in str(row["availability_days"] or "").split(",") if day],
         "phone": str(row["phone"] or "").strip(),
         "notes": str(row["notes"] or "").strip(),
+        "trainerFees": normalize_trainer_fee_rows(trainer_fees_payload),
         "isAdmin": bool(row["is_admin"]) or role_grants_admin_access(system_role),
         "status": str(row["status"] or "Actief").strip(),
         "createdAt": str(row["created_at"] or "").strip(),
@@ -11383,42 +11434,81 @@ def update_trainer_profile(
     notes: str,
     availability_days: List[str],
     is_admin: bool,
+    trainer_fees: Optional[List[Dict[str, str]]] = None,
 ) -> None:
     with get_db_connection() as connection:
-        connection.execute(
-            """
-            UPDATE trainer_profiles
-            SET
-                full_name = ?,
-                email = ?,
-                username = ?,
-                role = ?,
-                member_type = ?,
-                system_role = ?,
-                knvb_license = ?,
-                education = ?,
-                availability_days = ?,
-                phone = ?,
-                notes = ?,
-                is_admin = ?
-            WHERE id = ?
-            """,
-            (
-                full_name.strip(),
-                email.strip(),
-                username.strip(),
-                system_role.strip() or "Trainer",
-                member_type.strip(),
-                system_role.strip(),
-                knvb_license.strip(),
-                education.strip(),
-                ",".join(day.strip() for day in availability_days if day.strip()),
-                phone.strip(),
-                notes.strip(),
-                1 if is_admin else 0,
-                profile_id.strip(),
-            ),
-        )
+        if trainer_fees is None:
+            connection.execute(
+                """
+                UPDATE trainer_profiles
+                SET
+                    full_name = ?,
+                    email = ?,
+                    username = ?,
+                    role = ?,
+                    member_type = ?,
+                    system_role = ?,
+                    knvb_license = ?,
+                    education = ?,
+                    availability_days = ?,
+                    phone = ?,
+                    notes = ?,
+                    is_admin = ?
+                WHERE id = ?
+                """,
+                (
+                    full_name.strip(),
+                    email.strip(),
+                    username.strip(),
+                    system_role.strip() or "Trainer",
+                    member_type.strip(),
+                    system_role.strip(),
+                    knvb_license.strip(),
+                    education.strip(),
+                    ",".join(day.strip() for day in availability_days if day.strip()),
+                    phone.strip(),
+                    notes.strip(),
+                    1 if is_admin else 0,
+                    profile_id.strip(),
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                UPDATE trainer_profiles
+                SET
+                    full_name = ?,
+                    email = ?,
+                    username = ?,
+                    role = ?,
+                    member_type = ?,
+                    system_role = ?,
+                    knvb_license = ?,
+                    education = ?,
+                    availability_days = ?,
+                    phone = ?,
+                    notes = ?,
+                    is_admin = ?,
+                    trainer_fees_json = ?
+                WHERE id = ?
+                """,
+                (
+                    full_name.strip(),
+                    email.strip(),
+                    username.strip(),
+                    system_role.strip() or "Trainer",
+                    member_type.strip(),
+                    system_role.strip(),
+                    knvb_license.strip(),
+                    education.strip(),
+                    ",".join(day.strip() for day in availability_days if day.strip()),
+                    phone.strip(),
+                    notes.strip(),
+                    1 if is_admin else 0,
+                    trainer_fees_json_dumps(trainer_fees),
+                    profile_id.strip(),
+                ),
+            )
     clear_local_data_cache()
 
 
@@ -11499,6 +11589,7 @@ def load_trainer_profiles() -> List[Dict[str, Any]]:
                     availability_days,
                     phone,
                     notes,
+                    trainer_fees_json,
                     is_admin,
                     status,
                     created_at
@@ -11732,7 +11823,7 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
                 """
                 SELECT
                     id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
-                    knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
+                    knvb_license, education, availability_days, phone, notes, trainer_fees_json, is_admin, status, created_at
                 FROM trainer_profiles
                 WHERE id = ?
                 LIMIT 1
@@ -15718,42 +15809,9 @@ def trainer_fees_home_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
-    payload = fetch_orders_non_blocking()
     return render_template(
         "trainer_fees_home.html",
         active_page="trainer-fees",
-        last_updated=format_cache_timestamp(payload.get("cachedAt", 0.0)),
-        message=payload.get("message"),
-    )
-
-
-@app.get("/trainersvergoedingen/per-training")
-def trainer_fees_per_training_page() -> str:
-    access_redirect = require_page_access("trainer-fees")
-    if access_redirect is not None:
-        return access_redirect
-
-    payload = fetch_orders_non_blocking()
-    return render_template(
-        "trainer_fees_per_training.html",
-        active_page="trainer-fees",
-        last_updated=format_cache_timestamp(payload.get("cachedAt", 0.0)),
-        message=payload.get("message"),
-    )
-
-
-@app.get("/trainersvergoedingen/per-maand")
-def trainer_fees_per_month_page() -> str:
-    access_redirect = require_page_access("trainer-fees")
-    if access_redirect is not None:
-        return access_redirect
-
-    payload = fetch_orders_non_blocking()
-    return render_template(
-        "trainer_fees_per_month.html",
-        active_page="trainer-fees",
-        last_updated=format_cache_timestamp(payload.get("cachedAt", 0.0)),
-        message=payload.get("message"),
     )
 
 
@@ -15849,6 +15907,7 @@ def trainers_page() -> str:
             availability_days = request.form.getlist("availability_days")
             phone = request.form.get("phone", "").strip()
             notes = request.form.get("notes", "").strip()
+            trainer_fees = parse_trainer_fee_rows_from_form(request.form)
 
             if not profile_id or not full_name or not email or not system_role:
                 return redirect(url_for("trainers_page", error="Vul alle verplichte velden in."))
@@ -15877,6 +15936,7 @@ def trainers_page() -> str:
                 notes,
                 availability_days,
                 is_admin,
+                trainer_fees,
             )
             return redirect(url_for("trainers_page", success="Teamlid opgeslagen."))
         if action == "delete":
@@ -15948,6 +16008,11 @@ def trainers_page() -> str:
         initials = "".join(part[:1] for part in profile.get("fullName", "").split()[:2]).upper() or "TM"
         profile["initials"] = initials
         profile["availabilityLabel"] = ", ".join(profile.get("availabilityDays", [])) or "Niet ingesteld"
+        profile["inviteLink"] = (
+            url_for("invite_accept_page", invite_token=profile["inviteToken"], _external=True)
+            if profile.get("inviteToken")
+            else ""
+        )
 
     return render_template(
         "trainers.html",
@@ -15957,6 +16022,8 @@ def trainers_page() -> str:
         form_error=form_error,
         form_success=form_success,
         invite_link=invite_link,
+        agenda_club_options=AGENDA_CLUB_OPTIONS,
+        trainer_fee_activity_options=TRAINER_FEE_ACTIVITY_OPTIONS,
     )
 
 
