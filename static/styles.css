@@ -4375,6 +4375,104 @@ body.sidebar-collapsed #footballFieldWizardModal {
   font: inherit;
 }
 
+.trainer-fees-toolbar {
+  margin-bottom: 22px;
+}
+
+.trainer-fees-month-tabs {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(92px, 1fr));
+  gap: 10px;
+  margin-bottom: 22px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.trainer-fees-month-tile {
+  min-height: 112px;
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+  align-content: space-between;
+}
+
+.trainer-fees-month-tile span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.trainer-fees-month-tile strong {
+  font-size: 1.1rem;
+  line-height: 1.2;
+}
+
+.trainer-fees-overview-card {
+  display: grid;
+  gap: 22px;
+}
+
+.trainer-fees-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+
+.trainer-fees-table {
+  min-width: 1320px;
+}
+
+.trainer-fees-row {
+  display: grid;
+  grid-template-columns: 230px repeat(12, minmax(78px, 1fr)) 110px;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 0.86rem;
+}
+
+.trainer-fees-row:first-child {
+  border-top: 0;
+}
+
+.trainer-fees-head-row {
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.trainer-fees-row > span:not(.trainer-fees-name) {
+  text-align: right;
+}
+
+.trainer-fees-name {
+  display: grid;
+  gap: 3px;
+}
+
+.trainer-fees-name strong {
+  font-size: 0.94rem;
+}
+
+.trainer-fees-name small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.trainer-fees-total {
+  font-weight: 900;
+}
+
+.trainer-fees-empty {
+  padding: 18px;
+}
+
 .spaarpot-delete-form {
   display: inline-flex;
   justify-content: flex-end;

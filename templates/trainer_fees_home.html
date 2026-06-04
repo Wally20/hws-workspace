@@ -6,38 +6,75 @@
   <header class="page-header">
     <div>
       <h1>Trainersvergoedingen</h1>
-      <p class="welcome-line">
-        Kies welk overzicht van trainersvergoedingen je wilt openen
-      </p>
+      <p class="welcome-line">Automatisch berekend vanuit de agenda en de tarieven per trainer in Team.</p>
     </div>
   </header>
 
-  <section class="orders-toolbar">
+  <section class="orders-toolbar trainer-fees-toolbar">
     <div class="orders-toolbar-copy">
-      <p class="orders-toolbar-title">Overzicht</p>
+      <p class="orders-toolbar-title">Maandoverzicht</p>
       <p class="orders-toolbar-text">
-        Open vergoeding per training of per maand · Laatst bijgewerkt: {{ last_updated }}
+        {{ fee_summary.matchedTrainingCount }} trainingen met tarief · {{ fee_summary.missingRateCount }} ingeplande trainingen zonder gekoppeld tarief
       </p>
     </div>
+    <form method="get" action="/trainersvergoedingen" class="revenue-filter-form">
+      <label for="trainerFeesYearSelect" class="visually-hidden">Kies jaar</label>
+      <select id="trainerFeesYearSelect" name="year" class="revenue-select" data-auto-submit="1">
+        {% for option in year_options %}
+          <option value="{{ option.value }}" {% if option.value == fee_summary.selectedYear %}selected{% endif %}>
+            {{ option.label }}
+          </option>
+        {% endfor %}
+      </select>
+    </form>
   </section>
 
-  {% if message %}
-    <section class="notice">{{ message }}</section>
-  {% endif %}
+  <section class="trainer-fees-month-tabs" aria-label="Maanden">
+    {% for month in fee_summary.months %}
+      <article class="summary-card trainer-fees-month-tile">
+        <span>{{ month.shortLabel }}</span>
+        <strong>{{ month.totalLabel }}</strong>
+      </article>
+    {% endfor %}
+  </section>
 
-  <section class="revenue-entry-grid">
-    <a href="/trainersvergoedingen/per-training" class="summary-card revenue-entry-card">
-      <p class="panel-title">Per training</p>
-      <h2>Bekijk vergoeding per training</h2>
-      <p class="revenue-entry-copy">Open een aparte pagina voor het overzicht van trainersvergoedingen per training.</p>
-      <span class="revenue-entry-link">Open per training</span>
-    </a>
+  <section class="summary-card trainer-fees-overview-card">
+    <div class="spaarpot-quarter-head">
+      <div>
+        <p class="panel-title">{{ fee_summary.selectedYear }}</p>
+        <h2>Trainers per maand</h2>
+      </div>
+      <div class="spaarpot-quarter-reserve">
+        <span>Jaar totaal</span>
+        <strong>{{ fee_summary.yearTotalLabel }}</strong>
+      </div>
+    </div>
 
-    <a href="/trainersvergoedingen/per-maand" class="summary-card revenue-entry-card">
-      <p class="panel-title">Per maand</p>
-      <h2>Bekijk vergoeding per maand</h2>
-      <p class="revenue-entry-copy">Open een aparte pagina voor het overzicht van trainersvergoedingen per maand.</p>
-      <span class="revenue-entry-link">Open per maand</span>
-    </a>
+    <div class="trainer-fees-table-wrap">
+      <div class="trainer-fees-table">
+        <div class="trainer-fees-row trainer-fees-head-row">
+          <span>Trainer</span>
+          {% for month in fee_summary.months %}
+            <span>{{ month.shortLabel }}</span>
+          {% endfor %}
+          <span>Totaal</span>
+        </div>
+
+        {% for trainer in fee_summary.trainers %}
+          <div class="trainer-fees-row">
+            <span class="trainer-fees-name">
+              <strong>{{ trainer.name }}</strong>
+              <small>{{ trainer.role }}</small>
+            </span>
+            {% for month in trainer.months %}
+              <span title="{{ month.trainingCount }} trainingen">{{ month.amountLabel }}</span>
+            {% endfor %}
+            <span class="trainer-fees-total">{{ trainer.yearTotalLabel }}</span>
+          </div>
+        {% else %}
+          <p class="spaarpot-empty trainer-fees-empty">Geen trainers gevonden.</p>
+        {% endfor %}
+      </div>
+    </div>
   </section>
 {% endblock %}

@@ -11395,6 +11395,123 @@ def build_trainer_fee_agenda_activity_options() -> Dict[str, List[Dict[str, str]
     return options_by_club
 
 
+def build_trainer_fee_year_options(trainings: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    years = {
+        parsed_date.year
+        for training in trainings
+        for parsed_date in [parse_iso_date(str(training.get("date") or ""))]
+        if parsed_date is not None
+    }
+    years.add(date.today().year)
+    return [{"value": str(year), "label": str(year)} for year in sorted(years, reverse=True)]
+
+
+def parse_trainer_fee_amount(value: Any) -> Decimal:
+    amount = parse_decimal_amount(str(value or ""))
+    return amount if amount > 0 else Decimal("0")
+
+
+def find_trainer_fee_amount(profile: Dict[str, Any], club: str, activity: str) -> Decimal:
+    for fee_row in profile.get("trainerFees") or []:
+        if str(fee_row.get("club") or "").strip() != club:
+            continue
+        if str(fee_row.get("activity") or "").strip() != activity:
+            continue
+        return parse_trainer_fee_amount(fee_row.get("amount"))
+    return Decimal("0")
+
+
+def build_trainer_fee_monthly_summary(selected_year: int) -> Dict[str, Any]:
+    profiles = [
+        profile
+        for profile in load_trainer_profiles()
+        if str(profile.get("fullName") or "").strip().lower() != "david van walstijn"
+    ]
+    profiles_by_id = {str(profile.get("id") or "").strip(): profile for profile in profiles}
+    month_totals: Dict[int, Decimal] = {month: Decimal("0") for month in range(1, 13)}
+    trainer_totals: Dict[str, Dict[int, Decimal]] = {
+        str(profile.get("id") or "").strip(): {month: Decimal("0") for month in range(1, 13)}
+        for profile in profiles
+    }
+    trainer_counts: Dict[str, Dict[int, int]] = {
+        str(profile.get("id") or "").strip(): {month: 0 for month in range(1, 13)}
+        for profile in profiles
+    }
+
+    trainings = load_agenda_trainings(f"{selected_year}-01-01", f"{selected_year}-12-31")
+    matched_training_count = 0
+    missing_rate_count = 0
+
+    for training in trainings:
+        if str(training.get("status") or "").strip() == "geannuleerd":
+            continue
+        training_date = parse_iso_date(str(training.get("date") or ""))
+        if training_date is None or training_date.year != selected_year:
+            continue
+        club = normalize_agenda_club(training.get("location"))
+        activity = str(training.get("title") or "").strip()
+        if not club or not activity:
+            continue
+        for trainer in training.get("trainers") or []:
+            trainer_id = str(trainer.get("id") or "").strip()
+            profile = profiles_by_id.get(trainer_id)
+            if profile is None:
+                continue
+            amount = find_trainer_fee_amount(profile, club, activity)
+            if amount <= 0:
+                missing_rate_count += 1
+                continue
+            month = training_date.month
+            trainer_totals[trainer_id][month] += amount
+            trainer_counts[trainer_id][month] += 1
+            month_totals[month] += amount
+            matched_training_count += 1
+
+    trainer_rows = []
+    for profile in profiles:
+        trainer_id = str(profile.get("id") or "").strip()
+        monthly_amounts = trainer_totals.get(trainer_id, {})
+        monthly_counts = trainer_counts.get(trainer_id, {})
+        year_total = sum(monthly_amounts.values(), Decimal("0"))
+        trainer_rows.append(
+            {
+                "id": trainer_id,
+                "name": str(profile.get("fullName") or "").strip(),
+                "role": str(profile.get("systemRole") or "").strip(),
+                "months": [
+                    {
+                        "month": month,
+                        "amount": round(float(monthly_amounts.get(month, Decimal("0"))), 2),
+                        "amountLabel": format_currency(float(monthly_amounts.get(month, Decimal("0")))).replace("EUR", "€"),
+                        "trainingCount": monthly_counts.get(month, 0),
+                    }
+                    for month in range(1, 13)
+                ],
+                "yearTotal": round(float(year_total), 2),
+                "yearTotalLabel": format_currency(float(year_total)).replace("EUR", "€"),
+            }
+        )
+
+    return {
+        "selectedYear": str(selected_year),
+        "months": [
+            {
+                "month": month,
+                "label": DUTCH_FULL_MONTH_NAMES[month - 1],
+                "shortLabel": DUTCH_MONTH_NAMES[month - 1],
+                "total": round(float(month_totals[month]), 2),
+                "totalLabel": format_currency(float(month_totals[month])).replace("EUR", "€"),
+            }
+            for month in range(1, 13)
+        ],
+        "trainers": trainer_rows,
+        "yearTotal": round(float(sum(month_totals.values(), Decimal("0"))), 2),
+        "yearTotalLabel": format_currency(float(sum(month_totals.values(), Decimal("0")))).replace("EUR", "€"),
+        "matchedTrainingCount": matched_training_count,
+        "missingRateCount": missing_rate_count,
+    }
+
+
 def build_user_payload(row: sqlite3.Row) -> Dict[str, Any]:
     system_role = normalize_system_role(str(row["system_role"] or row["role"] or ""))
     trainer_fees_json = str(row["trainer_fees_json"] or "[]") if "trainer_fees_json" in row.keys() else "[]"
@@ -15837,9 +15954,19 @@ def trainer_fees_home_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
+    all_trainings = load_agenda_trainings()
+    year_options = build_trainer_fee_year_options(all_trainings)
+    available_years = {option["value"] for option in year_options}
+    selected_year = request.args.get("year", "").strip() or str(date.today().year)
+    if selected_year not in available_years:
+        selected_year = year_options[0]["value"] if year_options else str(date.today().year)
+    fee_summary = build_trainer_fee_monthly_summary(int(selected_year))
+
     return render_template(
         "trainer_fees_home.html",
         active_page="trainer-fees",
+        year_options=year_options,
+        fee_summary=fee_summary,
     )
 
 
