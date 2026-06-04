@@ -91,7 +91,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         mocked_load.assert_called_once_with("2026-09-01", "2026-09-30")
         self.assertEqual(payload["invoiceLines"][0]["description"], "Factuurbedrag 2 seizoen 2026/2027")
         self.assertEqual(payload["invoiceLines"][0]["price"], "100.00")
-        self.assertEqual(payload["invoiceLines"][1]["description"], "Niet gegeven trainingen september 2026")
+        self.assertEqual(payload["invoiceLines"][1]["description"], "Niet gegeven trainingen september 2026 (2 x 25,00)")
         self.assertEqual(payload["invoiceLines"][1]["price"], "-50.00")
         self.assertEqual(payload["totalAmountLabel"], "€ 50,00")
 

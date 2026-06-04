@@ -12917,6 +12917,11 @@ def format_invoice_display(value: Any) -> str:
     return f"€ {str(decimal_value).replace('.', ',')}"
 
 
+def format_invoice_amount_without_currency(value: Any) -> str:
+    decimal_value = decimal_from_value(value).quantize(Decimal("0.01"))
+    return str(decimal_value).replace(".", ",")
+
+
 def get_month_bounds(process_date: date) -> Tuple[date, date]:
     month_start = process_date.replace(day=1)
     month_end = add_months(month_start, 1) - timedelta(days=1)
@@ -13146,7 +13151,10 @@ def build_automatic_invoice_lines(setting: Dict[str, Any], process_date: date) -
     if cancelled_trainings:
         invoice_lines.append(
             {
-                "description": f"Niet gegeven trainingen {build_full_month_label(previous_month_start)}",
+                "description": (
+                    f"Niet gegeven trainingen {build_full_month_label(previous_month_start)} "
+                    f"({len(cancelled_trainings)} x {format_invoice_amount_without_currency(training_amount)})"
+                ),
                 "amount": "1",
                 "price": format_invoice_decimal(-cancelled_total),
             }
