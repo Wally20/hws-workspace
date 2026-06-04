@@ -12908,6 +12908,27 @@ def fetch_moneybird_sales_tax_rate_id(token: str, administration_id: Any, percen
     return ""
 
 
+def fetch_moneybird_sales_no_tax_rate_id(token: str, administration_id: Any) -> str:
+    response = requests.get(
+        f"{MONEYBIRD_API_BASE}/{administration_id}/tax_rates.json",
+        headers=get_moneybird_headers(token),
+        timeout=20,
+    )
+    response.raise_for_status()
+    tax_rates = response.json()
+    if not isinstance(tax_rates, list):
+        return ""
+
+    for tax_rate in tax_rates:
+        if (
+            tax_rate.get("active")
+            and str(tax_rate.get("tax_rate_type") or "").strip() == "sales_invoice"
+            and str(tax_rate.get("name") or "").strip().lower() == "geen btw"
+        ):
+            return str(tax_rate.get("id") or "").strip()
+    return ""
+
+
 def format_invoice_decimal(value: Decimal) -> str:
     return f"{value.quantize(Decimal('0.01'))}"
 
@@ -13146,6 +13167,7 @@ def build_automatic_invoice_lines(setting: Dict[str, Any], process_date: date) -
             "description": f"Factuurbedrag {sequence_number} seizoen {season_label}",
             "amount": "1",
             "price": format_invoice_decimal(standard_amount),
+            "taxRateKind": "sales_9",
         }
     ]
     if cancelled_trainings:
@@ -13157,6 +13179,7 @@ def build_automatic_invoice_lines(setting: Dict[str, Any], process_date: date) -
                 ),
                 "amount": "1",
                 "price": format_invoice_decimal(-cancelled_total),
+                "taxRateKind": "no_tax",
             }
         )
     total_amount = standard_amount - cancelled_total
@@ -13196,14 +13219,15 @@ def create_moneybird_concept_invoice_for_setting(setting: Dict[str, Any], proces
     tax_rate_id = fetch_moneybird_sales_tax_rate_id(token, administration_id, Decimal("9"))
     if not tax_rate_id:
         raise ValueError("Geen actieve MoneyBird-btwcode van 9% gevonden voor verkoopfacturen.")
+    no_tax_rate_id = fetch_moneybird_sales_no_tax_rate_id(token, administration_id)
+    if not no_tax_rate_id:
+        raise ValueError("Geen actieve MoneyBird-btwcode 'Geen btw' gevonden voor verkoopfacturen.")
 
-    invoice_lines = [
-        {
-            **line,
-            "tax_rate_id": tax_rate_id,
-        }
-        for line in invoice_payload["invoiceLines"]
-    ]
+    invoice_lines = []
+    for line in invoice_payload["invoiceLines"]:
+        line_payload = {key: value for key, value in line.items() if key != "taxRateKind"}
+        line_payload["tax_rate_id"] = no_tax_rate_id if line.get("taxRateKind") == "no_tax" else tax_rate_id
+        invoice_lines.append(line_payload)
 
     response = requests.post(
         f"{MONEYBIRD_API_BASE}/{administration_id}/sales_invoices.json",
