@@ -90,7 +90,7 @@
           </a>
           {% endif %}
           {% if 'financien' in visible_pages %}
-          <a class="nav-item {% if active_page == 'financien' or active_page == 'revenue' or active_page == 'spaarpot' %}nav-item-active{% endif %}" href="/financien">
+          <a class="nav-item {% if active_page == 'financien' or active_page == 'revenue' or active_page == 'spaarpot' or active_page == 'trainer-fees' %}nav-item-active{% endif %}" href="/financien">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none">
                 <path d="M5 19h14"></path>
@@ -98,17 +98,6 @@
               </svg>
             </span>
             <span>Financiën</span>
-          </a>
-          {% endif %}
-          {% if 'trainer-fees' in visible_pages %}
-          <a class="nav-item {% if active_page == 'trainer-fees' %}nav-item-active{% endif %}" href="/trainersvergoedingen">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path d="M12 4v16M4 12h16"></path>
-                <path d="M7.5 7.5h9v9h-9z"></path>
-              </svg>
-            </span>
-            <span>Trainersvergoedingen</span>
           </a>
           {% endif %}
           {% if 'marketing' in visible_pages %}
