@@ -13235,7 +13235,6 @@ def create_moneybird_concept_invoice_for_setting(setting: Dict[str, Any], proces
         json={
             "sales_invoice": {
                 "contact_id": contact["id"],
-                "reference": f"Automatische conceptfactuur {setting['clubName']} {invoice_payload['monthLabel']}",
                 "invoice_date": process_date.isoformat(),
                 "prices_are_incl_tax": False,
                 "details_attributes": invoice_lines,
