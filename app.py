@@ -6073,6 +6073,40 @@ def resolve_agenda_training_status(value: Any, date_value: Any, time_value: Any,
     return explicit_status
 
 
+def auto_mark_completed_agenda_trainings() -> int:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, date, time, end_time, status
+            FROM agenda_trainings
+            WHERE status = ?
+            """,
+            ("gepland",),
+        ).fetchall()
+        completed_ids = []
+        for row in rows:
+            normalized_time = str(row["time"] or "").strip()
+            normalized_end_time = str(row["end_time"] or "").strip() or compute_default_end_time(normalized_time)
+            end_dt = combine_date_and_time(str(row["date"] or "").strip(), normalized_end_time)
+            if end_dt is not None and end_dt <= datetime.now():
+                completed_ids.append(str(row["id"]))
+
+        if not completed_ids:
+            return 0
+
+        connection.executemany(
+            """
+            UPDATE agenda_trainings
+            SET status = ?
+            WHERE id = ?
+            """,
+            [("gegeven", training_id) for training_id in completed_ids],
+        )
+
+    clear_local_data_cache()
+    return len(completed_ids)
+
+
 def build_agenda_trainer_options() -> List[Dict[str, str]]:
     options = []
     for profile in load_trainer_profiles():
@@ -11443,7 +11477,7 @@ def build_trainer_fee_monthly_summary(selected_year: int) -> Dict[str, Any]:
     missing_rate_count = 0
 
     for training in trainings:
-        if str(training.get("status") or "").strip() == "geannuleerd":
+        if str(training.get("status") or "").strip() != "gegeven":
             continue
         training_date = parse_iso_date(str(training.get("date") or ""))
         if training_date is None or training_date.year != selected_year:
@@ -15954,6 +15988,7 @@ def trainer_fees_home_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
+    auto_mark_completed_agenda_trainings()
     all_trainings = load_agenda_trainings()
     year_options = build_trainer_fee_year_options(all_trainings)
     available_years = {option["value"] for option in year_options}
@@ -16189,6 +16224,7 @@ def agenda_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
+    auto_mark_completed_agenda_trainings()
     view_mode = normalize_agenda_label(request.args.get("view", "week")).lower() or "week"
     if view_mode not in {"week", "month"}:
         view_mode = "week"
