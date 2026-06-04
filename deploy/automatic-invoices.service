@@ -1,0 +1,9 @@
+[Unit]
+Description=HWS automatic MoneyBird concept invoices
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/overzicht
+EnvironmentFile=/srv/overzicht/.env
+ExecStart=/srv/overzicht/.venv/bin/python manage.py process_automatic_invoices

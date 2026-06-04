@@ -3744,6 +3744,33 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS automatic_invoice_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                club_name TEXT NOT NULL,
+                standard_amount TEXT NOT NULL,
+                training_amount TEXT NOT NULL,
+                invoice_day INTEGER NOT NULL,
+                repeat_enabled INTEGER NOT NULL DEFAULT 0,
+                period_start TEXT,
+                period_end TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS automatic_invoice_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                setting_id INTEGER NOT NULL,
+                invoice_month TEXT NOT NULL,
+                moneybird_invoice_id TEXT,
+                moneybird_draft_id TEXT,
+                status TEXT NOT NULL,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE(setting_id, invoice_month),
+                FOREIGN KEY (setting_id) REFERENCES automatic_invoice_settings(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS proposal_lines (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 proposal_id INTEGER NOT NULL,
@@ -12834,6 +12861,357 @@ def fetch_moneybird_ledger_account_types(token: str, administration_id: Any) -> 
     }
 
 
+def find_moneybird_contact_by_name(token: str, administration_id: Any, query: str) -> Optional[Dict[str, Any]]:
+    response = requests.get(
+        f"{MONEYBIRD_API_BASE}/{administration_id}/contacts.json",
+        headers=get_moneybird_headers(token),
+        params={"query": query, "per_page": 20},
+        timeout=20,
+    )
+    response.raise_for_status()
+    contacts = response.json()
+    if not isinstance(contacts, list):
+        return None
+
+    normalized_query = normalize_agenda_label(query).lower().replace(".", "")
+    active_contacts = [contact for contact in contacts if not contact.get("archived")]
+    for contact in active_contacts:
+        company_name = normalize_agenda_label(contact.get("company_name")).lower().replace(".", "")
+        if company_name == normalized_query:
+            return contact
+    return active_contacts[0] if active_contacts else None
+
+
+def format_invoice_decimal(value: Decimal) -> str:
+    return f"{value.quantize(Decimal('0.01'))}"
+
+
+def format_invoice_display(value: Any) -> str:
+    decimal_value = decimal_from_value(value).quantize(Decimal("0.01"))
+    return f"€ {str(decimal_value).replace('.', ',')}"
+
+
+def get_month_bounds(process_date: date) -> Tuple[date, date]:
+    month_start = process_date.replace(day=1)
+    month_end = add_months(month_start, 1) - timedelta(days=1)
+    return month_start, month_end
+
+
+def load_automatic_invoice_settings(active_only: bool = False) -> List[Dict[str, Any]]:
+    query = """
+        SELECT id, club_name, standard_amount, training_amount, invoice_day, repeat_enabled,
+               period_start, period_end, active, created_at, updated_at
+        FROM automatic_invoice_settings
+    """
+    if active_only:
+        query += "\n        WHERE active = 1"
+    query += "\n        ORDER BY club_name ASC, id ASC"
+
+    with get_db_connection() as connection:
+        rows = connection.execute(query).fetchall()
+
+    settings = []
+    for row in rows:
+        standard_amount = decimal_from_value(row["standard_amount"])
+        training_amount = decimal_from_value(row["training_amount"])
+        settings.append(
+            {
+                "id": int(row["id"]),
+                "clubName": str(row["club_name"] or "").strip(),
+                "standardAmount": str(row["standard_amount"] or "").strip(),
+                "standardAmountLabel": format_invoice_display(standard_amount),
+                "trainingAmount": str(row["training_amount"] or "").strip(),
+                "trainingAmountLabel": format_invoice_display(training_amount),
+                "invoiceDay": int(row["invoice_day"] or 1),
+                "repeatEnabled": bool(row["repeat_enabled"]),
+                "periodStart": str(row["period_start"] or "").strip(),
+                "periodEnd": str(row["period_end"] or "").strip(),
+                "active": bool(row["active"]),
+                "createdAt": str(row["created_at"] or "").strip(),
+                "updatedAt": str(row["updated_at"] or "").strip(),
+                "updatedAtLabel": format_datetime_display(str(row["updated_at"] or "").strip()),
+            }
+        )
+    return settings
+
+
+def load_automatic_invoice_setting(setting_id: int) -> Optional[Dict[str, Any]]:
+    for setting in load_automatic_invoice_settings():
+        if int(setting["id"]) == int(setting_id):
+            return setting
+    return None
+
+
+def save_automatic_invoice_setting(form: Any) -> Tuple[bool, str]:
+    club_name = normalize_agenda_club(form.get("club_name", ""))
+    standard_amount = normalize_price_input(form.get("standard_amount", ""))
+    training_amount = normalize_price_input(form.get("training_amount", ""))
+    repeat_enabled = form.get("repeat_enabled") == "1"
+    period_start = str(form.get("period_start", "") or "").strip()
+    period_end = str(form.get("period_end", "") or "").strip()
+    active = form.get("active", "1") == "1"
+
+    try:
+        invoice_day = int(str(form.get("invoice_day", "") or "").strip())
+    except ValueError:
+        invoice_day = 0
+
+    if not club_name:
+        return False, "Selecteer een samenwerkende amateurclub."
+    if decimal_from_value(standard_amount) <= 0:
+        return False, "Vul een standaard factuurbedrag groter dan 0 in."
+    if decimal_from_value(training_amount) < 0:
+        return False, "Vul een bedrag per training van 0 of hoger in."
+    if invoice_day < 1 or invoice_day > 31:
+        return False, "Vul een factuurdag tussen 1 en 31 in."
+    if repeat_enabled:
+        if parse_iso_date(period_start) is None or parse_iso_date(period_end) is None:
+            return False, "Vul bij herhalen een geldige begin- en einddatum in."
+        if parse_iso_date(period_end) < parse_iso_date(period_start):
+            return False, "De einddatum moet na de begindatum liggen."
+    else:
+        period_start = ""
+        period_end = ""
+
+    now_value = datetime.now().isoformat(timespec="seconds")
+    setting_id = form.get("setting_id", type=int)
+    with get_db_connection() as connection:
+        if setting_id:
+            connection.execute(
+                """
+                UPDATE automatic_invoice_settings
+                SET club_name = ?, standard_amount = ?, training_amount = ?, invoice_day = ?,
+                    repeat_enabled = ?, period_start = ?, period_end = ?, active = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    club_name,
+                    standard_amount,
+                    training_amount,
+                    invoice_day,
+                    1 if repeat_enabled else 0,
+                    period_start,
+                    period_end,
+                    1 if active else 0,
+                    now_value,
+                    setting_id,
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO automatic_invoice_settings (
+                    club_name, standard_amount, training_amount, invoice_day, repeat_enabled,
+                    period_start, period_end, active, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    club_name,
+                    standard_amount,
+                    training_amount,
+                    invoice_day,
+                    1 if repeat_enabled else 0,
+                    period_start,
+                    period_end,
+                    1 if active else 0,
+                    now_value,
+                    now_value,
+                ),
+            )
+    clear_local_data_cache()
+    return True, "Automatische factuurinstelling opgeslagen."
+
+
+def delete_automatic_invoice_setting(setting_id: int) -> None:
+    with get_db_connection() as connection:
+        connection.execute("DELETE FROM automatic_invoice_runs WHERE setting_id = ?", (setting_id,))
+        connection.execute("DELETE FROM automatic_invoice_settings WHERE id = ?", (setting_id,))
+    clear_local_data_cache()
+
+
+def setting_is_due_for_invoice(setting: Dict[str, Any], process_date: date) -> bool:
+    if not setting.get("active"):
+        return False
+    last_day = calendar.monthrange(process_date.year, process_date.month)[1]
+    due_day = min(int(setting.get("invoiceDay") or 1), last_day)
+    if process_date.day != due_day:
+        return False
+    if setting.get("repeatEnabled"):
+        period_start = parse_iso_date(setting.get("periodStart", ""))
+        period_end = parse_iso_date(setting.get("periodEnd", ""))
+        return bool(period_start and period_end and period_start <= process_date <= period_end)
+    return not automatic_invoice_run_exists(int(setting["id"]))
+
+
+def automatic_invoice_run_exists(setting_id: int, invoice_month: Optional[str] = None) -> bool:
+    with get_db_connection() as connection:
+        if invoice_month:
+            row = connection.execute(
+                """
+                SELECT id
+                FROM automatic_invoice_runs
+                WHERE setting_id = ? AND invoice_month = ? AND status = 'created'
+                """,
+                (setting_id, invoice_month),
+            ).fetchone()
+        else:
+            row = connection.execute(
+                """
+                SELECT id
+                FROM automatic_invoice_runs
+                WHERE setting_id = ? AND status = 'created'
+                """,
+                (setting_id,),
+            ).fetchone()
+    return row is not None
+
+
+def build_automatic_invoice_lines(setting: Dict[str, Any], process_date: date) -> Dict[str, Any]:
+    month_start, month_end = get_month_bounds(process_date)
+    trainings = load_agenda_trainings(month_start.isoformat(), month_end.isoformat())
+    cancelled_trainings = [
+        training
+        for training in trainings
+        if training.get("location") == setting.get("clubName")
+        and training.get("trainingType") == "samenwerkende_amateurclub"
+        and training.get("status") == "geannuleerd"
+    ]
+    standard_amount = decimal_from_value(setting.get("standardAmount"))
+    training_amount = decimal_from_value(setting.get("trainingAmount"))
+    invoice_lines = [
+        {
+            "description": f"Samenwerking {setting['clubName']} - {build_month_label(month_start)}",
+            "amount": "1",
+            "price": format_invoice_decimal(standard_amount),
+        }
+    ]
+    for training in cancelled_trainings:
+        training_date = parse_iso_date(training.get("date", ""))
+        date_label = training_date.strftime("%d-%m-%Y") if training_date else str(training.get("date", "")).strip()
+        invoice_lines.append(
+            {
+                "description": f"Aftrek geannuleerde training {date_label}",
+                "amount": "1",
+                "price": format_invoice_decimal(-training_amount),
+            }
+        )
+    total_amount = standard_amount - (training_amount * Decimal(len(cancelled_trainings)))
+    return {
+        "invoiceMonth": month_start.strftime("%Y-%m"),
+        "monthLabel": build_month_label(month_start),
+        "cancelledTrainings": cancelled_trainings,
+        "cancelledCount": len(cancelled_trainings),
+        "invoiceLines": invoice_lines,
+        "totalAmount": total_amount,
+        "totalAmountLabel": format_invoice_display(total_amount),
+    }
+
+
+def create_moneybird_concept_invoice_for_setting(setting: Dict[str, Any], process_date: date) -> Dict[str, Any]:
+    config = get_config()
+    token = config["moneybird_token"]
+    if not token:
+        raise ValueError("MoneyBird API-token ontbreekt.")
+
+    administration = fetch_moneybird_administration(config)
+    administration_id = administration.get("id")
+    if not administration_id:
+        raise ValueError("Geen MoneyBird-administratie gevonden.")
+
+    invoice_payload = build_automatic_invoice_lines(setting, process_date)
+    invoice_month = invoice_payload["invoiceMonth"]
+    if automatic_invoice_run_exists(int(setting["id"]), invoice_month):
+        return {"skipped": True, "message": "Voor deze maand bestaat al een conceptfactuur."}
+
+    contact = find_moneybird_contact_by_name(token, administration_id, setting["clubName"])
+    if not contact or not contact.get("id"):
+        raise ValueError(f"Geen MoneyBird-contact gevonden voor {setting['clubName']}.")
+
+    response = requests.post(
+        f"{MONEYBIRD_API_BASE}/{administration_id}/sales_invoices.json",
+        headers={**get_moneybird_headers(token), "Content-Type": "application/json"},
+        json={
+            "sales_invoice": {
+                "contact_id": contact["id"],
+                "reference": f"Automatische conceptfactuur {setting['clubName']} {invoice_payload['monthLabel']}",
+                "invoice_date": process_date.isoformat(),
+                "prices_are_incl_tax": True,
+                "details_attributes": invoice_payload["invoiceLines"],
+            }
+        },
+        timeout=20,
+    )
+    response.raise_for_status()
+    invoice = response.json()
+    now_value = datetime.now().isoformat(timespec="seconds")
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO automatic_invoice_runs (
+                setting_id, invoice_month, moneybird_invoice_id, moneybird_draft_id,
+                status, error_message, created_at
+            )
+            VALUES (?, ?, ?, ?, 'created', '', ?)
+            """,
+            (
+                int(setting["id"]),
+                invoice_month,
+                str(invoice.get("id") or ""),
+                str(invoice.get("draft_id") or ""),
+                now_value,
+            ),
+        )
+    clear_local_data_cache()
+    return {
+        "skipped": False,
+        "invoice": invoice,
+        **invoice_payload,
+    }
+
+
+def process_automatic_invoices(process_date: Optional[date] = None) -> Dict[str, Any]:
+    target_date = process_date or date.today()
+    results: List[Dict[str, Any]] = []
+    for setting in load_automatic_invoice_settings(active_only=True):
+        if not setting_is_due_for_invoice(setting, target_date):
+            continue
+        try:
+            result = create_moneybird_concept_invoice_for_setting(setting, target_date)
+            results.append({"setting": setting, "result": result, "error": ""})
+        except (requests.RequestException, ValueError) as exc:
+            month_start, _ = get_month_bounds(target_date)
+            now_value = datetime.now().isoformat(timespec="seconds")
+            with get_db_connection() as connection:
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO automatic_invoice_runs (
+                        setting_id, invoice_month, moneybird_invoice_id, moneybird_draft_id,
+                        status, error_message, created_at
+                    )
+                    VALUES (?, ?, '', '', 'failed', ?, ?)
+                    """,
+                    (int(setting["id"]), month_start.strftime("%Y-%m"), str(exc), now_value),
+                )
+            results.append({"setting": setting, "result": None, "error": str(exc)})
+    return {"date": target_date.isoformat(), "processed": results}
+
+
+def build_automatic_invoice_page_settings() -> List[Dict[str, Any]]:
+    today = date.today()
+    settings = load_automatic_invoice_settings()
+    for setting in settings:
+        preview = build_automatic_invoice_lines(setting, today)
+        setting["preview"] = preview
+        setting["statusLabel"] = "Actief" if setting["active"] else "Inactief"
+        setting["repeatLabel"] = (
+            f"Herhaalt van {setting['periodStart']} t/m {setting['periodEnd']}"
+            if setting["repeatEnabled"]
+            else "Eenmalig"
+        )
+    return settings
+
+
 def fetch_moneybird_summary() -> Dict[str, Any]:
     config = get_config()
     token = config["moneybird_token"]
@@ -14671,6 +15049,61 @@ def financien_page() -> str:
         return access_redirect
 
     return render_template("financien.html", active_page="financien")
+
+
+@app.route("/financien/automatisch-facturen", methods=["GET", "POST"])
+def automatic_invoices_page() -> str:
+    access_redirect = require_page_access("financien")
+    if access_redirect is not None:
+        return access_redirect
+
+    success = request.args.get("success", "").strip()
+    error = request.args.get("error", "").strip()
+
+    if request.method == "POST":
+        action = request.form.get("action", "").strip()
+        if action == "save_setting":
+            saved, message = save_automatic_invoice_setting(request.form)
+            return redirect(
+                url_for(
+                    "automatic_invoices_page",
+                    success=message if saved else "",
+                    error="" if saved else message,
+                )
+            )
+        if action == "delete_setting":
+            setting_id = request.form.get("setting_id", type=int)
+            if setting_id:
+                delete_automatic_invoice_setting(setting_id)
+                return redirect(url_for("automatic_invoices_page", success="Automatische factuurinstelling verwijderd."))
+            return redirect(url_for("automatic_invoices_page", error="Deze instelling kon niet worden verwijderd."))
+        if action == "process_today":
+            result = process_automatic_invoices(date.today())
+            processed_count = len(result.get("processed", []))
+            failed_count = sum(1 for item in result.get("processed", []) if item.get("error"))
+            if failed_count:
+                return redirect(
+                    url_for(
+                        "automatic_invoices_page",
+                        error=f"{failed_count} automatische factuur{' is' if failed_count == 1 else 'en zijn'} mislukt.",
+                    )
+                )
+            return redirect(
+                url_for(
+                    "automatic_invoices_page",
+                    success=f"{processed_count} automatische factuur{' is' if processed_count == 1 else 'en zijn'} verwerkt.",
+                )
+            )
+
+    return render_template(
+        "automatic_invoices.html",
+        active_page="financien",
+        agenda_club_options=AGENDA_CLUB_OPTIONS,
+        automatic_invoice_settings=build_automatic_invoice_page_settings(),
+        today=date.today().isoformat(),
+        success=success,
+        error=error,
+    )
 
 
 @app.get("/omzet/totaal")

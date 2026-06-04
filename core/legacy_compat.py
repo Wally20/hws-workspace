@@ -33,6 +33,7 @@ ENDPOINTS = {
     "revenue_profit_page": "revenue_profit_page",
     "revenue_season_page": "revenue_season_page",
     "financien_page": "financien_page",
+    "automatic_invoices_page": "automatic_invoices_page",
     "spaarpot_page": "spaarpot_page",
     "trainer_fees_home_page": "trainer_fees_home_page",
     "trainer_fees_per_training_page": "trainer_fees_per_training_page",

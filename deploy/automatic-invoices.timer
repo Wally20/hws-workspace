@@ -1,0 +1,10 @@
+[Unit]
+Description=Run HWS automatic MoneyBird concept invoices daily
+
+[Timer]
+OnCalendar=*-*-* 06:15:00 UTC
+Persistent=true
+Unit=automatic-invoices.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block title %}Automatisch facturen verzenden | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Automatisch facturen verzenden</h1>
+      <p class="welcome-line">Laat MoneyBird automatisch conceptfacturen klaarzetten voor samenwerkende amateurclubs.</p>
+    </div>
+    <div class="agenda-header-actions">
+      <a href="/financien" class="subtle-button">Terug naar Financiën</a>
+      <form method="post" action="/financien/automatisch-facturen">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <input type="hidden" name="action" value="process_today">
+        <button type="submit" class="subtle-button subtle-button-strong">Vandaag verwerken</button>
+      </form>
+    </div>
+  </header>
+
+  {% if success %}
+    <div class="form-feedback form-feedback-success">{{ success }}</div>
+  {% endif %}
+  {% if error %}
+    <div class="form-feedback form-feedback-error">{{ error }}</div>
+  {% endif %}
+
+  <section class="feature-layout">
+    <article class="summary-card old-function-card">
+      <div class="feature-list-head">
+        <div>
+          <p class="panel-title">Nieuwe instelling</p>
+          <p class="feature-list-subtitle">Conceptfacturen worden alleen op de ingestelde factuurdag aangemaakt.</p>
+        </div>
+      </div>
+
+      <form class="feature-form" method="post" action="/financien/automatisch-facturen">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <input type="hidden" name="action" value="save_setting">
+
+        <div class="proposal-form-grid">
+          <label class="field">
+            <span>Club</span>
+            <select name="club_name" required>
+              <option value="">Selecteer club</option>
+              {% for club in agenda_club_options %}
+                <option value="{{ club }}">{{ club }}</option>
+              {% endfor %}
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Standaard factuurbedrag</span>
+            <input type="text" name="standard_amount" inputmode="decimal" placeholder="Bijvoorbeeld: 100,00" required>
+          </label>
+
+          <label class="field">
+            <span>Factuurdag van de maand</span>
+            <input type="number" name="invoice_day" min="1" max="31" value="1" required>
+          </label>
+
+          <label class="field">
+            <span>Bedrag per training</span>
+            <input type="text" name="training_amount" inputmode="decimal" placeholder="Bijvoorbeeld: 25,00" required>
+          </label>
+
+          <label class="field">
+            <span>Herhalen</span>
+            <select name="repeat_enabled">
+              <option value="1">Ja</option>
+              <option value="0">Nee, eenmalig</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Actief</span>
+            <select name="active">
+              <option value="1">Actief</option>
+              <option value="0">Inactief</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Begin periode</span>
+            <input type="date" name="period_start">
+          </label>
+
+          <label class="field">
+            <span>Einde periode</span>
+            <input type="date" name="period_end">
+          </label>
+        </div>
+
+        <div class="agenda-form-actions">
+          <button type="submit" class="subtle-button subtle-button-strong">Instelling opslaan</button>
+        </div>
+      </form>
+    </article>
+
+    <section class="feature-list-card">
+      <div class="feature-list-head">
+        <div>
+          <p class="panel-title">Ingestelde facturen</p>
+          <p class="feature-list-subtitle">{{ automatic_invoice_settings|length }} instelling{{ "" if automatic_invoice_settings|length == 1 else "en" }} opgeslagen</p>
+        </div>
+      </div>
+
+      {% if automatic_invoice_settings %}
+        <div class="feature-record-list">
+          {% for setting in automatic_invoice_settings %}
+            <article class="feature-record-card old-function-card">
+              <div class="feature-record-main">
+                <div>
+                  <h2>{{ setting.clubName }}</h2>
+                  <p class="feature-record-meta">
+                    {{ setting.statusLabel }} · Dag {{ setting.invoiceDay }} · {{ setting.repeatLabel }}
+                  </p>
+                </div>
+                <span class="pill">{{ setting.preview.totalAmountLabel }}</span>
+              </div>
+
+              <div class="compact-stat-list">
+                <div class="compact-stat-row">
+                  <span class="summary-label">Standaard bedrag</span>
+                  <span class="compact-stat-value">{{ setting.standardAmountLabel }}</span>
+                </div>
+                <div class="compact-stat-row">
+                  <span class="summary-label">Bedrag per training</span>
+                  <span class="compact-stat-value">{{ setting.trainingAmountLabel }}</span>
+                </div>
+                <div class="compact-stat-row">
+                  <span class="summary-label">Geannuleerd deze maand</span>
+                  <span class="compact-stat-value">{{ setting.preview.cancelledCount }}</span>
+                </div>
+              </div>
+
+              {% if setting.preview.cancelledTrainings %}
+                <div class="compact-stat-list">
+                  {% for training in setting.preview.cancelledTrainings %}
+                    <div class="compact-stat-row">
+                      <span class="summary-label">{{ training.date }} · {{ training.time }}</span>
+                      <span class="compact-stat-value">-{{ setting.trainingAmountLabel }}</span>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+
+              <form method="post" action="/financien/automatisch-facturen" onsubmit="return confirm('Weet je zeker dat je deze automatische factuurinstelling wilt verwijderen?');">
+                <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+                <input type="hidden" name="action" value="delete_setting">
+                <input type="hidden" name="setting_id" value="{{ setting.id }}">
+                <button type="submit" class="subtle-button action-danger">Verwijderen</button>
+              </form>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">Er zijn nog geen automatische factuurinstellingen.</div>
+      {% endif %}
+    </section>
+  </section>
+{% endblock %}
