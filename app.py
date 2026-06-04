@@ -2291,9 +2291,6 @@ def build_registration_confirmation_body(order: Dict[str, Any], item: Dict[str, 
         [
             "",
             "Je ontvangt later eventuele praktische informatie over de activiteit.",
-            "",
-            "Met sportieve groet,",
-            "HWS Voetbalschool",
         ]
     )
     return "\n".join(lines)
@@ -2350,6 +2347,33 @@ def render_registration_email_body_html(body: str) -> str:
     flush_paragraph()
     flush_list()
     return "\n".join(html_parts) or "<p></p>"
+
+
+def render_registration_email_signature_html() -> str:
+    logo_url = "https://www.workspace.hwsvoetbalschool.nl/static/assets/hws-logo.png"
+    return f"""
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:22px;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;color:#1f2933;">
+  <tr>
+    <td colspan="2" style="padding:0 0 14px 0;font-size:14px;line-height:20px;color:#1f2933;">Met vriendelijke groet,</td>
+  </tr>
+  <tr>
+    <td style="padding:0 16px 0 0;vertical-align:top;">
+      <img src="{logo_url}" alt="HWS Voetbalschool" width="92" style="display:block;width:92px;max-width:92px;height:auto;border:0;">
+    </td>
+    <td style="padding:0 0 0 16px;border-left:2px solid #f2c230;vertical-align:top;">
+      <div style="font-size:16px;line-height:20px;font-weight:700;color:#101820;">David van Walstijn</div>
+      <div style="font-size:13px;line-height:18px;font-weight:700;color:#f2c230;text-transform:uppercase;letter-spacing:0.4px;">HWS Voetbalschool</div>
+      <div style="padding-top:10px;font-size:13px;line-height:20px;color:#344054;">
+        <a href="tel:+31624845896" style="color:#344054;text-decoration:none;">06-24845896</a><br>
+        <a href="mailto:info@hwsvoetbalschool.nl" style="color:#344054;text-decoration:none;">info@hwsvoetbalschool.nl</a>
+      </div>
+    </td>
+  </tr>
+</table>""".strip()
+
+
+def render_registration_email_html(body: str) -> str:
+    return f"{render_registration_email_body_html(body)}\n{render_registration_email_signature_html()}"
 
 
 def parse_email_list(value: str) -> List[str]:
@@ -2412,7 +2436,7 @@ def send_registration_confirmation_email(
             if configured_subject
             else get_registration_confirmation_subject(product_name)
         ),
-        body=render_registration_email_body_html(body),
+        body=render_registration_email_html(body),
         from_email=sender,
         to=to,
         bcc=bcc,

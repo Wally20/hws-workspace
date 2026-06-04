@@ -1313,6 +1313,48 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("<li>Neem voetbalschoenen mee</li>", rendered_body)
         self.assertIn("<li>Neem <strong>water</strong> mee</li>", rendered_body)
 
+    def test_registration_email_html_appends_hws_signature(self):
+        rendered_body = legacy.render_registration_email_html("Beste ouder,\n\nBedankt voor je inschrijving.")
+
+        self.assertIn("Met vriendelijke groet,", rendered_body)
+        self.assertIn("David van Walstijn", rendered_body)
+        self.assertIn("HWS Voetbalschool", rendered_body)
+        self.assertIn("hws-logo.png", rendered_body)
+        self.assertIn("06-24845896", rendered_body)
+        self.assertIn("info@hwsvoetbalschool.nl", rendered_body)
+
+    def test_registration_confirmation_email_uses_hws_signature(self):
+        mock_order = {
+            "id": "ORDER-1",
+            "orderNumber": "ORDER-1",
+            "createdAt": "2026-04-10T10:00:00+02:00",
+            "status": "PAID",
+            "paymentStatus": "PAID",
+            "email": "klant@example.com",
+            "customerName": "Klant Een",
+            "orderExtraFields": [
+                {"title": "Voornaam", "value": "Klant"},
+                {"title": "Achternaam", "value": "Een"},
+            ],
+        }
+        mock_item = {"productId": 101, "name": "Meivakantie Camp", "quantity": 1, "price": 79.0, "sku": "MVC-1"}
+
+        with patch.object(
+            settings,
+            "DEFAULT_FROM_EMAIL",
+            "info@hwsvoetbalschool.nl",
+        ), patch.object(
+            legacy,
+            "EmailMessage",
+        ) as mocked_email_message:
+            legacy.send_registration_confirmation_email(mock_order, mock_item)
+
+        email_kwargs = mocked_email_message.call_args.kwargs
+        self.assertIn("Met vriendelijke groet,", email_kwargs["body"])
+        self.assertIn("David van Walstijn", email_kwargs["body"])
+        self.assertIn("hws-logo.png", email_kwargs["body"])
+        self.assertEqual(mocked_email_message.return_value.content_subtype, "html")
+
     def test_registrations_page_redirects_legacy_product_query_to_detail_page(self):
         response = self.build_authenticated_client().get("/aanmeldingen?product=id:101", secure=True)
 

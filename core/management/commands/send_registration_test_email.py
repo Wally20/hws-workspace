@@ -16,6 +16,11 @@ class Command(BaseCommand):
             help="Productnaam die in de testmail wordt gebruikt.",
         )
         parser.add_argument(
+            "--product-id",
+            default="test",
+            help="Product-id die in de testmail wordt gebruikt.",
+        )
+        parser.add_argument(
             "--order-number",
             default="TEST-ECWID-AANMELDING",
             help="Ordernummer dat in de testmail wordt gebruikt.",
@@ -47,7 +52,7 @@ class Command(BaseCommand):
             ],
         }
         item = {
-            "productId": "test",
+            "productId": options["product_id"],
             "name": options["product_name"],
             "quantity": 1,
             "price": 0,
