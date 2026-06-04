@@ -12510,7 +12510,7 @@ def search_catalog_products(keyword: str) -> List[Dict[str, Any]]:
     return filtered_products[:20]
 
 
-def fetch_orders_from_ecwid() -> Dict[str, Any]:
+def fetch_orders_from_ecwid(run_auto_email: bool = True) -> Dict[str, Any]:
     config = get_config()
     if not config["store_id"] or not config["secret_token"]:
         return {
@@ -12563,12 +12563,13 @@ def fetch_orders_from_ecwid() -> Dict[str, Any]:
         }
 
     normalized_orders = [normalize_order(order) for order in all_orders]
-    auto_email_result = auto_email_new_registration_orders(normalized_orders)
-    if auto_email_result["sentOrderIds"]:
-        app.logger.info(
-            "%s automatische inschrijvingsmail(s) verzonden.",
-            len(auto_email_result["sentOrderIds"]),
-        )
+    if run_auto_email:
+        auto_email_result = auto_email_new_registration_orders(normalized_orders)
+        if auto_email_result["sentOrderIds"]:
+            app.logger.info(
+                "%s automatische inschrijvingsmail(s) verzonden.",
+                len(auto_email_result["sentOrderIds"]),
+            )
 
     return {
         "source": "ecwid",

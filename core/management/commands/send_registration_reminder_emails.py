@@ -27,7 +27,7 @@ class Command(BaseCommand):
         if not legacy.registration_auto_email_is_configured():
             raise CommandError("Automatische inschrijvingsmail is niet volledig geconfigureerd.")
 
-        ecwid_payload = legacy.fetch_orders_from_ecwid()
+        ecwid_payload = legacy.fetch_orders_from_ecwid(run_auto_email=False)
         if ecwid_payload.get("source") != "ecwid":
             raise CommandError(str(ecwid_payload.get("message") or "Ecwid-orders konden niet live worden geladen."))
 
