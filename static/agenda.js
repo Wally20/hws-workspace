@@ -378,6 +378,7 @@ function openAgendaEditModal(button) {
   setInputValue("#agendaEditTime", button.dataset.eventTime);
   setInputValue("#agendaEditEndTime", button.dataset.eventEndTime);
   setSelectValue("#agendaEditTrainingType", button.dataset.eventTrainingType);
+  setSelectValue("#agendaEditStatus", button.dataset.eventStatus || "gepland");
   setSelectValue("#agendaEditLocation", button.dataset.eventLocation);
   setMultiSelectValues("#agendaEditTrainerIds", getDatesFromCsv(button.dataset.eventTrainerIds));
   setInputValue("#agendaEditNotes", button.dataset.eventNotes);

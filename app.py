@@ -224,6 +224,23 @@ AGENDA_TRAINING_TYPE_OPTIONS = (
         "className": "agenda-event-type-clinic",
     },
 )
+AGENDA_TRAINING_STATUS_OPTIONS = (
+    {
+        "value": "gepland",
+        "label": "Gepland",
+        "className": "agenda-event-status-gepland",
+    },
+    {
+        "value": "gegeven",
+        "label": "Gegeven",
+        "className": "agenda-event-status-gegeven",
+    },
+    {
+        "value": "geannuleerd",
+        "label": "Geannuleerd",
+        "className": "agenda-event-status-geannuleerd",
+    },
+)
 AGENDA_NO_ACTIVITY_COPY_REASONS = {
     "2026-10-19": "herfstvakantie",
     "2026-10-21": "herfstvakantie",
@@ -3570,6 +3587,7 @@ def init_db() -> None:
                 end_time TEXT,
                 location TEXT,
                 training_type TEXT NOT NULL DEFAULT 'samenwerkende_amateurclub',
+                status TEXT NOT NULL DEFAULT 'gepland',
                 trainers_json TEXT NOT NULL DEFAULT '[]',
                 notes TEXT
             );
@@ -3891,6 +3909,8 @@ def init_db() -> None:
             connection.execute("ALTER TABLE agenda_trainings ADD COLUMN trainers_json TEXT NOT NULL DEFAULT '[]'")
         if "training_type" not in agenda_training_columns:
             connection.execute("ALTER TABLE agenda_trainings ADD COLUMN training_type TEXT NOT NULL DEFAULT 'samenwerkende_amateurclub'")
+        if "status" not in agenda_training_columns:
+            connection.execute("ALTER TABLE agenda_trainings ADD COLUMN status TEXT NOT NULL DEFAULT 'gepland'")
 
         football_playbook_columns = {
             row["name"]
@@ -5670,7 +5690,7 @@ def load_agenda_trainings(start_date: Optional[str] = None, end_date: Optional[s
 
     def loader() -> List[Dict[str, Any]]:
         query = """
-            SELECT id, title, date, time, end_time, location, training_type, trainers_json, notes
+            SELECT id, title, date, time, end_time, location, training_type, status, trainers_json, notes
             FROM agenda_trainings
         """
         params: List[str] = []
@@ -5704,6 +5724,12 @@ def load_agenda_trainings(start_date: Optional[str] = None, end_date: Optional[s
                 if isinstance(item, dict) and str(item.get("id") or "").strip() and str(item.get("name") or "").strip()
             ] if isinstance(trainers_payload, list) else []
             type_option = get_agenda_training_type_option(row["training_type"])
+            status_option = resolve_agenda_training_status(
+                row["status"],
+                row["date"],
+                row["time"],
+                row["end_time"],
+            )
             trainings.append(
                 {
                     "id": str(row["id"]),
@@ -5715,6 +5741,9 @@ def load_agenda_trainings(start_date: Optional[str] = None, end_date: Optional[s
                     "trainingType": type_option["value"],
                     "trainingTypeLabel": type_option["label"],
                     "trainingTypeClass": type_option["className"],
+                    "status": status_option["value"],
+                    "statusLabel": status_option["label"],
+                    "statusClass": status_option["className"],
                     "trainers": trainers,
                     "trainerNames": ", ".join(item["name"] for item in trainers),
                     "notes": str(row["notes"] or "").strip(),
@@ -5731,8 +5760,8 @@ def save_agenda_trainings(trainings: List[Dict[str, Any]]) -> None:
         connection.execute("DELETE FROM agenda_trainings")
         connection.executemany(
             """
-            INSERT INTO agenda_trainings (id, title, date, time, end_time, location, training_type, trainers_json, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO agenda_trainings (id, title, date, time, end_time, location, training_type, status, trainers_json, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -5743,6 +5772,7 @@ def save_agenda_trainings(trainings: List[Dict[str, Any]]) -> None:
                     str(item.get("endTime", "")).strip(),
                     str(item.get("location", "")).strip(),
                     get_agenda_training_type_option(item.get("trainingType"))["value"],
+                    normalize_agenda_training_status(item.get("status")),
                     json.dumps(item.get("trainers") if isinstance(item.get("trainers"), list) else [], ensure_ascii=False),
                     str(item.get("notes", "")).strip(),
                 )
@@ -5770,6 +5800,7 @@ def build_agenda_training_signature(training: Dict[str, Any]) -> str:
             "endTime": str(training.get("endTime") or "").strip(),
             "location": str(training.get("location") or "").strip(),
             "trainingType": get_agenda_training_type_option(training.get("trainingType"))["value"],
+            "status": normalize_agenda_training_status(training.get("status")),
             "trainers": normalized_trainers,
             "notes": str(training.get("notes") or "").strip(),
         },
@@ -5788,6 +5819,7 @@ def update_agenda_training(
     end_time_value: str,
     location: str,
     training_type: str,
+    status: str,
     trainers: List[Dict[str, str]],
     notes: str,
 ) -> int:
@@ -5799,6 +5831,7 @@ def update_agenda_training(
     normalized_end_time = end_time_value.strip()
     normalized_location = location.strip()
     normalized_training_type = training_type.strip()
+    normalized_status = normalize_agenda_training_status(status)
 
     if not normalized_training_id or not normalized_title or not normalized_time or not normalized_location or not normalized_training_type:
         return 0
@@ -5822,6 +5855,7 @@ def update_agenda_training(
         training["endTime"] = normalized_end_time
         training["location"] = normalized_location
         training["trainingType"] = normalized_training_type
+        training["status"] = normalized_status
         training["trainers"] = trainers
         training["notes"] = notes.strip()
         updated_count += 1
@@ -5885,6 +5919,7 @@ def add_agenda_training(
             "endTime": end_time_value.strip(),
             "location": location.strip(),
             "trainingType": training_type.strip(),
+            "status": "gepland",
             "trainers": trainers,
             "notes": notes.strip(),
         }
@@ -5934,6 +5969,7 @@ def add_agenda_trainings_bulk(
                 "endTime": normalized_end_time,
                 "location": normalized_location,
                 "trainingType": normalized_training_type,
+                "status": "gepland",
                 "trainers": trainers,
                 "notes": notes.strip(),
             }
@@ -5967,6 +6003,32 @@ def normalize_agenda_training_type(value: Any) -> str:
     normalized_value = str(value or "").strip()
     valid_values = {option["value"] for option in AGENDA_TRAINING_TYPE_OPTIONS}
     return normalized_value if normalized_value in valid_values else ""
+
+
+def get_agenda_training_status_option(value: Any) -> Dict[str, str]:
+    normalized_value = str(value or "").strip().lower()
+    for option in AGENDA_TRAINING_STATUS_OPTIONS:
+        if option["value"] == normalized_value:
+            return option
+    return AGENDA_TRAINING_STATUS_OPTIONS[0]
+
+
+def normalize_agenda_training_status(value: Any) -> str:
+    return get_agenda_training_status_option(value)["value"]
+
+
+def resolve_agenda_training_status(value: Any, date_value: Any, time_value: Any, end_time_value: Any) -> Dict[str, str]:
+    explicit_status = get_agenda_training_status_option(value)
+    if explicit_status["value"] == "geannuleerd":
+        return explicit_status
+
+    normalized_date = str(date_value or "").strip()
+    normalized_time = str(time_value or "").strip()
+    normalized_end_time = str(end_time_value or "").strip() or compute_default_end_time(normalized_time)
+    end_dt = combine_date_and_time(normalized_date, normalized_end_time)
+    if end_dt and end_dt <= datetime.now():
+        return get_agenda_training_status_option("gegeven")
+    return explicit_status
 
 
 def build_agenda_trainer_options() -> List[Dict[str, str]]:
@@ -12298,6 +12360,9 @@ def build_agenda_week_events(trainings: List[Dict[str, Any]], week_start: date) 
                 "trainingType": training.get("trainingType", ""),
                 "trainingTypeLabel": training.get("trainingTypeLabel", ""),
                 "trainingTypeClass": training.get("trainingTypeClass", ""),
+                "status": training.get("status", ""),
+                "statusLabel": training.get("statusLabel", ""),
+                "statusClass": training.get("statusClass", ""),
                 "trainers": training.get("trainers", []),
                 "trainerNames": training.get("trainerNames", ""),
                 "notes": training.get("notes", ""),
@@ -12433,6 +12498,9 @@ def build_agenda_month_events(trainings: List[Dict[str, Any]], visible_day_keys:
                 "trainingType": normalize_agenda_label(training.get("trainingType")),
                 "trainingTypeLabel": normalize_agenda_label(training.get("trainingTypeLabel")),
                 "trainingTypeClass": normalize_agenda_label(training.get("trainingTypeClass")),
+                "status": normalize_agenda_label(training.get("status")),
+                "statusLabel": normalize_agenda_label(training.get("statusLabel")),
+                "statusClass": normalize_agenda_label(training.get("statusClass")),
                 "trainers": training.get("trainers", []),
                 "trainerNames": normalize_agenda_label(training.get("trainerNames")),
                 "notes": normalize_agenda_label(training.get("notes")),
@@ -15193,6 +15261,7 @@ def agenda_page() -> str:
             end_time_value = request.form.get("end_time", "").strip()
             location = normalize_agenda_club(request.form.get("location", ""))
             training_type = normalize_agenda_training_type(request.form.get("training_type", ""))
+            status = normalize_agenda_training_status(request.form.get("status", ""))
             trainers = normalize_agenda_trainers(request.form.getlist("trainer_ids"))
             notes = request.form.get("notes", "").strip()
             resolved_end_time = end_time_value or (compute_default_end_time(time_value) if time_value else "")
@@ -15207,6 +15276,7 @@ def agenda_page() -> str:
                 resolved_end_time,
                 location,
                 training_type,
+                status,
                 trainers,
                 notes,
             )
@@ -15385,6 +15455,7 @@ def agenda_page() -> str:
         agenda_day_plan_options=AGENDA_DAY_PLAN_OPTIONS,
         agenda_club_options=AGENDA_CLUB_OPTIONS,
         agenda_training_type_options=AGENDA_TRAINING_TYPE_OPTIONS,
+        agenda_training_status_options=AGENDA_TRAINING_STATUS_OPTIONS,
         agenda_trainer_options=build_agenda_trainer_options(),
         agenda_day_plan_summary=agenda_day_plan_summary,
         agenda_external_labels=agenda_external_labels,

@@ -3411,6 +3411,18 @@ body.sidebar-collapsed #footballFieldWizardModal {
   cursor: pointer;
 }
 
+.agenda-event-status-pill {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.1);
+  color: #111827;
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .agenda-month-event-dot {
   width: 8px;
   height: 8px;
@@ -3488,6 +3500,26 @@ body.sidebar-collapsed #footballFieldWizardModal {
   font-size: 0.72rem;
   font-weight: 800;
   color: #172033;
+}
+
+.agenda-month-event.agenda-event-status-geannuleerd {
+  background: repeating-linear-gradient(135deg, rgba(248, 250, 252, 0.95), rgba(248, 250, 252, 0.95) 8px, rgba(226, 232, 240, 0.9) 8px, rgba(226, 232, 240, 0.9) 16px);
+  border-color: #94a3b8;
+  color: #475569;
+}
+
+.agenda-month-event.agenda-event-status-geannuleerd .agenda-month-event-dot {
+  background: #64748b;
+}
+
+.agenda-month-event.agenda-event-status-geannuleerd .agenda-month-event-text {
+  color: #475569;
+  text-decoration: line-through;
+}
+
+.agenda-month-event.agenda-event-status-geannuleerd .agenda-event-status-pill {
+  background: #475569;
+  color: #ffffff;
 }
 
 .agenda-grid {
@@ -3700,6 +3732,14 @@ body.sidebar-collapsed #footballFieldWizardModal {
   -webkit-line-clamp: 4;
 }
 
+.agenda-event-status-text {
+  margin: calc(4px * var(--agenda-font-scale, 1)) 0 0;
+  font-size: calc(0.66rem * var(--agenda-font-scale, 1));
+  font-weight: 800;
+  line-height: 1;
+  opacity: 0.86;
+}
+
 .agenda-event-dense-text {
   padding: 5px 6px;
 }
@@ -3732,6 +3772,17 @@ body.sidebar-collapsed #footballFieldWizardModal {
 .agenda-event-type-clinic {
   background: #7e57c2;
   box-shadow: 0 8px 18px rgba(126, 87, 194, 0.22);
+}
+
+.agenda-event-status-geannuleerd {
+  background: repeating-linear-gradient(135deg, #f8fafc, #f8fafc 8px, #e2e8f0 8px, #e2e8f0 16px);
+  color: #475569;
+  border-color: #64748b;
+  box-shadow: 0 8px 18px rgba(71, 85, 105, 0.14);
+}
+
+.agenda-event-status-geannuleerd .agenda-event-title {
+  text-decoration: line-through;
 }
 
 .agenda-event-club-wwna {

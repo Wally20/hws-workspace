@@ -143,7 +143,7 @@
                   <div class="agenda-month-events">
                     {% for event in month_events.get(day.key, []) %}
                       <article
-                        class="agenda-month-event {{ event.trainingTypeClass }} {{ event.clubClass }}"
+                        class="agenda-month-event {{ event.trainingTypeClass }} {{ event.clubClass }} {{ event.statusClass }}"
                         role="button"
                         tabindex="0"
                         data-agenda-edit-event
@@ -154,12 +154,14 @@
                         data-event-end-time="{{ event.endTime }}"
                         data-event-location="{{ event.location }}"
                         data-event-training-type="{{ event.trainingType }}"
+                        data-event-status="{{ event.status }}"
                         data-event-trainer-ids="{% for trainer in event.trainers %}{{ trainer.id }}{% if not loop.last %},{% endif %}{% endfor %}"
                         data-event-notes="{{ event.notes }}"
                         data-event-signature="{{ event.signature }}"
                       >
                         <span class="agenda-month-event-dot"></span>
                         <span class="agenda-month-event-text">{{ event.time }} {{ event.title }}</span>
+                        <span class="agenda-event-status-pill">{{ event.statusLabel }}</span>
                       </article>
                     {% endfor %}
                   </div>
@@ -210,7 +212,7 @@
 
           {% for event in calendar_events %}
             <article
-              class="agenda-event {{ event.trainingTypeClass }} {{ event.clubClass }}{% if event.isDenseText %} agenda-event-dense-text{% endif %}"
+              class="agenda-event {{ event.trainingTypeClass }} {{ event.clubClass }} {{ event.statusClass }}{% if event.isDenseText %} agenda-event-dense-text{% endif %}"
               style="--day-index: {{ event.dayIndex }}; --event-top: {{ event.top }}px; --event-height: {{ event.height }}px; --overlap-index: {{ event.overlapIndex }}; --overlap-count: {{ event.overlapCount }}; --overlap-font-scale: {{ event.overlapFontScale }}; --agenda-font-scale: {{ event.fontScale }};"
               role="button"
               tabindex="0"
@@ -222,12 +224,14 @@
               data-event-end-time="{{ event.endTime }}"
               data-event-location="{{ event.location }}"
               data-event-training-type="{{ event.trainingType }}"
+              data-event-status="{{ event.status }}"
               data-event-trainer-ids="{% for trainer in event.trainers %}{{ trainer.id }}{% if not loop.last %},{% endif %}{% endfor %}"
               data-event-notes="{{ event.notes }}"
               data-event-signature="{{ event.signature }}"
             >
               <p class="agenda-event-time">{{ event.time }} - {{ event.endTime }}</p>
               <p class="agenda-event-title">{{ event.title }}</p>
+              <p class="agenda-event-status-text">{{ event.statusLabel }}</p>
             </article>
           {% endfor %}
         </div>
@@ -524,6 +528,15 @@
           <select name="training_type" id="agendaEditTrainingType" required>
             <option value="">Selecteer type</option>
             {% for option in agenda_training_type_options %}
+              <option value="{{ option.value }}">{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Status</span>
+          <select name="status" id="agendaEditStatus" required>
+            {% for option in agenda_training_status_options %}
               <option value="{{ option.value }}">{{ option.label }}</option>
             {% endfor %}
           </select>
