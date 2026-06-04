@@ -2,7 +2,7 @@
 Description=Run HWS registration reminder emails daily
 
 [Timer]
-OnCalendar=*-*-* 09:00:00
+OnCalendar=*-*-* 07:00:00 UTC
 Persistent=true
 Unit=registration-reminders.service
 
