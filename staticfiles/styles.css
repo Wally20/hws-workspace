@@ -4664,7 +4664,7 @@ a.spaarpot-year-row:hover {
 }
 
 .team-detail-dialog {
-  width: min(900px, calc(100vw - 120px));
+  width: min(1180px, calc(100vw - 120px));
 }
 
 .team-modal {
@@ -4694,7 +4694,7 @@ a.spaarpot-year-row:hover {
 }
 
 .team-modal .team-detail-dialog {
-  width: min(820px, calc(100vw - 240px - 48px));
+  width: min(1180px, calc(100vw - 240px - 48px));
 }
 
 .team-modal-top {
@@ -4762,6 +4762,10 @@ a.spaarpot-year-row:hover {
 .team-detail-tab-active {
   background: #111111;
   color: #ffffff;
+}
+
+.team-detail-panel-hidden {
+  display: none !important;
 }
 
 .team-member-form {
@@ -4911,7 +4915,7 @@ a.spaarpot-year-row:hover {
 
 .team-fee-row {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) minmax(140px, 0.8fr) auto;
+  grid-template-columns: minmax(190px, 0.9fr) minmax(360px, 1.5fr) minmax(170px, 0.7fr) auto;
   gap: 12px;
   align-items: end;
   padding: 16px;

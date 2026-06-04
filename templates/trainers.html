@@ -243,7 +243,7 @@
 
           </article>
 
-          <article class="team-form-section team-fees-section" data-team-detail-panel="vergoedingen" hidden>
+          <article class="team-form-section team-fees-section team-detail-panel-hidden" data-team-detail-panel="vergoedingen" hidden>
             <div class="team-fees-head">
               <div>
                 <h3>Trainersvergoedingen</h3>
@@ -286,10 +286,7 @@
       <label class="field">
         <span>Activiteit</span>
         <select name="fee_activity">
-          <option value="">Selecteer activiteit</option>
-          {% for option in trainer_fee_activity_options %}
-            <option value="{{ option.value }}">{{ option.label }}</option>
-          {% endfor %}
+          <option value="">Selecteer eerst een club</option>
         </select>
       </label>
 
@@ -301,6 +298,8 @@
       <button type="button" class="subtle-button action-small team-fee-remove-button" data-remove-trainer-fee-row>Verwijderen</button>
     </div>
   </template>
+
+  <script type="application/json" id="trainerFeeAgendaActivityOptions">{{ trainer_fee_agenda_activity_options|tojson }}</script>
 
   <script src="../static/trainers.js?v={{ asset_version }}" defer></script>
 {% endblock %}

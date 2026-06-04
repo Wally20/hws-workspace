@@ -11321,6 +11321,9 @@ def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, str]]:
     normalized_rows = []
     valid_clubs = set(AGENDA_CLUB_OPTIONS)
     valid_activities = {str(option["value"]): str(option["label"]) for option in TRAINER_FEE_ACTIVITY_OPTIONS}
+    for club_options in build_trainer_fee_agenda_activity_options().values():
+        for option in club_options:
+            valid_activities.setdefault(str(option["value"]), str(option["label"]))
 
     for item in rows:
         if not isinstance(item, dict):
@@ -11332,13 +11335,11 @@ def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, str]]:
             continue
         if club not in valid_clubs:
             club = ""
-        if activity not in valid_activities:
-            activity = ""
         normalized_rows.append(
             {
                 "club": club,
                 "activity": activity,
-                "activityLabel": valid_activities.get(activity, ""),
+                "activityLabel": valid_activities.get(activity, activity),
                 "amount": amount,
             }
         )
@@ -11365,6 +11366,33 @@ def parse_trainer_fee_rows_from_form(form_data: Any) -> List[Dict[str, str]]:
 
 def trainer_fees_json_dumps(rows: List[Dict[str, str]]) -> str:
     return json.dumps(normalize_trainer_fee_rows(rows), ensure_ascii=False)
+
+
+def build_trainer_fee_agenda_activity_options() -> Dict[str, List[Dict[str, str]]]:
+    options_by_club: Dict[str, List[Dict[str, str]]] = {club: [] for club in AGENDA_CLUB_OPTIONS}
+    seen_by_club: Dict[str, set[str]] = {club: set() for club in AGENDA_CLUB_OPTIONS}
+
+    for training in load_agenda_trainings():
+        club = normalize_agenda_club(training.get("location"))
+        if not club:
+            continue
+        title = str(training.get("title") or "").strip()
+        if not title:
+            continue
+        training_type_label = str(training.get("trainingTypeLabel") or "").strip()
+        value = title
+        label = f"{title} ({training_type_label})" if training_type_label else title
+        if value in seen_by_club[club]:
+            continue
+        seen_by_club[club].add(value)
+        options_by_club[club].append(
+            {
+                "value": value,
+                "label": label,
+            }
+        )
+
+    return options_by_club
 
 
 def build_user_payload(row: sqlite3.Row) -> Dict[str, Any]:
@@ -16024,6 +16052,7 @@ def trainers_page() -> str:
         invite_link=invite_link,
         agenda_club_options=AGENDA_CLUB_OPTIONS,
         trainer_fee_activity_options=TRAINER_FEE_ACTIVITY_OPTIONS,
+        trainer_fee_agenda_activity_options=build_trainer_fee_agenda_activity_options(),
     )
 
 

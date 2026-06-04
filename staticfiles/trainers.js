@@ -14,6 +14,17 @@ const trainerDetailPanels = document.querySelectorAll("[data-team-detail-panel]"
 const trainerFeeRows = document.querySelector("#trainerFeeRows");
 const trainerFeeRowTemplate = document.querySelector("#trainerFeeRowTemplate");
 const addTrainerFeeRowButton = document.querySelector("#addTrainerFeeRow");
+const trainerFeeAgendaActivityOptionsNode = document.querySelector("#trainerFeeAgendaActivityOptions");
+let trainerFeeAgendaActivityOptions = {};
+
+if (trainerFeeAgendaActivityOptionsNode) {
+  try {
+    const parsedOptions = JSON.parse(trainerFeeAgendaActivityOptionsNode.textContent || "{}");
+    trainerFeeAgendaActivityOptions = parsedOptions && typeof parsedOptions === "object" ? parsedOptions : {};
+  } catch (_error) {
+    trainerFeeAgendaActivityOptions = {};
+  }
+}
 
 function setTrainerModalOpen(modal, isOpen) {
   if (!modal) {
@@ -63,8 +74,44 @@ function setTrainerDetailTab(activeTab) {
   });
 
   trainerDetailPanels.forEach((panel) => {
-    panel.hidden = panel.dataset.teamDetailPanel !== activeTab;
+    const isActive = panel.dataset.teamDetailPanel === activeTab;
+    panel.hidden = !isActive;
+    panel.classList.toggle("team-detail-panel-hidden", !isActive);
   });
+}
+
+function setTrainerFeeActivityOptions(activityInput, club, selectedActivity = "") {
+  if (!(activityInput instanceof HTMLSelectElement)) {
+    return;
+  }
+
+  const clubOptions = Array.isArray(trainerFeeAgendaActivityOptions[club]) ? trainerFeeAgendaActivityOptions[club] : [];
+  activityInput.innerHTML = "";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = club ? "Selecteer activiteit" : "Selecteer eerst een club";
+  activityInput.appendChild(placeholder);
+
+  clubOptions.forEach((option) => {
+    const value = option.value || "";
+    if (!value) {
+      return;
+    }
+    const node = document.createElement("option");
+    node.value = value;
+    node.textContent = option.label || value;
+    activityInput.appendChild(node);
+  });
+
+  if (selectedActivity && !clubOptions.some((option) => option.value === selectedActivity)) {
+    const selectedNode = document.createElement("option");
+    selectedNode.value = selectedActivity;
+    selectedNode.textContent = selectedActivity;
+    activityInput.appendChild(selectedNode);
+  }
+
+  activityInput.value = selectedActivity || "";
 }
 
 function addTrainerFeeRow(rowData = {}) {
@@ -84,12 +131,14 @@ function addTrainerFeeRow(rowData = {}) {
   if (clubInput) {
     clubInput.value = rowData.club || "";
   }
-  if (activityInput) {
-    activityInput.value = rowData.activity || "";
-  }
+  setTrainerFeeActivityOptions(activityInput, clubInput?.value || "", rowData.activity || "");
   if (amountInput) {
     amountInput.value = rowData.amount || "";
   }
+
+  clubInput?.addEventListener("change", () => {
+    setTrainerFeeActivityOptions(activityInput, clubInput.value, "");
+  });
 
   trainerFeeRows.appendChild(fragment);
 }
