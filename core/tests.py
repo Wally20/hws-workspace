@@ -19,7 +19,9 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         with legacy.get_db_connection() as connection:
             connection.execute("DELETE FROM rate_limit_attempts")
             connection.execute("DELETE FROM registration_email_statuses")
+            connection.execute("DELETE FROM registration_email_reminder_statuses")
             connection.execute("DELETE FROM registration_event_statuses")
+            connection.execute("DELETE FROM registration_event_email_settings WHERE product_key LIKE 'id:999%'")
             connection.execute("DELETE FROM football_days_playbooks WHERE title LIKE 'Test draaiboek%'")
         super().tearDown()
 
@@ -1354,6 +1356,155 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("David van Walstijn", email_kwargs["body"])
         self.assertIn("hws-logo.png", email_kwargs["body"])
         self.assertEqual(mocked_email_message.return_value.content_subtype, "html")
+
+    def test_registration_confirmation_email_can_prefix_reminder_subject(self):
+        mock_order = {
+            "id": "ORDER-1",
+            "orderNumber": "ORDER-1",
+            "createdAt": "2026-04-10T10:00:00+02:00",
+            "status": "PAID",
+            "paymentStatus": "PAID",
+            "email": "klant@example.com",
+            "customerName": "Klant Een",
+        }
+        mock_item = {"productId": 9991, "name": "Test Event", "quantity": 1, "price": 79.0, "sku": "TEST"}
+
+        legacy.save_registration_event_email_settings(
+            "id:9991",
+            "Test Event",
+            "2026-08-05",
+            "",
+            "Praktische informatie {product_naam}",
+            "Beste {klant_naam},\n\nDit is de eventmail.",
+        )
+
+        with patch.object(
+            settings,
+            "DEFAULT_FROM_EMAIL",
+            "info@hwsvoetbalschool.nl",
+        ), patch.object(
+            legacy,
+            "EmailMessage",
+        ) as mocked_email_message:
+            legacy.send_registration_confirmation_email(mock_order, mock_item, subject_prefix="Reminder: ")
+
+        self.assertEqual(
+            mocked_email_message.call_args.kwargs["subject"],
+            "Reminder: Praktische informatie Test Event",
+        )
+
+    def test_registration_reminder_emails_send_once_for_due_paid_emailed_orders(self):
+        mock_order = {
+            "id": "ORDER-1",
+            "orderNumber": "ORDER-1",
+            "createdAt": "2026-07-01T10:00:00+02:00",
+            "status": "PAID",
+            "paymentStatus": "PAID",
+            "email": "klant@example.com",
+            "customerName": "Klant Een",
+            "items": [
+                {"productId": 9992, "name": "Test Reminder Event", "quantity": 1, "price": 79.0, "sku": "TEST"},
+            ],
+        }
+        legacy.save_registration_event_email_settings(
+            "id:9992",
+            "Test Reminder Event",
+            "2026-08-05",
+            "",
+            "Praktische informatie {product_naam}",
+            "Beste {klant_naam},\n\nDit is de eventmail.",
+        )
+        legacy.set_registration_orders_emailed("id:9992", ["ORDER-1"], True)
+
+        with patch.dict(
+            os.environ,
+            {"REGISTRATION_AUTO_EMAILS_ENABLED": "1", "REGISTRATION_EMAIL_ONLY_PAID": "1"},
+            clear=False,
+        ), patch.object(settings, "EMAIL_HOST", "smtp.strato.de"), patch.object(
+            settings,
+            "EMAIL_HOST_USER",
+            "info@hwsvoetbalschool.nl",
+        ), patch.object(
+            settings,
+            "EMAIL_HOST_PASSWORD",
+            "test-password",
+        ), patch.object(
+            settings,
+            "DEFAULT_FROM_EMAIL",
+            "info@hwsvoetbalschool.nl",
+        ), patch.object(
+            legacy,
+            "EmailMessage",
+        ) as mocked_email_message:
+            first_result = legacy.send_registration_reminder_emails(
+                [mock_order],
+                reminder_date=legacy.parse_iso_date("2026-07-29"),
+            )
+            second_result = legacy.send_registration_reminder_emails(
+                [mock_order],
+                reminder_date=legacy.parse_iso_date("2026-07-29"),
+            )
+
+        self.assertEqual(first_result["dueProductKeys"], ["id:9992"])
+        self.assertEqual(first_result["sentOrderIds"], ["id:9992:ORDER-1"])
+        self.assertEqual(second_result["sentOrderIds"], [])
+        self.assertEqual(second_result["skippedOrderIds"], ["id:9992:ORDER-1"])
+        self.assertEqual(mocked_email_message.call_count, 1)
+        self.assertEqual(
+            mocked_email_message.call_args.kwargs["subject"],
+            "Reminder: Praktische informatie Test Reminder Event",
+        )
+
+    def test_registration_reminder_emails_skip_when_original_email_not_sent(self):
+        mock_order = {
+            "id": "ORDER-2",
+            "orderNumber": "ORDER-2",
+            "createdAt": "2026-07-01T10:00:00+02:00",
+            "status": "PAID",
+            "paymentStatus": "PAID",
+            "email": "klant@example.com",
+            "customerName": "Klant Een",
+            "items": [
+                {"productId": 9993, "name": "Test Reminder Event", "quantity": 1, "price": 79.0, "sku": "TEST"},
+            ],
+        }
+        legacy.save_registration_event_email_settings(
+            "id:9993",
+            "Test Reminder Event",
+            "2026-08-05",
+            "",
+            "Praktische informatie",
+            "Beste {klant_naam},\n\nDit is de eventmail.",
+        )
+
+        with patch.dict(
+            os.environ,
+            {"REGISTRATION_AUTO_EMAILS_ENABLED": "1", "REGISTRATION_EMAIL_ONLY_PAID": "1"},
+            clear=False,
+        ), patch.object(settings, "EMAIL_HOST", "smtp.strato.de"), patch.object(
+            settings,
+            "EMAIL_HOST_USER",
+            "info@hwsvoetbalschool.nl",
+        ), patch.object(
+            settings,
+            "EMAIL_HOST_PASSWORD",
+            "test-password",
+        ), patch.object(
+            settings,
+            "DEFAULT_FROM_EMAIL",
+            "info@hwsvoetbalschool.nl",
+        ), patch.object(
+            legacy,
+            "EmailMessage",
+        ) as mocked_email_message:
+            result = legacy.send_registration_reminder_emails(
+                [mock_order],
+                reminder_date=legacy.parse_iso_date("2026-07-29"),
+            )
+
+        self.assertEqual(result["sentOrderIds"], [])
+        self.assertEqual(result["skippedOrderIds"], ["id:9993:ORDER-2"])
+        mocked_email_message.assert_not_called()
 
     def test_registrations_page_redirects_legacy_product_query_to_detail_page(self):
         response = self.build_authenticated_client().get("/aanmeldingen?product=id:101", secure=True)

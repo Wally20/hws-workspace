@@ -1,0 +1,9 @@
+[Unit]
+Description=HWS registration reminder emails
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/overzicht
+EnvironmentFile=/srv/overzicht/.env
+ExecStart=/srv/overzicht/.venv/bin/python manage.py send_registration_reminder_emails

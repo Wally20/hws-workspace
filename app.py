@@ -1996,6 +1996,67 @@ def load_all_registration_emailed_order_ids() -> List[str]:
     return [str(row["order_id"] or "").strip() for row in rows if str(row["order_id"] or "").strip()]
 
 
+def load_registration_reminder_sent_order_ids(
+    product_key: str,
+    order_ids: Optional[Set[str]] = None,
+) -> Set[str]:
+    normalized_product_key = str(product_key or "").strip()
+    if not normalized_product_key:
+        return set()
+
+    with get_db_connection() as connection:
+        if order_ids:
+            placeholders = ",".join("?" for _ in order_ids)
+            rows = connection.execute(
+                f"""
+                SELECT order_id
+                FROM registration_email_reminder_statuses
+                WHERE product_key = ? AND order_id IN ({placeholders})
+                """,
+                (normalized_product_key, *sorted(order_ids)),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """
+                SELECT order_id
+                FROM registration_email_reminder_statuses
+                WHERE product_key = ?
+                """,
+                (normalized_product_key,),
+            ).fetchall()
+
+    return {str(row["order_id"] or "").strip() for row in rows if str(row["order_id"] or "").strip()}
+
+
+def set_registration_reminders_sent(product_key: str, order_ids: List[str], sent: bool) -> List[str]:
+    normalized_product_key = str(product_key or "").strip()
+    normalized_order_ids = normalize_registration_email_status_order_ids(order_ids)
+    if not normalized_product_key or not normalized_order_ids:
+        return []
+
+    with get_db_connection() as connection:
+        if sent:
+            timestamp = utcnow_iso()
+            connection.executemany(
+                """
+                INSERT INTO registration_email_reminder_statuses (product_key, order_id, reminded_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(product_key, order_id) DO UPDATE SET reminded_at = excluded.reminded_at
+                """,
+                [(normalized_product_key, order_id, timestamp) for order_id in normalized_order_ids],
+            )
+        else:
+            connection.executemany(
+                """
+                DELETE FROM registration_email_reminder_statuses
+                WHERE product_key = ? AND order_id = ?
+                """,
+                [(normalized_product_key, order_id) for order_id in normalized_order_ids],
+            )
+
+    return normalized_order_ids
+
+
 def set_registration_orders_emailed(product_key: str, order_ids: List[str], emailed: bool) -> List[str]:
     normalized_product_key = str(product_key or "").strip()
     normalized_order_ids = normalize_registration_email_status_order_ids(order_ids)
@@ -2402,6 +2463,7 @@ def send_registration_confirmation_email(
     order: Dict[str, Any],
     item: Dict[str, Any],
     deliver_recipient_as_bcc: bool = False,
+    subject_prefix: str = "",
 ) -> bool:
     recipient_email = str(order.get("email", "") or "").strip()
     if not recipient_email:
@@ -2430,12 +2492,17 @@ def send_registration_confirmation_email(
         bcc = manual_bcc
 
     body = build_registration_event_email_body(order, item, email_settings)
+    subject = (
+        render_registration_email_template(configured_subject, order, item, email_settings)
+        if configured_subject
+        else get_registration_confirmation_subject(product_name)
+    )
+    normalized_subject_prefix = str(subject_prefix or "").strip()
+    if normalized_subject_prefix and not subject.lower().startswith(normalized_subject_prefix.lower()):
+        subject = f"{normalized_subject_prefix} {subject}"
+
     email_message = EmailMessage(
-        subject=(
-            render_registration_email_template(configured_subject, order, item, email_settings)
-            if configured_subject
-            else get_registration_confirmation_subject(product_name)
-        ),
+        subject=subject,
         body=render_registration_email_html(body),
         from_email=sender,
         to=to,
@@ -2445,6 +2512,101 @@ def send_registration_confirmation_email(
     email_message.content_subtype = "html"
     email_message.send(fail_silently=False)
     return True
+
+
+def load_registration_events_due_for_reminder(reminder_date: date) -> Dict[str, Dict[str, str]]:
+    due_event_date = (reminder_date + timedelta(days=7)).isoformat()
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT product_key, product_name, event_date, event_date_2, email_subject, email_body, updated_at
+            FROM registration_event_email_settings
+            WHERE event_date = ?
+            """,
+            (due_event_date,),
+        ).fetchall()
+
+    due_events: Dict[str, Dict[str, str]] = {}
+    for row in rows:
+        product_key = str(row["product_key"] or "").strip()
+        if not product_key:
+            continue
+        due_events[product_key] = {
+            "productKey": product_key,
+            "productName": str(row["product_name"] or "").strip(),
+            "eventDate": str(row["event_date"] or "").strip(),
+            "eventDate2": str(row["event_date_2"] or "").strip(),
+            "emailSubject": str(row["email_subject"] or "").strip(),
+            "emailBody": str(row["email_body"] or "").strip(),
+            "updatedAt": str(row["updated_at"] or "").strip(),
+        }
+    return due_events
+
+
+def send_registration_reminder_emails(
+    orders: List[Dict[str, Any]],
+    reminder_date: Optional[date] = None,
+) -> Dict[str, Any]:
+    result = {
+        "reminderDate": (reminder_date or date.today()).isoformat(),
+        "dueProductKeys": [],
+        "sentOrderIds": [],
+        "skippedOrderIds": [],
+        "failedOrderIds": [],
+    }
+    if not registration_auto_email_is_configured():
+        return result
+
+    current_reminder_date = reminder_date or date.today()
+    due_events = load_registration_events_due_for_reminder(current_reminder_date)
+    result["dueProductKeys"] = sorted(due_events.keys())
+    if not due_events:
+        return result
+
+    only_paid = get_env_bool("REGISTRATION_EMAIL_ONLY_PAID", True)
+    sent_order_keys: Set[str] = set()
+    skipped_order_keys: Set[str] = set()
+    failed_order_keys: Set[str] = set()
+
+    for order in orders:
+        order_id = str(order.get("id", "") or "").strip()
+        recipient_email = str(order.get("email", "") or "").strip()
+        if not order_id or not recipient_email:
+            continue
+        if only_paid and not registration_order_is_paid(order):
+            continue
+
+        for item in order.get("items", []):
+            product_key = build_order_item_product_key(item)
+            if product_key not in due_events:
+                continue
+
+            order_key = f"{product_key}:{order_id}"
+            if order_id not in load_registration_emailed_order_ids(product_key, {order_id}):
+                skipped_order_keys.add(order_key)
+                continue
+            if order_id in load_registration_reminder_sent_order_ids(product_key, {order_id}):
+                skipped_order_keys.add(order_key)
+                continue
+
+            try:
+                email_sent = send_registration_confirmation_email(order, item, subject_prefix="Reminder: ")
+            except Exception as exc:
+                failed_order_keys.add(order_key)
+                app.logger.warning("Automatische inschrijvingsreminder mislukt voor order %s: %s", order_id, exc)
+                continue
+
+            if not email_sent:
+                skipped_order_keys.add(order_key)
+                continue
+
+            set_registration_reminders_sent(product_key, [order_id], True)
+            sent_order_keys.add(order_key)
+
+    result["sentOrderIds"] = sorted(sent_order_keys)
+    result["skippedOrderIds"] = sorted(skipped_order_keys)
+    result["failedOrderIds"] = sorted(failed_order_keys)
+    return result
 
 
 def auto_email_new_registration_orders(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -3638,6 +3800,16 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_registration_email_statuses_product_key
             ON registration_email_statuses (product_key);
+
+            CREATE TABLE IF NOT EXISTS registration_email_reminder_statuses (
+                product_key TEXT NOT NULL,
+                order_id TEXT NOT NULL,
+                reminded_at TEXT NOT NULL,
+                PRIMARY KEY (product_key, order_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_registration_email_reminder_statuses_product_key
+            ON registration_email_reminder_statuses (product_key);
 
             CREATE TABLE IF NOT EXISTS registration_event_statuses (
                 product_key TEXT PRIMARY KEY,
