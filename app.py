@@ -12882,6 +12882,28 @@ def find_moneybird_contact_by_name(token: str, administration_id: Any, query: st
     return active_contacts[0] if active_contacts else None
 
 
+def fetch_moneybird_sales_tax_rate_id(token: str, administration_id: Any, percentage: Decimal = Decimal("9")) -> str:
+    response = requests.get(
+        f"{MONEYBIRD_API_BASE}/{administration_id}/tax_rates.json",
+        headers=get_moneybird_headers(token),
+        timeout=20,
+    )
+    response.raise_for_status()
+    tax_rates = response.json()
+    if not isinstance(tax_rates, list):
+        return ""
+
+    for tax_rate in tax_rates:
+        tax_percentage = decimal_from_value(tax_rate.get("percentage"))
+        if (
+            tax_rate.get("active")
+            and str(tax_rate.get("tax_rate_type") or "").strip() == "sales_invoice"
+            and tax_percentage == percentage
+        ):
+            return str(tax_rate.get("id") or "").strip()
+    return ""
+
+
 def format_invoice_decimal(value: Decimal) -> str:
     return f"{value.quantize(Decimal('0.01'))}"
 
@@ -13127,6 +13149,17 @@ def create_moneybird_concept_invoice_for_setting(setting: Dict[str, Any], proces
     contact = find_moneybird_contact_by_name(token, administration_id, setting["clubName"])
     if not contact or not contact.get("id"):
         raise ValueError(f"Geen MoneyBird-contact gevonden voor {setting['clubName']}.")
+    tax_rate_id = fetch_moneybird_sales_tax_rate_id(token, administration_id, Decimal("9"))
+    if not tax_rate_id:
+        raise ValueError("Geen actieve MoneyBird-btwcode van 9% gevonden voor verkoopfacturen.")
+
+    invoice_lines = [
+        {
+            **line,
+            "tax_rate_id": tax_rate_id,
+        }
+        for line in invoice_payload["invoiceLines"]
+    ]
 
     response = requests.post(
         f"{MONEYBIRD_API_BASE}/{administration_id}/sales_invoices.json",
@@ -13136,8 +13169,8 @@ def create_moneybird_concept_invoice_for_setting(setting: Dict[str, Any], proces
                 "contact_id": contact["id"],
                 "reference": f"Automatische conceptfactuur {setting['clubName']} {invoice_payload['monthLabel']}",
                 "invoice_date": process_date.isoformat(),
-                "prices_are_incl_tax": True,
-                "details_attributes": invoice_payload["invoiceLines"],
+                "prices_are_incl_tax": False,
+                "details_attributes": invoice_lines,
             }
         },
         timeout=20,

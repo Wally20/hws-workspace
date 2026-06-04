@@ -6,7 +6,7 @@
   <header class="page-header">
     <div>
       <h1>Automatisch facturen verzenden</h1>
-      <p class="welcome-line">Laat MoneyBird automatisch conceptfacturen klaarzetten voor samenwerkende amateurclubs.</p>
+      <p class="welcome-line">Laat MoneyBird automatisch conceptfacturen klaarzetten voor samenwerkende amateurclubs met 9% btw bovenop het factuurbedrag.</p>
     </div>
     <div class="agenda-header-actions">
       <a href="/financien" class="subtle-button">Terug naar Financiën</a>
@@ -96,7 +96,7 @@
       <div class="agenda-modal-header">
         <div>
           <h2>Nieuwe instelling</h2>
-          <p class="feature-list-subtitle">Conceptfacturen worden alleen op de ingestelde factuurdag aangemaakt.</p>
+          <p class="feature-list-subtitle">Bedragen worden exclusief btw ingesteld; MoneyBird zet er automatisch 9% btw bovenop.</p>
         </div>
         <button type="button" class="subtle-button" id="closeAutomaticInvoiceModal">Sluiten</button>
       </div>
@@ -117,7 +117,7 @@
           </label>
 
           <label class="field">
-            <span>Standaard factuurbedrag</span>
+            <span>Standaard factuurbedrag excl. btw</span>
             <input type="text" name="standard_amount" inputmode="decimal" placeholder="Bijvoorbeeld: 100,00" required>
           </label>
 
@@ -127,7 +127,7 @@
           </label>
 
           <label class="field">
-            <span>Bedrag per training</span>
+            <span>Bedrag per training excl. btw</span>
             <input type="text" name="training_amount" inputmode="decimal" placeholder="Bijvoorbeeld: 25,00" required>
           </label>
 
