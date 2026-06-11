@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}Materialen | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header materials-header">
+    <div>
+      <h1>Materialen</h1>
+      <p class="welcome-line">Vul je totale voorraad in, verdeel wat bij clubs ligt en zie direct wat er nog in de opslag beschikbaar is.</p>
+    </div>
+    <a class="subtle-button" href="/management">Terug</a>
+  </header>
+
+  {% if saved %}
+    <div class="notice materials-save-notice" role="status">Materialen opgeslagen.</div>
+  {% endif %}
+
+  <section class="summary-grid materials-summary-grid" aria-label="Materiaaloverzicht">
+    <article class="summary-card compact-summary-card">
+      <p class="summary-label">Totaal materiaal</p>
+      <p class="summary-value" data-materials-total>{{ inventory.totalCount }}</p>
+    </article>
+    <article class="summary-card compact-summary-card">
+      <p class="summary-label">Bij clubs</p>
+      <p class="summary-value" data-materials-allocated>{{ inventory.allocatedCount }}</p>
+    </article>
+    <article class="summary-card compact-summary-card">
+      <p class="summary-label">Beschikbaar in opslag</p>
+      <p class="summary-value" data-materials-available>{{ inventory.availableCount }}</p>
+    </article>
+  </section>
+
+  <form class="materials-form" method="post" action="/materialen" data-materials-form>
+    <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+
+    <section class="summary-card materials-panel">
+      <div class="feature-list-head">
+        <div>
+          <h2 class="panel-title">Totale voorraad</h2>
+          <p class="feature-list-subtitle">Voeg materiaalsoorten toe en vul in hoeveel je er totaal van hebt.</p>
+        </div>
+        <button type="button" class="subtle-button action-small" data-add-material>Materiaal toevoegen</button>
+      </div>
+
+      <div class="materials-table materials-total-table" data-material-list>
+        <div class="materials-row materials-row-head" aria-hidden="true">
+          <span>Materiaal</span>
+          <span>Totaal</span>
+          <span>Bij clubs</span>
+          <span>Opslag</span>
+          <span></span>
+        </div>
+        {% for material in inventory.materials %}
+          <div class="materials-row" data-material-row data-material-key="{{ material.key }}">
+            <input type="hidden" name="material_key" value="{{ material.key }}">
+            <label>
+              <span>Materiaal</span>
+              <input type="text" name="material_name" value="{{ material.name }}" placeholder="Bijv. ballen">
+            </label>
+            <label>
+              <span>Totaal</span>
+              <input type="number" name="material_total" value="{{ material.totalCount }}" min="0" step="1" inputmode="numeric" data-material-total-input>
+            </label>
+            <output data-material-allocated>{{ material.allocatedCount }}</output>
+            <output data-material-available class="{% if material.availableCount < 0 %}materials-negative{% endif %}">{{ material.availableCount }}</output>
+            <button type="button" class="subtle-button action-small" data-remove-material>Verwijderen</button>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="summary-card materials-panel">
+      <div class="feature-list-head">
+        <div>
+          <h2 class="panel-title">Clubs</h2>
+          <p class="feature-list-subtitle">Voeg clubs toe en vul per materiaal in wat daar ligt.</p>
+        </div>
+        <button type="button" class="subtle-button action-small" data-add-club>Club toevoegen</button>
+      </div>
+
+      <div class="materials-club-list" data-club-list>
+        {% for club in inventory.clubs %}
+          <article class="materials-club-card" data-club-row data-club-key="{{ club.key }}">
+            <div class="materials-club-head">
+              <input type="hidden" name="club_key" value="{{ club.key }}">
+              <label>
+                <span>Clubnaam</span>
+                <input type="text" name="club_name" value="{{ club.name }}" placeholder="Bijv. WWNA">
+              </label>
+              <output data-club-total>{{ club.totalCount }}</output>
+              <button type="button" class="subtle-button action-small" data-remove-club>Verwijderen</button>
+            </div>
+            <div class="materials-club-materials">
+              {% for material in inventory.materials %}
+                <label data-club-material-field data-material-key="{{ material.key }}">
+                  <span>{{ material.name or "Materiaal" }}</span>
+                  <input
+                    type="number"
+                    name="quantity__{{ club.key }}__{{ material.key }}"
+                    value="{{ club.quantities.get(material.key, 0) }}"
+                    min="0"
+                    step="1"
+                    inputmode="numeric"
+                    data-club-quantity
+                  >
+                </label>
+              {% endfor %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <div class="agenda-form-actions materials-actions">
+      <button type="submit" class="subtle-button subtle-button-strong">Opslaan</button>
+    </div>
+  </form>
+
+  <template id="materialRowTemplate">
+    <div class="materials-row" data-material-row data-material-key="__MATERIAL_KEY__">
+      <input type="hidden" name="material_key" value="__MATERIAL_KEY__">
+      <label>
+        <span>Materiaal</span>
+        <input type="text" name="material_name" value="" placeholder="Bijv. ballen">
+      </label>
+      <label>
+        <span>Totaal</span>
+        <input type="number" name="material_total" value="0" min="0" step="1" inputmode="numeric" data-material-total-input>
+      </label>
+      <output data-material-allocated>0</output>
+      <output data-material-available>0</output>
+      <button type="button" class="subtle-button action-small" data-remove-material>Verwijderen</button>
+    </div>
+  </template>
+
+  <template id="clubRowTemplate">
+    <article class="materials-club-card" data-club-row data-club-key="__CLUB_KEY__">
+      <div class="materials-club-head">
+        <input type="hidden" name="club_key" value="__CLUB_KEY__">
+        <label>
+          <span>Clubnaam</span>
+          <input type="text" name="club_name" value="" placeholder="Bijv. WWNA">
+        </label>
+        <output data-club-total>0</output>
+        <button type="button" class="subtle-button action-small" data-remove-club>Verwijderen</button>
+      </div>
+      <div class="materials-club-materials"></div>
+    </article>
+  </template>
+
+  <script src="../static/materialen.js?v={{ asset_version }}" defer></script>
+{% endblock %}

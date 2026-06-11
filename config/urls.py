@@ -11,6 +11,7 @@ urlpatterns = [
     path("logout", views.logout_page, name="logout_page"),
     path("", views.index, name="index"),
     path("management", views.management_page, name="management_page"),
+    path("materialen", views.materialen_page, name="materialen_page"),
     path("aanmeldingen", views.registrations_page, name="registrations_page"),
     path(
         "aanmeldingen/<path:product_key>/teamindeling-export",

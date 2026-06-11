@@ -26,6 +26,7 @@ ENDPOINTS = {
     "registrations_detail_page": "registrations_detail_page",
     "export_registration_team_assignment": "export_registration_team_assignment",
     "management_page": "management_page",
+    "materialen_page": "materialen_page",
     "leads_page": "leads_page",
     "revenue_home_page": "revenue_home_page",
     "revenue_total_page": "revenue_total_page",

@@ -11,6 +11,13 @@
   </header>
 
   <section class="training-home-grid oefenstof-home-grid" aria-label="Management">
+    {% if 'materialen' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/materialen">
+        <span class="panel-title">Materialen</span>
+        <span class="feature-list-subtitle">Beheer totale voorraad, clubmateriaal en vrije opslag.</span>
+      </a>
+    {% endif %}
+
     {% if 'voorstellen-maker' in visible_pages %}
       <a class="summary-card training-home-tile" href="/voorstellen-maker">
         <span class="panel-title">Voorstellen maker</span>

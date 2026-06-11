@@ -534,6 +534,14 @@ WORKSPACE_SEARCH_PAGES = (
         "keywords": ("beheer", "admin", "team", "orders"),
     },
     {
+        "key": "materialen",
+        "title": "Materialen",
+        "path": "/materialen",
+        "section": "Management",
+        "description": "Materiaalvoorraad per club en opslag beheren.",
+        "keywords": ("materiaal", "materialen", "voorraad", "clubs", "opslag"),
+    },
+    {
         "key": "orders",
         "title": "Aanmeldingen",
         "path": "/aanmeldingen",
@@ -3784,6 +3792,38 @@ def init_db() -> None:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS material_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                total_count INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS material_clubs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS material_club_inventory (
+                club_id INTEGER NOT NULL,
+                material_id INTEGER NOT NULL,
+                quantity INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (club_id, material_id),
+                FOREIGN KEY (club_id) REFERENCES material_clubs(id) ON DELETE CASCADE,
+                FOREIGN KEY (material_id) REFERENCES material_items(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_material_items_sort
+            ON material_items (sort_order ASC, id ASC);
+
+            CREATE INDEX IF NOT EXISTS idx_material_clubs_sort
+            ON material_clubs (sort_order ASC, id ASC);
 
             CREATE TABLE IF NOT EXISTS social_media_ideas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -11294,6 +11334,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "voetbaldagen",
             "samenwerkende-amateurclubs",
             "management",
+            "materialen",
             "orders",
             "leads",
             "financien",
@@ -11319,6 +11360,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "voetbaldagen",
             "samenwerkende-amateurclubs",
             "management",
+            "materialen",
             "orders",
             "leads",
             "voorstellen-maker",
@@ -11331,7 +11373,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "content",
             "profile",
         }
-    return {"management", "orders", "leads", "draaiboeken", "voetbaldagen", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "marketing", "profile"}
+    return {"management", "materialen", "orders", "leads", "draaiboeken", "voetbaldagen", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "marketing", "profile"}
 
 
 def user_can_access_page(user: Optional[Dict[str, Any]], page_key: str) -> bool:
@@ -11348,6 +11390,178 @@ def require_page_access(page_key: str) -> Optional[Any]:
     if fallback_page == "dashboard":
         return redirect(url_for("index"))
     return redirect(url_for("personal_profile_page"))
+
+
+def parse_non_negative_int(value: Any) -> int:
+    try:
+        number = int(str(value or "0").strip())
+    except (TypeError, ValueError):
+        return 0
+    return max(0, number)
+
+
+def load_materials_inventory() -> Dict[str, Any]:
+    with get_db_connection() as connection:
+        material_rows = connection.execute(
+            """
+            SELECT id, name, total_count
+            FROM material_items
+            ORDER BY sort_order ASC, id ASC
+            """
+        ).fetchall()
+        club_rows = connection.execute(
+            """
+            SELECT id, name
+            FROM material_clubs
+            ORDER BY sort_order ASC, id ASC
+            """
+        ).fetchall()
+        inventory_rows = connection.execute(
+            """
+            SELECT club_id, material_id, quantity
+            FROM material_club_inventory
+            """
+        ).fetchall()
+
+    quantities = {
+        (int(row["club_id"]), int(row["material_id"])): parse_non_negative_int(row["quantity"])
+        for row in inventory_rows
+    }
+    clubs = [
+        {
+            "id": int(row["id"]),
+            "key": f"club-{int(row['id'])}",
+            "name": str(row["name"] or "").strip(),
+            "quantities": {},
+        }
+        for row in club_rows
+    ]
+    materials = []
+    for row in material_rows:
+        material_id = int(row["id"])
+        total_count = parse_non_negative_int(row["total_count"])
+        allocated_count = sum(quantities.get((club["id"], material_id), 0) for club in clubs)
+        material = {
+            "id": material_id,
+            "key": f"material-{material_id}",
+            "name": str(row["name"] or "").strip(),
+            "totalCount": total_count,
+            "allocatedCount": allocated_count,
+            "availableCount": total_count - allocated_count,
+        }
+        materials.append(material)
+
+    for club in clubs:
+        club["totalCount"] = 0
+        for material in materials:
+            quantity = quantities.get((club["id"], material["id"]), 0)
+            club["quantities"][material["key"]] = quantity
+            club["totalCount"] += quantity
+
+    return {
+        "materials": materials,
+        "clubs": clubs,
+        "totalCount": sum(material["totalCount"] for material in materials),
+        "allocatedCount": sum(material["allocatedCount"] for material in materials),
+        "availableCount": sum(material["availableCount"] for material in materials),
+    }
+
+
+def build_materials_inventory_from_form() -> Dict[str, Any]:
+    material_keys = request.form.getlist("material_key")
+    material_names = request.form.getlist("material_name")
+    material_totals = request.form.getlist("material_total")
+    club_keys = request.form.getlist("club_key")
+    club_names = request.form.getlist("club_name")
+
+    materials = []
+    seen_material_names = set()
+    for index, material_key in enumerate(material_keys):
+        name = str(material_names[index] if index < len(material_names) else "").strip()
+        if not name:
+            continue
+        name_key = name.casefold()
+        if name_key in seen_material_names:
+            continue
+        seen_material_names.add(name_key)
+        materials.append(
+            {
+                "key": str(material_key or f"material-{index}").strip(),
+                "name": name,
+                "totalCount": parse_non_negative_int(material_totals[index] if index < len(material_totals) else 0),
+            }
+        )
+
+    clubs = []
+    seen_club_names = set()
+    for index, club_key in enumerate(club_keys):
+        name = str(club_names[index] if index < len(club_names) else "").strip()
+        if not name:
+            continue
+        name_key = name.casefold()
+        if name_key in seen_club_names:
+            continue
+        seen_club_names.add(name_key)
+        clubs.append(
+            {
+                "key": str(club_key or f"club-{index}").strip(),
+                "name": name,
+            }
+        )
+
+    quantities = {}
+    for club in clubs:
+        for material in materials:
+            field_name = f"quantity__{club['key']}__{material['key']}"
+            quantities[(club["key"], material["key"])] = parse_non_negative_int(request.form.get(field_name, 0))
+
+    return {"materials": materials, "clubs": clubs, "quantities": quantities}
+
+
+def save_materials_inventory(inventory: Dict[str, Any]) -> None:
+    now = utcnow_iso()
+    with get_db_connection() as connection:
+        connection.execute("DELETE FROM material_club_inventory")
+        connection.execute("DELETE FROM material_items")
+        connection.execute("DELETE FROM material_clubs")
+
+        material_id_by_key = {}
+        for index, material in enumerate(inventory["materials"]):
+            cursor = connection.execute(
+                """
+                INSERT INTO material_items (name, total_count, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (material["name"], material["totalCount"], index, now, now),
+            )
+            material_id_by_key[material["key"]] = int(cursor.lastrowid)
+
+        club_id_by_key = {}
+        for index, club in enumerate(inventory["clubs"]):
+            cursor = connection.execute(
+                """
+                INSERT INTO material_clubs (name, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (club["name"], index, now, now),
+            )
+            club_id_by_key[club["key"]] = int(cursor.lastrowid)
+
+        for (club_key, material_key), quantity in inventory["quantities"].items():
+            if quantity <= 0:
+                continue
+            club_id = club_id_by_key.get(club_key)
+            material_id = material_id_by_key.get(material_key)
+            if club_id is None or material_id is None:
+                continue
+            connection.execute(
+                """
+                INSERT INTO material_club_inventory (club_id, material_id, quantity)
+                VALUES (?, ?, ?)
+                """,
+                (club_id, material_id, quantity),
+            )
+    clear_local_data_cache()
 
 
 def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, str]]:
@@ -15198,6 +15412,34 @@ def management_page() -> str:
         return access_redirect
 
     return render_template("management.html", active_page="management")
+
+
+@app.route("/materialen", methods=["GET", "POST"])
+def materialen_page() -> str:
+    access_redirect = require_page_access("materialen")
+    if access_redirect is not None:
+        return access_redirect
+
+    saved = False
+    if request.method == "POST":
+        save_materials_inventory(build_materials_inventory_from_form())
+        saved = True
+
+    inventory = load_materials_inventory()
+    if not inventory["materials"]:
+        inventory["materials"] = [
+            {"id": "", "key": "material-new-1", "name": "Ballen", "totalCount": 0, "allocatedCount": 0, "availableCount": 0},
+            {"id": "", "key": "material-new-2", "name": "Hoedjes", "totalCount": 0, "allocatedCount": 0, "availableCount": 0},
+            {"id": "", "key": "material-new-3", "name": "Hesjes", "totalCount": 0, "allocatedCount": 0, "availableCount": 0},
+            {"id": "", "key": "material-new-4", "name": "Pionnen", "totalCount": 0, "allocatedCount": 0, "availableCount": 0},
+        ]
+
+    return render_template(
+        "materialen.html",
+        active_page="materialen",
+        inventory=inventory,
+        saved=saved,
+    )
 
 
 @app.get("/aanmeldingen/<path:product_key>")
