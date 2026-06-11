@@ -546,23 +546,22 @@ body.sidebar-collapsed .sidebar-toggle {
 
 .materials-table {
   display: grid;
-  gap: 10px;
+  gap: 0;
+  border-top: 1px solid var(--line);
 }
 
 .materials-row {
   display: grid;
   grid-template-columns: minmax(180px, 1.4fr) minmax(110px, 0.55fr) minmax(92px, 0.45fr) minmax(92px, 0.45fr) auto;
-  gap: 12px;
-  align-items: end;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fbfbfb;
+  gap: 14px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #ececec;
+  background: transparent;
 }
 
 .materials-row-head {
-  padding: 0 12px 4px;
-  border: 0;
+  padding: 10px 0 8px;
   background: transparent;
   color: var(--muted);
   font-size: 0.78rem;
@@ -574,7 +573,7 @@ body.sidebar-collapsed .sidebar-toggle {
 .materials-club-head label,
 .materials-club-materials label {
   display: grid;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
   color: var(--muted);
   font-size: 0.78rem;
@@ -582,29 +581,37 @@ body.sidebar-collapsed .sidebar-toggle {
   text-transform: uppercase;
 }
 
+.materials-row label > span {
+  display: none;
+}
+
 .materials-row input,
 .materials-club-head input,
 .materials-club-materials input {
   width: 100%;
   min-width: 0;
-  min-height: 38px;
+  min-height: 34px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   padding: 0 10px;
 }
 
 .materials-row output,
 .materials-club-head output {
-  min-height: 38px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
   color: var(--text);
   font-weight: 800;
+}
+
+.materials-row .subtle-button {
+  min-height: 34px;
 }
 
 .materials-club-card {
