@@ -15,21 +15,6 @@
     <div class="notice materials-save-notice" role="status">Materialen opgeslagen.</div>
   {% endif %}
 
-  <section class="summary-grid materials-summary-grid" aria-label="Materiaaloverzicht">
-    <article class="summary-card compact-summary-card">
-      <p class="summary-label">Totaal materiaal</p>
-      <p class="summary-value" data-materials-total>{{ inventory.totalCount }}</p>
-    </article>
-    <article class="summary-card compact-summary-card">
-      <p class="summary-label">Bij clubs</p>
-      <p class="summary-value" data-materials-allocated>{{ inventory.allocatedCount }}</p>
-    </article>
-    <article class="summary-card compact-summary-card">
-      <p class="summary-label">Beschikbaar in opslag</p>
-      <p class="summary-value" data-materials-available>{{ inventory.availableCount }}</p>
-    </article>
-  </section>
-
   <form class="materials-form" method="post" action="/materialen" data-materials-form>
     <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
 
