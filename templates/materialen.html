@@ -66,30 +66,58 @@
       <div class="materials-club-list" data-club-list>
         {% for club in inventory.clubs %}
           <article class="materials-club-card" data-club-row data-club-key="{{ club.key }}">
-            <div class="materials-club-head">
-              <input type="hidden" name="club_key" value="{{ club.key }}">
-              <label>
-                <span>Clubnaam</span>
-                <input type="text" name="club_name" value="{{ club.name }}" placeholder="Bijv. WWNA">
-              </label>
-              <output data-club-total>{{ club.totalCount }}</output>
-              <button type="button" class="subtle-button action-small" data-remove-club>Verwijderen</button>
-            </div>
-            <div class="materials-club-materials">
-              {% for material in inventory.materials %}
-                <label data-club-material-field data-material-key="{{ material.key }}">
-                  <span>{{ material.name or "Materiaal" }}</span>
-                  <input
-                    type="number"
-                    name="quantity__{{ club.key }}__{{ material.key }}"
-                    value="{{ club.quantities.get(material.key, 0) }}"
-                    min="0"
-                    step="1"
-                    inputmode="numeric"
-                    data-club-quantity
-                  >
+            <button type="button" class="materials-club-tile" data-open-club-modal>
+              <span data-club-title>{{ club.name or "Nieuwe club" }}</span>
+              <strong><output data-club-total>{{ club.totalCount }}</output></strong>
+            </button>
+            <div class="materials-club-modal" data-club-modal hidden>
+              <div class="materials-club-modal-backdrop" data-close-club-modal></div>
+              <div class="materials-club-dialog">
+                <div class="materials-club-dialog-head">
+                  <div>
+                    <h3>Clubmateriaal</h3>
+                    <p class="feature-list-subtitle">Kies materialen uit je totale voorraad en vul in wat bij deze club ligt.</p>
+                  </div>
+                  <button type="button" class="subtle-button action-small" data-close-club-modal>Sluiten</button>
+                </div>
+
+                <input type="hidden" name="club_key" value="{{ club.key }}">
+                <label class="materials-club-name-field">
+                  <span>Clubnaam</span>
+                  <input type="text" name="club_name" value="{{ club.name }}" placeholder="Bijv. WWNA" data-club-name-input>
                 </label>
-              {% endfor %}
+
+                <div class="materials-club-materials" data-club-materials>
+                  {% for material in inventory.materials %}
+                    {% set club_quantity = club.quantities.get(material.key, 0) %}
+                    <label class="materials-club-material-choice" data-club-material-field data-material-key="{{ material.key }}">
+                      <span class="materials-choice-check">
+                        <input
+                          type="checkbox"
+                          data-club-material-toggle
+                          {% if club_quantity > 0 %}checked{% endif %}
+                        >
+                        <span data-club-material-label>{{ material.name or "Materiaal" }}</span>
+                      </span>
+                      <input
+                        type="number"
+                        name="quantity__{{ club.key }}__{{ material.key }}"
+                        value="{{ club_quantity }}"
+                        min="0"
+                        step="1"
+                        inputmode="numeric"
+                        data-club-quantity
+                        {% if club_quantity <= 0 %}disabled{% endif %}
+                      >
+                    </label>
+                  {% endfor %}
+                </div>
+
+                <div class="materials-club-dialog-actions">
+                  <button type="button" class="subtle-button action-danger" data-remove-club>Verwijderen</button>
+                  <button type="button" class="subtle-button subtle-button-strong" data-close-club-modal>Klaar</button>
+                </div>
+              </div>
             </div>
           </article>
         {% endfor %}
@@ -120,16 +148,35 @@
 
   <template id="clubRowTemplate">
     <article class="materials-club-card" data-club-row data-club-key="__CLUB_KEY__">
-      <div class="materials-club-head">
-        <input type="hidden" name="club_key" value="__CLUB_KEY__">
-        <label>
-          <span>Clubnaam</span>
-          <input type="text" name="club_name" value="" placeholder="Bijv. WWNA">
-        </label>
-        <output data-club-total>0</output>
-        <button type="button" class="subtle-button action-small" data-remove-club>Verwijderen</button>
+      <button type="button" class="materials-club-tile" data-open-club-modal>
+        <span data-club-title>Nieuwe club</span>
+        <strong><output data-club-total>0</output></strong>
+      </button>
+      <div class="materials-club-modal" data-club-modal hidden>
+        <div class="materials-club-modal-backdrop" data-close-club-modal></div>
+        <div class="materials-club-dialog">
+          <div class="materials-club-dialog-head">
+            <div>
+              <h3>Clubmateriaal</h3>
+              <p class="feature-list-subtitle">Kies materialen uit je totale voorraad en vul in wat bij deze club ligt.</p>
+            </div>
+            <button type="button" class="subtle-button action-small" data-close-club-modal>Sluiten</button>
+          </div>
+
+          <input type="hidden" name="club_key" value="__CLUB_KEY__">
+          <label class="materials-club-name-field">
+            <span>Clubnaam</span>
+            <input type="text" name="club_name" value="" placeholder="Bijv. WWNA" data-club-name-input>
+          </label>
+
+          <div class="materials-club-materials" data-club-materials></div>
+
+          <div class="materials-club-dialog-actions">
+            <button type="button" class="subtle-button action-danger" data-remove-club>Verwijderen</button>
+            <button type="button" class="subtle-button subtle-button-strong" data-close-club-modal>Klaar</button>
+          </div>
+        </div>
       </div>
-      <div class="materials-club-materials"></div>
     </article>
   </template>
 

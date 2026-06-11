@@ -544,6 +544,14 @@ body.sidebar-collapsed .sidebar-toggle {
   gap: 18px;
 }
 
+.materials-club-list {
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+}
+
+body.materials-modal-open {
+  overflow: hidden;
+}
+
 .materials-table {
   display: grid;
   gap: 0;
@@ -615,12 +623,113 @@ body.sidebar-collapsed .sidebar-toggle {
 }
 
 .materials-club-card {
+  min-width: 0;
+}
+
+.materials-club-tile {
+  width: 100%;
+  min-height: 104px;
   display: grid;
-  gap: 14px;
+  gap: 8px;
+  align-content: space-between;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #fbfbfb;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.materials-club-tile:hover,
+.materials-club-tile:focus-visible {
+  border-color: var(--text);
+  box-shadow: 0 12px 24px rgba(17, 17, 17, 0.08);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.materials-club-tile span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.98rem;
+  font-weight: 800;
+}
+
+.materials-club-tile strong {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.materials-club-modal[hidden] {
+  display: none;
+}
+
+.materials-club-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+}
+
+.materials-club-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(17, 17, 17, 0.34);
+}
+
+.materials-club-dialog {
+  position: relative;
+  z-index: 1;
+  width: min(780px, 100%);
+  max-height: min(760px, calc(100vh - 44px));
+  overflow: auto;
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgba(17, 17, 17, 0.22);
+}
+
+.materials-club-dialog-head,
+.materials-club-dialog-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.materials-club-dialog-head h3 {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.materials-club-name-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.materials-club-name-field input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  padding: 0 10px;
 }
 
 .materials-club-head {
@@ -632,8 +741,56 @@ body.sidebar-collapsed .sidebar-toggle {
 
 .materials-club-materials {
   display: grid;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.materials-club-material-choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfbfb;
+}
+
+.materials-club-material-choice-active {
+  border-color: #111111;
+  background: #f3f3f3;
+}
+
+.materials-choice-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 800;
+  text-transform: none;
+}
+
+.materials-choice-check input {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  accent-color: #111111;
+}
+
+.materials-choice-check span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.materials-club-material-choice > input {
+  min-height: 34px;
+}
+
+.materials-club-dialog-actions {
+  justify-content: flex-end;
 }
 
 .materials-negative {
@@ -665,6 +822,10 @@ body.sidebar-collapsed .sidebar-toggle {
   .materials-club-materials {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .materials-club-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -673,8 +834,12 @@ body.sidebar-collapsed .sidebar-toggle {
   }
 
   .materials-row,
-  .materials-club-head,
   .materials-club-materials {
+    grid-template-columns: 1fr;
+  }
+
+  .materials-club-list,
+  .materials-club-material-choice {
     grid-template-columns: 1fr;
   }
 

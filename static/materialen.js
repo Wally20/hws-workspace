@@ -8,9 +8,6 @@
   const clubList = form.querySelector("[data-club-list]");
   const materialTemplate = document.getElementById("materialRowTemplate");
   const clubTemplate = document.getElementById("clubRowTemplate");
-  const totalOutput = document.querySelector("[data-materials-total]");
-  const allocatedOutput = document.querySelector("[data-materials-allocated]");
-  const availableOutput = document.querySelector("[data-materials-available]");
 
   const parseCount = (value) => {
     const number = Number.parseInt(String(value || "0"), 10);
@@ -27,24 +24,79 @@
     return String(input ? input.value : "").trim() || "Materiaal";
   };
 
+  const getClubName = (clubRow) => {
+    const input = clubRow.querySelector("[data-club-name-input]");
+    return String(input ? input.value : "").trim() || "Nieuwe club";
+  };
+
+  const setModalOpen = (clubRow, isOpen) => {
+    const modal = clubRow.querySelector("[data-club-modal]");
+    if (!modal) {
+      return;
+    }
+    modal.hidden = !isOpen;
+    document.body.classList.toggle("materials-modal-open", isOpen);
+    if (isOpen) {
+      const input = clubRow.querySelector("[data-club-name-input]");
+      if (input) {
+        input.focus();
+      }
+    }
+  };
+
+  const closeAllClubModals = () => {
+    getClubRows().forEach((clubRow) => setModalOpen(clubRow, false));
+  };
+
+  const syncClubTile = (clubRow) => {
+    const title = clubRow.querySelector("[data-club-title]");
+    if (title) {
+      title.textContent = getClubName(clubRow);
+    }
+  };
+
+  const updateChoiceState = (field) => {
+    const checkbox = field.querySelector("[data-club-material-toggle]");
+    const input = field.querySelector("[data-club-quantity]");
+    if (!checkbox || !input) {
+      return;
+    }
+    input.disabled = !checkbox.checked;
+    field.classList.toggle("materials-club-material-choice-active", checkbox.checked);
+    if (!checkbox.checked) {
+      input.value = "0";
+    }
+  };
+
   const buildClubMaterialField = (clubKey, materialKey, materialName) => {
     const label = document.createElement("label");
+    label.className = "materials-club-material-choice";
     label.setAttribute("data-club-material-field", "");
     label.dataset.materialKey = materialKey;
 
-    const span = document.createElement("span");
-    span.textContent = materialName || "Materiaal";
+    const checkWrap = document.createElement("span");
+    checkWrap.className = "materials-choice-check";
 
-    const input = document.createElement("input");
-    input.type = "number";
-    input.name = `quantity__${clubKey}__${materialKey}`;
-    input.value = "0";
-    input.min = "0";
-    input.step = "1";
-    input.inputMode = "numeric";
-    input.setAttribute("data-club-quantity", "");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.setAttribute("data-club-material-toggle", "");
 
-    label.append(span, input);
+    const name = document.createElement("span");
+    name.setAttribute("data-club-material-label", "");
+    name.textContent = materialName || "Materiaal";
+
+    const quantity = document.createElement("input");
+    quantity.type = "number";
+    quantity.name = `quantity__${clubKey}__${materialKey}`;
+    quantity.value = "0";
+    quantity.min = "0";
+    quantity.step = "1";
+    quantity.inputMode = "numeric";
+    quantity.disabled = true;
+    quantity.setAttribute("data-club-quantity", "");
+
+    checkWrap.append(checkbox, name);
+    label.append(checkWrap, quantity);
     return label;
   };
 
@@ -56,7 +108,7 @@
 
     getClubRows().forEach((clubRow) => {
       const clubKey = clubRow.dataset.clubKey;
-      const fieldsWrap = clubRow.querySelector(".materials-club-materials");
+      const fieldsWrap = clubRow.querySelector("[data-club-materials]");
       if (!fieldsWrap || !clubKey) {
         return;
       }
@@ -73,29 +125,36 @@
           field = buildClubMaterialField(clubKey, material.key, material.name);
           fieldsWrap.appendChild(field);
         }
-        const label = field.querySelector("span");
+
+        const label = field.querySelector("[data-club-material-label]");
         if (label) {
           label.textContent = material.name;
         }
+
         const input = field.querySelector("[data-club-quantity]");
         if (input) {
           input.name = `quantity__${clubKey}__${material.key}`;
+          const checkbox = field.querySelector("[data-club-material-toggle]");
+          if (checkbox && parseCount(input.value) > 0) {
+            checkbox.checked = true;
+          }
         }
+        updateChoiceState(field);
       });
+
+      syncClubTile(clubRow);
     });
   };
 
   const recalculate = () => {
     syncClubMaterialFields();
 
-    let grandTotal = 0;
-    let grandAllocated = 0;
-    let grandAvailable = 0;
-
     getClubRows().forEach((clubRow) => {
       let clubTotal = 0;
       clubRow.querySelectorAll("[data-club-quantity]").forEach((input) => {
-        clubTotal += parseCount(input.value);
+        if (!input.disabled) {
+          clubTotal += parseCount(input.value);
+        }
       });
       const clubOutput = clubRow.querySelector("[data-club-total]");
       if (clubOutput) {
@@ -112,7 +171,9 @@
 
       getClubRows().forEach((clubRow) => {
         const input = clubRow.querySelector(`[data-club-material-field][data-material-key="${CSS.escape(materialKey)}"] [data-club-quantity]`);
-        allocated += parseCount(input ? input.value : 0);
+        if (input && !input.disabled) {
+          allocated += parseCount(input.value);
+        }
       });
 
       const available = total - allocated;
@@ -128,22 +189,7 @@
         availableRowOutput.textContent = String(available);
         availableRowOutput.classList.toggle("materials-negative", available < 0);
       }
-
-      grandTotal += total;
-      grandAllocated += allocated;
-      grandAvailable += available;
     });
-
-    if (totalOutput) {
-      totalOutput.textContent = String(grandTotal);
-    }
-    if (allocatedOutput) {
-      allocatedOutput.textContent = String(grandAllocated);
-    }
-    if (availableOutput) {
-      availableOutput.textContent = String(grandAvailable);
-      availableOutput.classList.toggle("materials-negative", grandAvailable < 0);
-    }
   };
 
   const addMaterial = () => {
@@ -165,7 +211,7 @@
     row.querySelector('input[name="club_key"]').value = key;
     clubList.appendChild(fragment);
     recalculate();
-    row.querySelector('input[name="club_name"]').focus();
+    setModalOpen(row, true);
   };
 
   form.addEventListener("click", (event) => {
@@ -173,6 +219,8 @@
     const addClubButton = event.target.closest("[data-add-club]");
     const removeMaterialButton = event.target.closest("[data-remove-material]");
     const removeClubButton = event.target.closest("[data-remove-club]");
+    const openClubButton = event.target.closest("[data-open-club-modal]");
+    const closeClubButton = event.target.closest("[data-close-club-modal]");
 
     if (addMaterialButton) {
       addMaterial();
@@ -191,18 +239,58 @@
       return;
     }
     if (removeClubButton) {
-      removeClubButton.closest("[data-club-row]").remove();
-      recalculate();
+      const clubRow = removeClubButton.closest("[data-club-row]");
+      if (clubRow) {
+        clubRow.remove();
+        recalculate();
+      }
+      return;
     }
+    if (openClubButton) {
+      const clubRow = openClubButton.closest("[data-club-row]");
+      if (clubRow) {
+        closeAllClubModals();
+        setModalOpen(clubRow, true);
+      }
+      return;
+    }
+    if (closeClubButton) {
+      const clubRow = closeClubButton.closest("[data-club-row]");
+      if (clubRow) {
+        setModalOpen(clubRow, false);
+      }
+    }
+  });
+
+  form.addEventListener("change", (event) => {
+    const checkbox = event.target.closest("[data-club-material-toggle]");
+    if (!checkbox) {
+      return;
+    }
+    const field = checkbox.closest("[data-club-material-field]");
+    updateChoiceState(field);
+    const input = field.querySelector("[data-club-quantity]");
+    if (checkbox.checked && input) {
+      input.disabled = false;
+      input.focus();
+    }
+    recalculate();
   });
 
   form.addEventListener("input", (event) => {
     if (
       event.target.matches('input[name="material_name"]') ||
       event.target.matches("[data-material-total-input]") ||
-      event.target.matches("[data-club-quantity]")
+      event.target.matches("[data-club-quantity]") ||
+      event.target.matches("[data-club-name-input]")
     ) {
       recalculate();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeAllClubModals();
     }
   });
 
