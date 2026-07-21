@@ -249,20 +249,29 @@ function updateTrainerFeeGrouping() {
   const rows = Array.from(trainerFeeRows.querySelectorAll(".team-fee-row"));
   const leaders = new Map();
   let total = 0;
+  let selectedCount = 0;
   rows.forEach((row) => {
     const group = row.querySelector('[data-trainer-fee-group]')?.value.trim().toLowerCase() || "";
     const amount = parseTrainerFeeAmount(row.querySelector('input[name="fee_amount"]')?.value);
     const leader = group ? leaders.get(group) : null;
     const isFollower = Boolean(leader);
+    const isSelected = Boolean(row.querySelector("[data-trainer-fee-select]")?.checked);
+    if (isSelected) selectedCount += 1;
     if (group && !leader) leaders.set(group, row);
     row.classList.toggle("team-fee-row-grouped", Boolean(group));
     row.classList.toggle("team-fee-row-group-follower", isFollower);
+    row.classList.toggle("team-fee-row-selected", isSelected);
     const amountLabel = row.querySelector("[data-trainer-fee-amount-label]");
     if (amountLabel) amountLabel.textContent = group ? "Totale avondvergoeding" : "Bedrag per training";
     if (!isFollower) total += amount;
   });
   if (trainerFeeTotal) {
     trainerFeeTotal.textContent = new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(total);
+  }
+  if (groupTrainerFeeRowsButton) {
+    groupTrainerFeeRowsButton.disabled = selectedCount < 2;
+    groupTrainerFeeRowsButton.textContent = selectedCount > 0 ? `Groeperen (${selectedCount})` : "Groeperen";
+    groupTrainerFeeRowsButton.title = selectedCount < 2 ? "Vink minimaal twee regels aan" : "Maak van de geselecteerde regels één avondvergoeding";
   }
 }
 

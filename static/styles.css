@@ -6051,13 +6051,6 @@ a.spaarpot-year-row:hover {
   place-items: center;
 }
 
-.team-fee-select-cell input {
-  width: 16px;
-  height: 16px;
-  min-height: 0;
-  accent-color: #111;
-}
-
 .team-fee-row-grouped {
   border-color: rgba(17, 17, 17, 0.22);
   background: #f5f5f5;
@@ -6099,6 +6092,29 @@ a.spaarpot-year-row:hover {
   padding: 0 10px;
   border-radius: 12px;
   font-size: 0.8rem;
+}
+
+.team-fee-row .team-fee-select-cell input[type="checkbox"] {
+  display: block;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  border-radius: 4px;
+  accent-color: #111;
+  cursor: pointer;
+}
+
+.team-fee-row-selected {
+  border-color: #111;
+  box-shadow: 0 0 0 2px rgba(17, 17, 17, 0.08);
+}
+
+#groupTrainerFeeRows:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .team-fee-remove-button {

@@ -129,7 +129,7 @@
               <p>Leg per dag en tijd vast welke activiteit deze trainer geeft en welk bedrag per training geldt.</p>
             </div>
             <div class="team-fee-head-actions">
-              <button type="button" class="team-secondary-button team-fee-add-button" id="groupTrainerFeeRows">Groeperen</button>
+              <button type="button" class="team-secondary-button team-fee-add-button" id="groupTrainerFeeRows" disabled>Groeperen</button>
               <button type="button" class="team-secondary-button team-fee-add-button" id="addTrainerFeeRow">Regel toevoegen</button>
             </div>
           </div>
@@ -154,8 +154,7 @@
     <template id="trainerFeeRowTemplate">
       <div class="team-fee-row">
         <label class="team-fee-select-cell" title="Selecteer om regels te groeperen">
-          <span class="visually-hidden">Selecteren</span>
-          <input type="checkbox" data-trainer-fee-select>
+          <input type="checkbox" data-trainer-fee-select aria-label="Deze regel selecteren om te groeperen">
         </label>
         <label class="field team-fee-day-field">
           <span>Dag</span>
