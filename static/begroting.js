@@ -128,6 +128,8 @@ function updateBudgetRow(row, groupSummaries = new Map(), rowIndex = 0) {
   const result = displayIncomeTotal - trainerCost;
   const countOutput = row.querySelector("[data-budget-count]");
   const resultNode = row.querySelector(".budget-result");
+  const forwardButton = row.querySelector("[data-forward-budget-row]");
+  const trainerId = row.querySelector('select[name="trainer_id"]')?.value || "";
 
   if (countOutput) {
     countOutput.value = String(count);
@@ -139,6 +141,10 @@ function updateBudgetRow(row, groupSummaries = new Map(), rowIndex = 0) {
       strong.textContent = isFollower ? "" : formatBudgetAmount(result);
     }
     resultNode.title = isFollower ? "" : `${formatBudgetAmount(displayIncomeTotal)} omzet - ${formatBudgetAmount(trainerCost)} trainer`;
+  }
+  if (forwardButton) {
+    forwardButton.disabled = !trainerId;
+    forwardButton.title = trainerId ? "Zet deze regel door naar het trainerprofiel" : "Kies eerst een trainer";
   }
 }
 
@@ -395,6 +401,16 @@ function bindBudgetRow(row) {
     row.remove();
     updateBudgetEmptyState();
     updateAllBudgetRows();
+  });
+  row.querySelector("[data-forward-budget-row]")?.addEventListener("click", () => {
+    const trainerId = row.querySelector('select[name="trainer_id"]')?.value || "";
+    if (!trainerId || !budgetForm) return;
+    getBudgetRows().forEach((candidate) => {
+      const checkbox = candidate.querySelector('[data-budget-row-select]');
+      if (checkbox) checkbox.checked = candidate === row;
+    });
+    const forwardSubmitButton = budgetForm.querySelector('button[name="action"][value="save_and_forward"]');
+    if (forwardSubmitButton) budgetForm.requestSubmit(forwardSubmitButton);
   });
   updateAllBudgetRows();
 }

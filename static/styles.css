@@ -5283,7 +5283,7 @@ body.sidebar-collapsed #footballFieldWizardModal {
 
 .budget-row {
   display: grid;
-  grid-template-columns: 22px minmax(280px, 2.4fr) 48px 96px minmax(150px, 1fr) minmax(110px, 0.76fr) 92px 32px;
+  grid-template-columns: 22px minmax(280px, 2.4fr) 48px 96px minmax(150px, 1fr) minmax(110px, 0.76fr) 92px 92px 32px;
   gap: 7px;
   align-items: center;
   padding: 7px 8px;
@@ -5388,6 +5388,19 @@ body.sidebar-collapsed #footballFieldWizardModal {
   border-radius: 8px;
   font-size: 1rem;
   line-height: 1;
+}
+
+.budget-forward-button {
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: 8px;
+  font-size: 0.67rem;
+  white-space: nowrap;
+}
+
+.budget-forward-button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
 }
 
 .budget-row-grouped {

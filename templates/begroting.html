@@ -76,6 +76,7 @@
           <span>Trainer</span>
           <span>Trainerbedrag</span>
           <span>Resultaat</span>
+          <span>Doorzetten</span>
           <span></span>
         </div>
 
@@ -121,6 +122,7 @@
               <span class="budget-result">
                 <strong>{% if not line.isGroupFollower %}{{ line.resultLabel }}{% endif %}</strong>
               </span>
+              <button type="button" class="subtle-button action-small budget-forward-button" data-forward-budget-row {% if not line.trainerId %}disabled{% endif %}>Naar profiel</button>
               <button type="button" class="subtle-button action-small budget-remove-button" data-remove-budget-row aria-label="Regel verwijderen">×</button>
             </div>
           {% endfor %}
@@ -189,6 +191,7 @@
       <span class="budget-result">
         <strong>€ 0,00</strong>
       </span>
+      <button type="button" class="subtle-button action-small budget-forward-button" data-forward-budget-row disabled>Naar profiel</button>
       <button type="button" class="subtle-button action-small budget-remove-button" data-remove-budget-row aria-label="Regel verwijderen">×</button>
     </div>
   </template>
