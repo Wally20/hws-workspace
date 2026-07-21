@@ -12570,16 +12570,34 @@ def forward_budget_rows_to_trainer_profiles(rows: List[Dict[str, Any]], selected
     pending_by_trainer: Dict[str, List[Dict[str, Any]]] = {}
     skipped = 0
     group_amounts: Dict[str, str] = {}
+    group_trainer_ids: Dict[str, str] = {}
     for row in rows:
         group_key = str(row.get("trainerGroup") or "").strip().casefold()
         amount = str(row.get("trainerAmount") or "").strip()
+        trainer_id = str(row.get("trainerId") or "").strip()
         if group_key and amount and group_key not in group_amounts:
             group_amounts[group_key] = amount
+        if group_key and trainer_id and group_key not in group_trainer_ids:
+            group_trainer_ids[group_key] = trainer_id
+
+    selected_group_keys = {
+        str(rows[index].get("trainerGroup") or "").strip().casefold()
+        for index in selected_indexes
+        if 0 <= index < len(rows) and str(rows[index].get("trainerGroup") or "").strip()
+    }
+    expanded_selected_indexes = {
+        index
+        for index, row in enumerate(rows)
+        if index in selected_indexes
+        or str(row.get("trainerGroup") or "").strip().casefold() in selected_group_keys
+    }
 
     for index, row in enumerate(rows):
-        if index not in selected_indexes:
+        if index not in expanded_selected_indexes:
             continue
-        trainer_id = str(row.get("trainerId") or "").strip()
+        group = str(row.get("trainerGroup") or "").strip()
+        group_key = group.casefold()
+        trainer_id = group_trainer_ids.get(group_key, str(row.get("trainerId") or "").strip()) if group else str(row.get("trainerId") or "").strip()
         if not trainer_id or trainer_id not in profiles:
             skipped += 1
             continue
@@ -12588,8 +12606,7 @@ def forward_budget_rows_to_trainer_profiles(rows: List[Dict[str, Any]], selected
         if not slots:
             slots = [{}]
         fee_type = get_trainer_fee_type_for_training(row.get("trainingType"))
-        group = str(row.get("trainerGroup") or "").strip()
-        trainer_amount = group_amounts.get(group.casefold(), str(row.get("trainerAmount") or "")) if group else str(row.get("trainerAmount") or "")
+        trainer_amount = group_amounts.get(group_key, str(row.get("trainerAmount") or "")) if group else str(row.get("trainerAmount") or "")
         for slot in slots:
             weekday = str(slot.get("weekday") or "").strip().lower()
             day = weekday if weekday in {"maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"} else ""

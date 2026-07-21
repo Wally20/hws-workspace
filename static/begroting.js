@@ -111,6 +111,10 @@ function syncBudgetGroupDisplay(rows, groupSummaries) {
     row.classList.toggle("budget-row-grouped", Boolean(summary));
     row.classList.toggle("budget-row-group-leader", isLeader);
     row.classList.toggle("budget-row-group-follower", isFollower);
+    const forwardButton = row.querySelector("[data-forward-budget-row]");
+    if (forwardButton) {
+      forwardButton.hidden = isFollower;
+    }
   });
 }
 
@@ -405,9 +409,11 @@ function bindBudgetRow(row) {
   row.querySelector("[data-forward-budget-row]")?.addEventListener("click", () => {
     const trainerId = row.querySelector('select[name="trainer_id"]')?.value || "";
     if (!trainerId || !budgetForm) return;
+    const sourceGroup = row.querySelector("[data-budget-group]")?.value.trim().toLowerCase() || "";
     getBudgetRows().forEach((candidate) => {
       const checkbox = candidate.querySelector('[data-budget-row-select]');
-      if (checkbox) checkbox.checked = candidate === row;
+      const candidateGroup = candidate.querySelector("[data-budget-group]")?.value.trim().toLowerCase() || "";
+      if (checkbox) checkbox.checked = candidate === row || Boolean(sourceGroup && candidateGroup === sourceGroup);
     });
     const forwardSubmitButton = budgetForm.querySelector('button[name="action"][value="save_and_forward"]');
     if (forwardSubmitButton) budgetForm.requestSubmit(forwardSubmitButton);

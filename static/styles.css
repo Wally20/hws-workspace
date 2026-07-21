@@ -5418,6 +5418,11 @@ body.sidebar-collapsed #footballFieldWizardModal {
   pointer-events: none;
 }
 
+.budget-row-group-follower .budget-forward-button {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .budget-empty-state {
   padding: 18px;
   border: 1px dashed var(--line);
