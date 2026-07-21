@@ -5865,6 +5865,10 @@ a.spaarpot-year-row:hover {
   display: none !important;
 }
 
+.team-detail-placeholder {
+  min-height: 220px;
+}
+
 .team-member-form {
   display: grid;
   gap: 26px;

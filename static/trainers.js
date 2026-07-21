@@ -11,6 +11,7 @@ const copyInviteLinkButton = document.querySelector("#copyInviteLinkButton");
 const trainerDeleteForm = document.querySelector("#trainerDeleteForm");
 const trainerDetailTabs = document.querySelectorAll("[data-team-detail-tab]");
 const trainerDetailPanels = document.querySelectorAll("[data-team-detail-panel]");
+const trainerProfileOnlySections = document.querySelectorAll("[data-trainer-profile-only]");
 const trainerFeeRows = document.querySelector("#trainerFeeRows");
 const trainerFeeRowTemplate = document.querySelector("#trainerFeeRowTemplate");
 const addTrainerFeeRowButton = document.querySelector("#addTrainerFeeRow");
@@ -92,6 +93,17 @@ function setTrainerDetailTab(activeTab) {
     panel.hidden = !isActive;
     panel.classList.toggle("team-detail-panel-hidden", !isActive);
   });
+}
+
+function updateTrainerProfileSections(systemRole) {
+  const isTrainer = String(systemRole || "").trim().toLowerCase() === "trainer";
+  trainerProfileOnlySections.forEach((section) => {
+    section.hidden = !isTrainer;
+  });
+
+  if (!isTrainer) {
+    setTrainerDetailTab("gegevens");
+  }
 }
 
 function setTrainerFeeActivityOptions(activityInput, club, selectedActivity = "", feeType = "") {
@@ -258,6 +270,7 @@ function openTrainerDetail(button) {
   if (systemRoleInput) {
     systemRoleInput.value = button.dataset.trainerSystemRole || "Trainer";
   }
+  updateTrainerProfileSections(button.dataset.trainerSystemRole || "Trainer");
 
   setTrainerModalOpen(trainerDetailModal, true);
 }
@@ -305,6 +318,9 @@ teamSearchInput?.addEventListener("input", filterTeamCards);
 previewFirstName?.addEventListener("input", updateTrainerPreview);
 previewLastName?.addEventListener("input", updateTrainerPreview);
 previewSystemRole?.addEventListener("change", updateTrainerPreview);
+document.querySelector("#trainerDetailSystemRoleInput")?.addEventListener("change", (event) => {
+  updateTrainerProfileSections(event.target.value);
+});
 updateTrainerPreview();
 
 copyInviteLinkButton?.addEventListener("click", async () => {
