@@ -250,7 +250,7 @@ function updateTrainerFeeGrouping() {
   const leaders = new Map();
   let total = 0;
   let selectedCount = 0;
-  rows.forEach((row) => {
+  rows.forEach((row, index) => {
     const group = row.querySelector('[data-trainer-fee-group]')?.value.trim().toLowerCase() || "";
     const amount = parseTrainerFeeAmount(row.querySelector('input[name="fee_amount"]')?.value);
     const leader = group ? leaders.get(group) : null;
@@ -258,8 +258,14 @@ function updateTrainerFeeGrouping() {
     const isSelected = Boolean(row.querySelector("[data-trainer-fee-select]")?.checked);
     if (isSelected) selectedCount += 1;
     if (group && !leader) leaders.set(group, row);
+    const previousGroup = rows[index - 1]?.querySelector('[data-trainer-fee-group]')?.value.trim().toLowerCase() || "";
+    const nextGroup = rows[index + 1]?.querySelector('[data-trainer-fee-group]')?.value.trim().toLowerCase() || "";
     row.classList.toggle("team-fee-row-grouped", Boolean(group));
+    row.classList.toggle("team-fee-row-group-leader", Boolean(group) && !isFollower);
     row.classList.toggle("team-fee-row-group-follower", isFollower);
+    row.classList.toggle("team-fee-row-group-start", Boolean(group) && previousGroup !== group);
+    row.classList.toggle("team-fee-row-group-continuation", Boolean(group) && previousGroup === group);
+    row.classList.toggle("team-fee-row-group-end", Boolean(group) && nextGroup !== group);
     row.classList.toggle("team-fee-row-selected", isSelected);
     const amountLabel = row.querySelector("[data-trainer-fee-amount-label]");
     if (amountLabel) amountLabel.textContent = group ? "Totale avondvergoeding" : "Bedrag per training";

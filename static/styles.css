@@ -6057,8 +6057,26 @@ a.spaarpot-year-row:hover {
 }
 
 .team-fee-row-grouped {
-  border-color: rgba(17, 17, 17, 0.22);
+  border-color: rgba(17, 17, 17, 0.28);
+  border-left: 4px solid var(--lime);
   background: #f5f5f5;
+}
+
+.team-fee-row-group-start:not(.team-fee-row-group-end) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.team-fee-row-group-continuation {
+  margin-top: -14px;
+  border-top: 1px dashed rgba(17, 17, 17, 0.18);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.team-fee-row-group-continuation:not(.team-fee-row-group-end) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .team-fee-row-group-follower label:last-of-type {

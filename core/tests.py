@@ -1993,6 +1993,45 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn('<script nonce="', content)
         self.assertIn('id="addProposalLineButton"', content)
 
+    def test_forwarded_grouped_budget_rows_keep_one_group_in_trainer_planning(self):
+        rows = [
+            {
+                "trainingType": "Samenwerkende amateurclub",
+                "club": "VV Gorssel",
+                "activityTitle": "JO11-1",
+                "trainerAmount": "45.00",
+                "trainerGroup": "avond-test",
+                "trainerId": "trainer-1",
+            },
+            {
+                "trainingType": "Samenwerkende amateurclub",
+                "club": "VV Gorssel",
+                "activityTitle": "JO11-2",
+                "trainerAmount": "",
+                "trainerGroup": "avond-test",
+                "trainerId": "trainer-1",
+            },
+        ]
+        activity_options = [
+            {
+                "key": legacy.build_budget_activity_key(row["trainingType"], row["club"], row["activityTitle"]),
+                "scheduleSlots": [{"weekday": "maandag", "startTime": start_time}],
+            }
+            for row, start_time in zip(rows, ["17:15", "18:30"])
+        ]
+
+        with (
+            patch.object(legacy, "build_budget_activity_options", return_value=activity_options),
+            patch.object(legacy, "load_trainer_profiles", return_value=[{"id": "trainer-1", "trainerFees": []}]),
+            patch.object(legacy, "update_trainer_fee_rows") as mocked_update,
+        ):
+            added, skipped = legacy.forward_budget_rows_to_trainer_profiles(rows, {0}, 2026)
+
+        self.assertEqual((added, skipped), (2, 0))
+        forwarded_rows = mocked_update.call_args.args[1]
+        self.assertEqual([row["group"] for row in forwarded_rows], ["avond-test", "avond-test"])
+        self.assertEqual([row["amount"] for row in forwarded_rows], ["45.00", "45.00"])
+
     def test_proposal_training_counts_api_counts_only_matching_agenda_days_in_selected_season(self):
         client = self.build_authenticated_client()
         target_dates = [
