@@ -231,7 +231,6 @@
           <button type="button" class="team-detail-tab team-detail-tab-active" data-team-detail-tab="gegevens" aria-selected="true">Persoonlijke informatie</button>
           <button type="button" class="team-detail-tab" data-team-detail-tab="kleding-en-sleutels" data-trainer-profile-only aria-selected="false">Kleding en sleutels</button>
           <button type="button" class="team-detail-tab" data-team-detail-tab="planning" data-trainer-profile-only aria-selected="false">Planning</button>
-          <button type="button" class="team-detail-tab" data-team-detail-tab="vergoedingen" data-trainer-profile-only aria-selected="false">Trainersvergoedingen</button>
         </div>
 
         <section class="team-form-grid team-form-grid-single">
@@ -310,15 +309,11 @@
             <h3>Kleding en sleutels</h3>
           </article>
 
-          <article class="team-form-section team-detail-placeholder team-detail-panel-hidden" data-team-detail-panel="planning" data-trainer-profile-only hidden>
-            <h3>Planning</h3>
-          </article>
-
-          <article class="team-form-section team-fees-section team-detail-panel-hidden" data-team-detail-panel="vergoedingen" data-trainer-profile-only hidden>
+          <article class="team-form-section team-fees-section team-detail-panel-hidden" data-team-detail-panel="planning" data-trainer-profile-only hidden>
             <div class="team-fees-head">
               <div>
-                <h3>Trainersvergoedingen</h3>
-                <p>Leg per club vast welke activiteit dit teamlid geeft en welk bedrag per training geldt.</p>
+                <h3>Planning</h3>
+                <p>Leg per dag en tijd vast welke activiteit deze trainer geeft en welk bedrag per training geldt.</p>
               </div>
               <button type="button" class="team-secondary-button team-fee-add-button" id="addTrainerFeeRow">Regel toevoegen</button>
             </div>
@@ -344,6 +339,21 @@
 
   <template id="trainerFeeRowTemplate">
     <div class="team-fee-row">
+      <label class="field team-fee-day-field">
+        <span>Dag</span>
+        <select name="fee_day">
+          <option value="">Selecteer dag</option>
+          {% for value, label in [('maandag', 'Maandag'), ('dinsdag', 'Dinsdag'), ('woensdag', 'Woensdag'), ('donderdag', 'Donderdag'), ('vrijdag', 'Vrijdag'), ('zaterdag', 'Zaterdag'), ('zondag', 'Zondag')] %}
+            <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label class="field team-fee-time-field">
+        <span>Tijd</span>
+        <input type="time" name="fee_time">
+      </label>
+
       <label class="field">
         <span>Type</span>
         <select name="fee_type">

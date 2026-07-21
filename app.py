@@ -12009,6 +12009,15 @@ def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, Any]]:
     valid_activities = {str(option["value"]): str(option["label"]) for option in TRAINER_FEE_ACTIVITY_OPTIONS}
     valid_activities[TRAINER_FEE_ALL_ACTIVITIES_VALUE] = TRAINER_FEE_ALL_ACTIVITIES_VALUE
     valid_types = {str(option["value"]): str(option["label"]) for option in TRAINER_FEE_TYPE_OPTIONS}
+    valid_days = {
+        "maandag": "Maandag",
+        "dinsdag": "Dinsdag",
+        "woensdag": "Woensdag",
+        "donderdag": "Donderdag",
+        "vrijdag": "Vrijdag",
+        "zaterdag": "Zaterdag",
+        "zondag": "Zondag",
+    }
     for club_options in build_trainer_fee_agenda_activity_options().values():
         for option in club_options:
             valid_activities.setdefault(str(option["value"]), str(option["label"]))
@@ -12019,6 +12028,10 @@ def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, Any]]:
         club = str(item.get("club") or "").strip()
         activity = str(item.get("activity") or item.get("activityType") or "").strip()
         amount = str(item.get("amount") or "").strip()
+        day = str(item.get("day") or "").strip().lower()
+        day = day if day in valid_days else ""
+        time_value = str(item.get("time") or "").strip()
+        time_value = time_value if re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", time_value) else ""
         raw_types = item.get("types")
         if isinstance(raw_types, list):
             types = [str(value or "").strip() for value in raw_types]
@@ -12027,7 +12040,7 @@ def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, Any]]:
             types = [single_type] if single_type else []
         types = [value for value in types if value in valid_types]
         fee_type = types[0] if types else ""
-        if not club and not activity and not amount and not fee_type:
+        if not club and not activity and not amount and not fee_type and not day and not time_value:
             continue
         valid_clubs = set(TRAINER_FEE_CLUB_OPTIONS_BY_TYPE.get(fee_type, AGENDA_CLUB_OPTIONS))
         if fee_type == "voetbaldag_summercamp":
@@ -12040,6 +12053,9 @@ def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, Any]]:
             activity = ""
         normalized_rows.append(
             {
+                "day": day,
+                "dayLabel": valid_days.get(day, ""),
+                "time": time_value,
                 "club": club,
                 "type": fee_type,
                 "typeLabel": valid_types.get(fee_type, fee_type),
@@ -12055,15 +12071,19 @@ def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, Any]]:
 
 
 def parse_trainer_fee_rows_from_form(form_data: Any) -> List[Dict[str, Any]]:
+    days = form_data.getlist("fee_day")
+    times = form_data.getlist("fee_time")
     types = form_data.getlist("fee_type")
     clubs = form_data.getlist("fee_club")
     activities = form_data.getlist("fee_activity")
     amounts = form_data.getlist("fee_amount")
-    max_length = max(len(types), len(clubs), len(activities), len(amounts), 0)
+    max_length = max(len(days), len(times), len(types), len(clubs), len(activities), len(amounts), 0)
     raw_rows = []
     for index in range(max_length):
         raw_rows.append(
             {
+                "day": days[index] if index < len(days) else "",
+                "time": times[index] if index < len(times) else "",
                 "type": types[index] if index < len(types) else "",
                 "club": clubs[index] if index < len(clubs) else "",
                 "activity": activities[index] if index < len(activities) else "",
@@ -12075,6 +12095,15 @@ def parse_trainer_fee_rows_from_form(form_data: Any) -> List[Dict[str, Any]]:
 
 def trainer_fees_json_dumps(rows: List[Dict[str, Any]]) -> str:
     return json.dumps(normalize_trainer_fee_rows(rows), ensure_ascii=False)
+
+
+def update_trainer_fee_rows(profile_id: str, trainer_fees: List[Dict[str, Any]]) -> None:
+    with get_db_connection() as connection:
+        connection.execute(
+            "UPDATE trainer_profiles SET trainer_fees_json = ? WHERE id = ?",
+            (trainer_fees_json_dumps(trainer_fees), profile_id.strip()),
+        )
+    clear_local_data_cache()
 
 
 def build_trainer_fee_agenda_activity_options() -> Dict[str, List[Dict[str, str]]]:
@@ -17666,6 +17695,10 @@ def personal_profile_page() -> str:
     form_success = request.args.get("success", "").strip()
 
     if request.method == "POST":
+        if request.form.get("action", "").strip() == "save_planning" and is_trainer_user(user):
+            update_trainer_fee_rows(user["id"], parse_trainer_fee_rows_from_form(request.form))
+            return redirect(url_for("personal_profile_page", onderdeel="planning", success="Planning opgeslagen."))
+
         first_name = request.form.get("first_name", "").strip()
         last_name = request.form.get("last_name", "").strip()
         full_name = " ".join(part for part in [first_name, last_name] if part).strip()
@@ -17722,7 +17755,7 @@ def personal_profile_page() -> str:
     profile["lastName"] = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
     profile["initials"] = "".join(part[:1] for part in name_parts[:2]).upper() or "PP"
     is_trainer_profile = is_trainer_user(user)
-    profile_sections = {"persoonlijke-informatie", "kleding-en-sleutels", "planning", "trainersvergoeding"}
+    profile_sections = {"persoonlijke-informatie", "kleding-en-sleutels", "planning"}
     active_profile_section = request.args.get("onderdeel", "persoonlijke-informatie").strip()
     if not is_trainer_profile or active_profile_section not in profile_sections:
         active_profile_section = "persoonlijke-informatie"
@@ -17736,6 +17769,8 @@ def personal_profile_page() -> str:
         can_edit_role=bool(user.get("isAdmin")),
         is_trainer_profile=is_trainer_profile,
         active_profile_section=active_profile_section,
+        trainer_fee_agenda_activity_options=build_trainer_fee_agenda_activity_options(),
+        trainer_fee_club_options_by_type=build_trainer_fee_club_options_by_type(),
     )
 
 

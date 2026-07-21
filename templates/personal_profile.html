@@ -36,7 +36,6 @@
         <a class="personal-profile-tab {% if active_profile_section == 'persoonlijke-informatie' %}personal-profile-tab-active{% endif %}" href="/profiel?onderdeel=persoonlijke-informatie">Persoonlijke informatie</a>
         <a class="personal-profile-tab {% if active_profile_section == 'kleding-en-sleutels' %}personal-profile-tab-active{% endif %}" href="/profiel?onderdeel=kleding-en-sleutels">Kleding en sleutels</a>
         <a class="personal-profile-tab {% if active_profile_section == 'planning' %}personal-profile-tab-active{% endif %}" href="/profiel?onderdeel=planning">Planning</a>
-        <a class="personal-profile-tab {% if active_profile_section == 'trainersvergoeding' %}personal-profile-tab-active{% endif %}" href="/profiel?onderdeel=trainersvergoeding">Trainersvergoeding</a>
       </nav>
     {% endif %}
 
@@ -119,12 +118,74 @@
         <button type="submit" class="team-primary-button personal-profile-save">Profiel Opslaan</button>
       </div>
     </form>
+    {% elif active_profile_section == 'planning' %}
+      <form method="post" action="/profiel" class="team-member-form personal-profile-form">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <input type="hidden" name="action" value="save_planning">
+        <section class="team-form-section team-fees-section">
+          <div class="team-fees-head">
+            <div>
+              <h3>Planning</h3>
+              <p>Leg per dag en tijd vast welke activiteit deze trainer geeft en welk bedrag per training geldt.</p>
+            </div>
+            <button type="button" class="team-secondary-button team-fee-add-button" id="addTrainerFeeRow">Regel toevoegen</button>
+          </div>
+          <div class="team-fee-rows" id="trainerFeeRows"></div>
+        </section>
+        <div class="team-form-actions personal-profile-actions">
+          <button type="submit" class="team-primary-button">Opslaan</button>
+        </div>
+      </form>
     {% else %}
       <section class="team-form-section personal-profile-empty-section">
         {% if active_profile_section == 'kleding-en-sleutels' %}<h2>Kleding en sleutels</h2>{% endif %}
-        {% if active_profile_section == 'planning' %}<h2>Planning</h2>{% endif %}
-        {% if active_profile_section == 'trainersvergoeding' %}<h2>Trainersvergoeding</h2>{% endif %}
       </section>
     {% endif %}
   </div>
+
+  {% if is_trainer_profile %}
+    <template id="trainerFeeRowTemplate">
+      <div class="team-fee-row">
+        <label class="field team-fee-day-field">
+          <span>Dag</span>
+          <select name="fee_day">
+            <option value="">Selecteer dag</option>
+            {% for value, label in [('maandag', 'Maandag'), ('dinsdag', 'Dinsdag'), ('woensdag', 'Woensdag'), ('donderdag', 'Donderdag'), ('vrijdag', 'Vrijdag'), ('zaterdag', 'Zaterdag'), ('zondag', 'Zondag')] %}
+              <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field team-fee-time-field">
+          <span>Tijd</span>
+          <input type="time" name="fee_time">
+        </label>
+        <label class="field">
+          <span>Type</span>
+          <select name="fee_type">
+            <option value="">Selecteer type</option>
+            <option value="samenwerkende_amateurclub">Samenwerkende amateurclub</option>
+            <option value="techniektraining">Techniektraining</option>
+            <option value="voetbaldag_summercamp">Voetbaldag/SummerCamp</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Club</span>
+          <select name="fee_club"><option value="">Selecteer club</option></select>
+        </label>
+        <label class="field">
+          <span>Activiteit</span>
+          <select name="fee_activity"><option value="">Selecteer eerst een club</option></select>
+        </label>
+        <label class="field">
+          <span>Bedrag per training</span>
+          <input type="text" name="fee_amount" inputmode="decimal" placeholder="Bijv. 35,00">
+        </label>
+        <button type="button" class="subtle-button action-small team-fee-remove-button" data-remove-trainer-fee-row>Verwijderen</button>
+      </div>
+    </template>
+    <script type="application/json" id="trainerFeeAgendaActivityOptions">{{ trainer_fee_agenda_activity_options|tojson }}</script>
+    <script type="application/json" id="trainerFeeClubOptionsByType">{{ trainer_fee_club_options_by_type|tojson }}</script>
+    <script type="application/json" id="profileTrainerFeesData">{{ profile.trainerFees|tojson }}</script>
+    <script src="../static/trainers.js?v={{ asset_version }}" defer></script>
+  {% endif %}
 {% endblock %}

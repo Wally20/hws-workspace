@@ -17,6 +17,7 @@ const trainerFeeRowTemplate = document.querySelector("#trainerFeeRowTemplate");
 const addTrainerFeeRowButton = document.querySelector("#addTrainerFeeRow");
 const trainerFeeAgendaActivityOptionsNode = document.querySelector("#trainerFeeAgendaActivityOptions");
 const trainerFeeClubOptionsByTypeNode = document.querySelector("#trainerFeeClubOptionsByType");
+const profileTrainerFeesDataNode = document.querySelector("#profileTrainerFeesData");
 let trainerFeeAgendaActivityOptions = {};
 let trainerFeeClubOptionsByType = {};
 const TRAINER_FEE_DAY_TYPE = "voetbaldag_summercamp";
@@ -194,12 +195,20 @@ function addTrainerFeeRow(rowData = {}) {
   }
 
   const typeInput = row.querySelector('select[name="fee_type"]');
+  const dayInput = row.querySelector('select[name="fee_day"]');
+  const timeInput = row.querySelector('input[name="fee_time"]');
   const clubInput = row.querySelector('select[name="fee_club"]');
   const activityInput = row.querySelector('select[name="fee_activity"]');
   const amountInput = row.querySelector('input[name="fee_amount"]');
 
   if (typeInput) {
     typeInput.value = rowData.type || (Array.isArray(rowData.types) ? rowData.types[0] : "") || "";
+  }
+  if (dayInput) {
+    dayInput.value = rowData.day || "";
+  }
+  if (timeInput) {
+    timeInput.value = rowData.time || "";
   }
   setTrainerFeeClubOptions(clubInput, typeInput?.value || "", rowData.club || "");
   setTrainerFeeActivityOptions(activityInput, clubInput?.value || "", rowData.activity || "", typeInput?.value || "");
@@ -239,6 +248,14 @@ function getTrainerFeesFromButton(button) {
     return Array.isArray(parsedRows) ? parsedRows : [];
   } catch (_error) {
     return [];
+  }
+}
+
+if (profileTrainerFeesDataNode) {
+  try {
+    setTrainerFeeRows(JSON.parse(profileTrainerFeesDataNode.textContent || "[]"));
+  } catch (_error) {
+    setTrainerFeeRows([]);
   }
 }
 
