@@ -6009,6 +6009,13 @@ a.spaarpot-year-row:hover {
   white-space: nowrap;
 }
 
+.team-fee-head-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .team-fee-rows {
   display: grid;
   gap: 14px;
@@ -6016,13 +6023,53 @@ a.spaarpot-year-row:hover {
 
 .team-fee-row {
   display: grid;
-  grid-template-columns: minmax(112px, 0.7fr) minmax(92px, 0.55fr) minmax(145px, 0.9fr) minmax(135px, 0.8fr) minmax(210px, 1.35fr) minmax(115px, 0.65fr) auto;
+  grid-template-columns: 22px minmax(112px, 0.7fr) minmax(92px, 0.55fr) minmax(145px, 0.9fr) minmax(135px, 0.8fr) minmax(210px, 1.35fr) minmax(130px, 0.7fr) auto;
   gap: 9px;
   align-items: end;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: #fafafa;
+}
+
+.team-fee-select-cell {
+  align-self: center;
+  display: grid;
+  place-items: center;
+}
+
+.team-fee-select-cell input {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  accent-color: #111;
+}
+
+.team-fee-row-grouped {
+  border-color: rgba(17, 17, 17, 0.22);
+  background: #f5f5f5;
+}
+
+.team-fee-row-group-follower label:last-of-type {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.team-fee-total {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+  padding-top: 4px;
+}
+
+.team-fee-total span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.team-fee-total strong {
+  font-size: 1.12rem;
 }
 
 .team-fee-row .field {
@@ -6722,6 +6769,10 @@ a.spaarpot-year-row:hover {
 
   .team-fee-row {
     grid-template-columns: 1fr;
+  }
+
+  .team-fee-select-cell {
+    justify-content: start;
   }
 
   .feature-list-head,

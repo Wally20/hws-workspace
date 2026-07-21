@@ -15,6 +15,8 @@ const trainerProfileOnlySections = document.querySelectorAll("[data-trainer-prof
 const trainerFeeRows = document.querySelector("#trainerFeeRows");
 const trainerFeeRowTemplate = document.querySelector("#trainerFeeRowTemplate");
 const addTrainerFeeRowButton = document.querySelector("#addTrainerFeeRow");
+const groupTrainerFeeRowsButton = document.querySelector("#groupTrainerFeeRows");
+const trainerFeeTotal = document.querySelector("#trainerFeeTotal");
 const trainerFeeAgendaActivityOptionsNode = document.querySelector("#trainerFeeAgendaActivityOptions");
 const trainerFeeClubOptionsByTypeNode = document.querySelector("#trainerFeeClubOptionsByType");
 const profileTrainerFeesDataNode = document.querySelector("#profileTrainerFeesData");
@@ -200,6 +202,7 @@ function addTrainerFeeRow(rowData = {}) {
   const clubInput = row.querySelector('select[name="fee_club"]');
   const activityInput = row.querySelector('select[name="fee_activity"]');
   const amountInput = row.querySelector('input[name="fee_amount"]');
+  const groupInput = row.querySelector('[data-trainer-fee-group]');
 
   if (typeInput) {
     typeInput.value = rowData.type || (Array.isArray(rowData.types) ? rowData.types[0] : "") || "";
@@ -215,6 +218,9 @@ function addTrainerFeeRow(rowData = {}) {
   if (amountInput) {
     amountInput.value = rowData.amount || "";
   }
+  if (groupInput) {
+    groupInput.value = rowData.group || rowData.trainerGroup || "";
+  }
 
   typeInput?.addEventListener("change", () => {
     setTrainerFeeClubOptions(clubInput, typeInput.value, "");
@@ -225,7 +231,39 @@ function addTrainerFeeRow(rowData = {}) {
     setTrainerFeeActivityOptions(activityInput, clubInput.value, "", typeInput?.value || "");
   });
 
+  row.addEventListener("input", updateTrainerFeeGrouping);
+  row.addEventListener("change", updateTrainerFeeGrouping);
+
   trainerFeeRows.appendChild(fragment);
+  updateTrainerFeeGrouping();
+}
+
+function parseTrainerFeeAmount(value) {
+  const normalized = String(value || "").trim().replace(/[^0-9,.-]/g, "").replace(/\./g, "").replace(",", ".");
+  const amount = Number.parseFloat(normalized);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function updateTrainerFeeGrouping() {
+  if (!trainerFeeRows) return;
+  const rows = Array.from(trainerFeeRows.querySelectorAll(".team-fee-row"));
+  const leaders = new Map();
+  let total = 0;
+  rows.forEach((row) => {
+    const group = row.querySelector('[data-trainer-fee-group]')?.value.trim().toLowerCase() || "";
+    const amount = parseTrainerFeeAmount(row.querySelector('input[name="fee_amount"]')?.value);
+    const leader = group ? leaders.get(group) : null;
+    const isFollower = Boolean(leader);
+    if (group && !leader) leaders.set(group, row);
+    row.classList.toggle("team-fee-row-grouped", Boolean(group));
+    row.classList.toggle("team-fee-row-group-follower", isFollower);
+    const amountLabel = row.querySelector("[data-trainer-fee-amount-label]");
+    if (amountLabel) amountLabel.textContent = group ? "Totale avondvergoeding" : "Bedrag per training";
+    if (!isFollower) total += amount;
+  });
+  if (trainerFeeTotal) {
+    trainerFeeTotal.textContent = new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(total);
+  }
 }
 
 function setTrainerFeeRows(rows) {
@@ -319,6 +357,23 @@ addTrainerFeeRowButton?.addEventListener("click", () => {
   addTrainerFeeRow();
 });
 
+groupTrainerFeeRowsButton?.addEventListener("click", () => {
+  const selectedRows = Array.from(trainerFeeRows?.querySelectorAll(".team-fee-row") || [])
+    .filter((row) => row.querySelector("[data-trainer-fee-select]")?.checked);
+  if (selectedRows.length < 2) return;
+  const groupId = `avond-${Date.now()}`;
+  const leaderAmount = selectedRows[0].querySelector('input[name="fee_amount"]')?.value || "";
+  selectedRows.forEach((row) => {
+    const groupInput = row.querySelector('[data-trainer-fee-group]');
+    const amountInput = row.querySelector('input[name="fee_amount"]');
+    const checkbox = row.querySelector('[data-trainer-fee-select]');
+    if (groupInput) groupInput.value = groupId;
+    if (amountInput) amountInput.value = leaderAmount;
+    if (checkbox) checkbox.checked = false;
+  });
+  updateTrainerFeeGrouping();
+});
+
 trainerFeeRows?.addEventListener("click", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement) || !target.dataset.removeTrainerFeeRow) {
@@ -329,6 +384,7 @@ trainerFeeRows?.addEventListener("click", (event) => {
   if (!trainerFeeRows.querySelector(".team-fee-row")) {
     addTrainerFeeRow();
   }
+  updateTrainerFeeGrouping();
 });
 
 teamSearchInput?.addEventListener("input", filterTeamCards);

@@ -83,7 +83,7 @@
           {% for line in budget_summary.lines %}
             <div class="budget-row budget-input-row{% if line.isGrouped %} budget-row-grouped{% endif %}{% if line.isGroupLeader %} budget-row-group-leader{% endif %}{% if line.isGroupFollower %} budget-row-group-follower{% endif %}" data-budget-row>
               <label class="budget-select-cell">
-                <input type="checkbox" data-budget-row-select>
+                <input type="checkbox" name="forward_line" value="{{ loop.index0 }}" data-budget-row-select>
               </label>
               <label class="budget-field budget-activity-field">
                 <span class="visually-hidden">Activiteit</span>
@@ -148,14 +148,15 @@
     </div>
 
     <div class="team-form-actions budget-actions">
-      <button type="submit" class="team-primary-button">Begroting opslaan</button>
+      <button type="submit" name="action" value="save_and_forward" class="team-secondary-button" id="forwardBudgetLines">Selectie naar trainerprofiel</button>
+      <button type="submit" name="action" value="save" class="team-primary-button">Begroting opslaan</button>
     </div>
   </form>
 
   <template id="budgetRowTemplate">
     <div class="budget-row budget-input-row" data-budget-row>
       <label class="budget-select-cell">
-        <input type="checkbox" data-budget-row-select>
+        <input type="checkbox" name="forward_line" value="" data-budget-row-select>
       </label>
       <label class="budget-field budget-activity-field">
         <span class="visually-hidden">Activiteit</span>

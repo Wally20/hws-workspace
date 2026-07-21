@@ -315,10 +315,14 @@
                 <h3>Planning</h3>
                 <p>Leg per dag en tijd vast welke activiteit deze trainer geeft en welk bedrag per training geldt.</p>
               </div>
-              <button type="button" class="team-secondary-button team-fee-add-button" id="addTrainerFeeRow">Regel toevoegen</button>
+              <div class="team-fee-head-actions">
+                <button type="button" class="team-secondary-button team-fee-add-button" id="groupTrainerFeeRows">Groeperen</button>
+                <button type="button" class="team-secondary-button team-fee-add-button" id="addTrainerFeeRow">Regel toevoegen</button>
+              </div>
             </div>
 
             <div class="team-fee-rows" id="trainerFeeRows"></div>
+            <div class="team-fee-total"><span>Totale vergoeding per week</span><strong id="trainerFeeTotal">€ 0,00</strong></div>
           </article>
 
         </section>
@@ -339,6 +343,10 @@
 
   <template id="trainerFeeRowTemplate">
     <div class="team-fee-row">
+      <label class="team-fee-select-cell" title="Selecteer om regels te groeperen">
+        <span class="visually-hidden">Selecteren</span>
+        <input type="checkbox" data-trainer-fee-select>
+      </label>
       <label class="field team-fee-day-field">
         <span>Dag</span>
         <select name="fee_day">
@@ -382,9 +390,11 @@
       </label>
 
       <label class="field">
-        <span>Bedrag per training</span>
+        <span data-trainer-fee-amount-label>Bedrag per training</span>
         <input type="text" name="fee_amount" inputmode="decimal" placeholder="Bijv. 35,00">
       </label>
+
+      <input type="hidden" name="fee_group" value="" data-trainer-fee-group>
 
       <button type="button" class="subtle-button action-small team-fee-remove-button" data-remove-trainer-fee-row>Verwijderen</button>
     </div>

@@ -6,6 +6,7 @@ const budgetEmptyState = document.querySelector("#budgetEmptyState");
 const budgetMessageTrainer = document.querySelector("#budgetMessageTrainer");
 const budgetMessageOutput = document.querySelector("#budgetMessageOutput");
 const copyBudgetMessageButton = document.querySelector("#copyBudgetMessage");
+const budgetForm = document.querySelector("#budgetForm");
 const budgetActivityOptionsData = document.querySelector("#budgetActivityOptionsData");
 let budgetActivityOptionsByKey = {};
 const budgetMessageTrainerOptions = budgetMessageTrainer
@@ -442,6 +443,13 @@ addBudgetLineButton?.addEventListener("click", () => {
   }
   updateBudgetEmptyState();
   updateAllBudgetRows();
+});
+
+budgetForm?.addEventListener("submit", () => {
+  getBudgetRows().forEach((row, index) => {
+    const checkbox = row.querySelector('input[name="forward_line"]');
+    if (checkbox) checkbox.value = String(index);
+  });
 });
 
 document.querySelectorAll("[data-budget-row]").forEach(bindBudgetRow);

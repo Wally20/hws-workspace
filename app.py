@@ -12032,6 +12032,7 @@ def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, Any]]:
         day = day if day in valid_days else ""
         time_value = str(item.get("time") or "").strip()
         time_value = time_value if re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", time_value) else ""
+        group = str(item.get("group") or item.get("trainerGroup") or "").strip()[:100]
         raw_types = item.get("types")
         if isinstance(raw_types, list):
             types = [str(value or "").strip() for value in raw_types]
@@ -12064,9 +12065,19 @@ def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, Any]]:
                 "activity": activity,
                 "activityLabel": valid_activities.get(activity, activity),
                 "amount": amount,
+                "group": group,
             }
         )
 
+    group_amounts: Dict[str, str] = {}
+    for row in normalized_rows:
+        group = str(row.get("group") or "").strip().casefold()
+        if group and str(row.get("amount") or "").strip() and group not in group_amounts:
+            group_amounts[group] = str(row["amount"])
+    for row in normalized_rows:
+        group = str(row.get("group") or "").strip().casefold()
+        if group and group in group_amounts:
+            row["amount"] = group_amounts[group]
     return normalized_rows
 
 
@@ -12077,7 +12088,8 @@ def parse_trainer_fee_rows_from_form(form_data: Any) -> List[Dict[str, Any]]:
     clubs = form_data.getlist("fee_club")
     activities = form_data.getlist("fee_activity")
     amounts = form_data.getlist("fee_amount")
-    max_length = max(len(days), len(times), len(types), len(clubs), len(activities), len(amounts), 0)
+    groups = form_data.getlist("fee_group")
+    max_length = max(len(days), len(times), len(types), len(clubs), len(activities), len(amounts), len(groups), 0)
     raw_rows = []
     for index in range(max_length):
         raw_rows.append(
@@ -12088,6 +12100,7 @@ def parse_trainer_fee_rows_from_form(form_data: Any) -> List[Dict[str, Any]]:
                 "club": clubs[index] if index < len(clubs) else "",
                 "activity": activities[index] if index < len(activities) else "",
                 "amount": amounts[index] if index < len(amounts) else "",
+                "group": groups[index] if index < len(groups) else "",
             }
         )
     return normalize_trainer_fee_rows(raw_rows)
@@ -12196,6 +12209,13 @@ def find_trainer_fee_amount(profile: Dict[str, Any], club: str, activity: str, f
     return Decimal("0")
 
 
+def find_trainer_fee_row(profile: Dict[str, Any], club: str, activity: str, fee_type: str = "") -> Optional[Dict[str, Any]]:
+    for fee_row in profile.get("trainerFees") or []:
+        if trainer_fee_row_matches(fee_row, fee_type, club, activity):
+            return fee_row
+    return None
+
+
 def trainer_fee_training_counts_for_summary(training: Dict[str, Any]) -> bool:
     return str(training.get("status") or "").strip() == "gegeven"
 
@@ -12273,6 +12293,7 @@ def build_trainer_fee_monthly_summary(season_start_year: int, selected_month: Op
     trainings = load_agenda_trainings(season_range["start"].isoformat(), season_range["end"].isoformat())
     matched_training_count = 0
     missing_rate_count = 0
+    paid_groups: set[Tuple[str, str, str]] = set()
 
     for training in trainings:
         if not trainer_fee_training_counts_for_summary(training):
@@ -12290,15 +12311,22 @@ def build_trainer_fee_monthly_summary(season_start_year: int, selected_month: Op
             profile = profiles_by_id.get(trainer_id)
             if profile is None:
                 continue
-            amount = find_trainer_fee_amount(profile, club, activity, fee_type)
+            fee_row = find_trainer_fee_row(profile, club, activity, fee_type)
+            amount = parse_trainer_fee_amount(fee_row.get("amount")) if fee_row else Decimal("0")
             if amount <= 0:
                 missing_rate_count += 1
                 continue
+            fee_group = str(fee_row.get("group") or "").strip().casefold() if fee_row else ""
+            payment_key = (trainer_id, training_date.isoformat(), fee_group)
             month = training_date.month
-            trainer_totals[trainer_id][month] += amount
             trainer_counts[trainer_id][month] += 1
-            month_totals[month] += amount
             matched_training_count += 1
+            if fee_group and payment_key in paid_groups:
+                continue
+            if fee_group:
+                paid_groups.add(payment_key)
+            trainer_totals[trainer_id][month] += amount
+            month_totals[month] += amount
 
     trainer_rows = []
     for profile in profiles:
@@ -12533,6 +12561,66 @@ def save_budget_lines(season_start_year: int, rows: List[Dict[str, Any]]) -> Non
             ],
         )
     clear_local_data_cache()
+
+
+def forward_budget_rows_to_trainer_profiles(rows: List[Dict[str, Any]], selected_indexes: set[int], season_start_year: int) -> Tuple[int, int]:
+    """Append selected budget information to trainer planning without replacing existing rows."""
+    activity_options = {option["key"]: option for option in build_budget_activity_options(season_start_year)}
+    profiles = {str(profile.get("id") or "").strip(): profile for profile in load_trainer_profiles()}
+    pending_by_trainer: Dict[str, List[Dict[str, Any]]] = {}
+    skipped = 0
+    group_amounts: Dict[str, str] = {}
+    for row in rows:
+        group_key = str(row.get("trainerGroup") or "").strip().casefold()
+        amount = str(row.get("trainerAmount") or "").strip()
+        if group_key and amount and group_key not in group_amounts:
+            group_amounts[group_key] = amount
+
+    for index, row in enumerate(rows):
+        if index not in selected_indexes:
+            continue
+        trainer_id = str(row.get("trainerId") or "").strip()
+        if not trainer_id or trainer_id not in profiles:
+            skipped += 1
+            continue
+        option = activity_options.get(build_budget_activity_key(row["trainingType"], row["club"], row["activityTitle"]), {})
+        slots = option.get("scheduleSlots") if isinstance(option.get("scheduleSlots"), list) else []
+        if not slots:
+            slots = [{}]
+        fee_type = get_trainer_fee_type_for_training(row.get("trainingType"))
+        group = str(row.get("trainerGroup") or "").strip()
+        trainer_amount = group_amounts.get(group.casefold(), str(row.get("trainerAmount") or "")) if group else str(row.get("trainerAmount") or "")
+        for slot in slots:
+            weekday = str(slot.get("weekday") or "").strip().lower()
+            day = weekday if weekday in {"maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"} else ""
+            pending_by_trainer.setdefault(trainer_id, []).append(
+                {
+                    "day": day,
+                    "time": str(slot.get("startTime") or "").strip(),
+                    "type": fee_type,
+                    "club": row.get("club", ""),
+                    "activity": row.get("activityTitle", ""),
+                    "amount": trainer_amount,
+                    "group": group,
+                }
+            )
+
+    added = 0
+    for trainer_id, new_rows in pending_by_trainer.items():
+        existing = list(profiles[trainer_id].get("trainerFees") or [])
+        existing_keys = {
+            (item.get("day", ""), item.get("time", ""), item.get("type", ""), item.get("club", ""), item.get("activity", ""))
+            for item in existing
+        }
+        for new_row in new_rows:
+            key = (new_row["day"], new_row["time"], new_row["type"], new_row["club"], new_row["activity"])
+            if key in existing_keys:
+                continue
+            existing.append(new_row)
+            existing_keys.add(key)
+            added += 1
+        update_trainer_fee_rows(trainer_id, existing)
+    return added, skipped
 
 
 def build_budget_summary(season_start_year: int) -> Dict[str, Any]:
@@ -16733,6 +16821,18 @@ def budget_page() -> str:
     if request.method == "POST":
         rows = parse_budget_lines_from_form(request.form, season_start_year)
         save_budget_lines(season_start_year, rows)
+        action = request.form.get("action", "save").strip()
+        if action == "save_and_forward":
+            selected_indexes = {
+                parse_non_negative_int(value)
+                for value in request.form.getlist("forward_line")
+                if str(value).strip().isdigit()
+            }
+            added, skipped = forward_budget_rows_to_trainer_profiles(rows, selected_indexes, season_start_year)
+            message = f"Begroting opgeslagen en {added} planningsregel{'s' if added != 1 else ''} doorgestuurd."
+            if skipped:
+                message += f" {skipped} geselecteerde regel{'s' if skipped != 1 else ''} zonder trainer overgeslagen."
+            return redirect(url_for("budget_page", season=season_start_year, success=message))
         return redirect(url_for("budget_page", season=season_start_year, success="Begroting opgeslagen."))
 
     return render_template(
