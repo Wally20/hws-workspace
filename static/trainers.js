@@ -385,10 +385,14 @@ groupTrainerFeeRowsButton?.addEventListener("click", () => {
 
 trainerFeeRows?.addEventListener("click", (event) => {
   const target = event.target;
-  if (!(target instanceof HTMLElement) || !target.dataset.removeTrainerFeeRow) {
+  if (!(target instanceof HTMLElement)) {
     return;
   }
-  const row = target.closest(".team-fee-row");
+  const removeButton = target.closest("[data-remove-trainer-fee-row]");
+  if (!removeButton) {
+    return;
+  }
+  const row = removeButton.closest(".team-fee-row");
   row?.remove();
   if (!trainerFeeRows.querySelector(".team-fee-row")) {
     addTrainerFeeRow();
