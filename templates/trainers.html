@@ -73,6 +73,11 @@
         data-trainer-system-role="{{ profile.systemRole }}"
         data-trainer-email="{{ profile.email }}"
         data-trainer-phone="{{ profile.phone or '-' }}"
+        data-trainer-address="{{ profile.address }}"
+        data-trainer-city="{{ profile.city }}"
+        data-trainer-postal-code="{{ profile.postalCode }}"
+        data-trainer-bank-account-number="{{ profile.bankAccountNumber }}"
+        data-trainer-bank-account-name="{{ profile.bankAccountName }}"
         data-trainer-created="{{ profile.createdAtDisplay }}"
         data-trainer-access="{% if profile.isAdmin %}Admin{% else %}Teamlid{% endif %}"
         data-trainer-status="{{ profile.status }}"
@@ -141,7 +146,6 @@
               <select id="trainerSystemRole" name="system_role" required>
                 <option value="Trainer">Trainer</option>
                 <option value="Admin">Admin</option>
-                <option value="Social media beheerder">Social media beheerder</option>
               </select>
             </label>
 
@@ -154,6 +158,35 @@
               <span>Telefoon</span>
               <input type="text" name="phone">
             </label>
+
+            <label class="field">
+              <span>Adres</span>
+              <input type="text" name="address" required>
+            </label>
+
+            <div class="team-field-grid">
+              <label class="field">
+                <span>Woonplaats</span>
+                <input type="text" name="city" required>
+              </label>
+
+              <label class="field">
+                <span>Postcode</span>
+                <input type="text" name="postal_code" required>
+              </label>
+            </div>
+
+            <div class="team-field-grid">
+              <label class="field">
+                <span>Bankrekeningnummer</span>
+                <input type="text" name="bank_account_number" autocomplete="off" required>
+              </label>
+
+              <label class="field">
+                <span>Tenaamstelling bankrekening</span>
+                <input type="text" name="bank_account_name" required>
+              </label>
+            </div>
 
             <p class="team-invite-help">
               Na opslaan krijg je direct een aanmeldlink die je kunt doorsturen naar dit teamlid.
@@ -220,7 +253,6 @@
               <select name="system_role" id="trainerDetailSystemRoleInput" required>
                 <option value="Trainer">Trainer</option>
                 <option value="Admin">Admin</option>
-                <option value="Social media beheerder">Social media beheerder</option>
               </select>
             </label>
 
@@ -233,6 +265,35 @@
               <label class="field">
                 <span>Telefoon</span>
                 <input type="text" name="phone" id="trainerDetailPhoneInput">
+              </label>
+            </div>
+
+            <label class="field">
+              <span>Adres</span>
+              <input type="text" name="address" id="trainerDetailAddressInput">
+            </label>
+
+            <div class="team-field-grid">
+              <label class="field">
+                <span>Woonplaats</span>
+                <input type="text" name="city" id="trainerDetailCityInput">
+              </label>
+
+              <label class="field">
+                <span>Postcode</span>
+                <input type="text" name="postal_code" id="trainerDetailPostalCodeInput">
+              </label>
+            </div>
+
+            <div class="team-field-grid">
+              <label class="field">
+                <span>Bankrekeningnummer</span>
+                <input type="text" name="bank_account_number" id="trainerDetailBankAccountNumberInput" autocomplete="off">
+              </label>
+
+              <label class="field">
+                <span>Tenaamstelling bankrekening</span>
+                <input type="text" name="bank_account_name" id="trainerDetailBankAccountNameInput">
               </label>
             </div>
 
@@ -274,6 +335,16 @@
   <template id="trainerFeeRowTemplate">
     <div class="team-fee-row">
       <label class="field">
+        <span>Type</span>
+        <select name="fee_type">
+          <option value="">Selecteer type</option>
+          <option value="samenwerkende_amateurclub">Samenwerkende amateurclub</option>
+          <option value="techniektraining">Techniektraining</option>
+          <option value="voetbaldag_summercamp">Voetbaldag/SummerCamp</option>
+        </select>
+      </label>
+
+      <label class="field">
         <span>Club</span>
         <select name="fee_club">
           <option value="">Selecteer club</option>
@@ -300,6 +371,7 @@
   </template>
 
   <script type="application/json" id="trainerFeeAgendaActivityOptions">{{ trainer_fee_agenda_activity_options|tojson }}</script>
+  <script type="application/json" id="trainerFeeClubOptionsByType">{{ trainer_fee_club_options_by_type|tojson }}</script>
 
   <script src="../static/trainers.js?v={{ asset_version }}" defer></script>
 {% endblock %}

@@ -15,7 +15,12 @@ const trainerFeeRows = document.querySelector("#trainerFeeRows");
 const trainerFeeRowTemplate = document.querySelector("#trainerFeeRowTemplate");
 const addTrainerFeeRowButton = document.querySelector("#addTrainerFeeRow");
 const trainerFeeAgendaActivityOptionsNode = document.querySelector("#trainerFeeAgendaActivityOptions");
+const trainerFeeClubOptionsByTypeNode = document.querySelector("#trainerFeeClubOptionsByType");
 let trainerFeeAgendaActivityOptions = {};
+let trainerFeeClubOptionsByType = {};
+const TRAINER_FEE_DAY_TYPE = "voetbaldag_summercamp";
+const TRAINER_FEE_ALL_CLUBS = "Alle clubs";
+const TRAINER_FEE_ALL_ACTIVITIES = "Alle activiteiten";
 
 if (trainerFeeAgendaActivityOptionsNode) {
   try {
@@ -23,6 +28,15 @@ if (trainerFeeAgendaActivityOptionsNode) {
     trainerFeeAgendaActivityOptions = parsedOptions && typeof parsedOptions === "object" ? parsedOptions : {};
   } catch (_error) {
     trainerFeeAgendaActivityOptions = {};
+  }
+}
+
+if (trainerFeeClubOptionsByTypeNode) {
+  try {
+    const parsedClubOptions = JSON.parse(trainerFeeClubOptionsByTypeNode.textContent || "{}");
+    trainerFeeClubOptionsByType = parsedClubOptions && typeof parsedClubOptions === "object" ? parsedClubOptions : {};
+  } catch (_error) {
+    trainerFeeClubOptionsByType = {};
   }
 }
 
@@ -80,17 +94,20 @@ function setTrainerDetailTab(activeTab) {
   });
 }
 
-function setTrainerFeeActivityOptions(activityInput, club, selectedActivity = "") {
+function setTrainerFeeActivityOptions(activityInput, club, selectedActivity = "", feeType = "") {
   if (!(activityInput instanceof HTMLSelectElement)) {
     return;
   }
 
-  const clubOptions = Array.isArray(trainerFeeAgendaActivityOptions[club]) ? trainerFeeAgendaActivityOptions[club] : [];
+  const normalizedSelectedActivity = feeType === TRAINER_FEE_DAY_TYPE ? TRAINER_FEE_ALL_ACTIVITIES : selectedActivity;
+  const clubOptions = feeType === TRAINER_FEE_DAY_TYPE
+    ? [{ value: TRAINER_FEE_ALL_ACTIVITIES, label: TRAINER_FEE_ALL_ACTIVITIES }]
+    : (Array.isArray(trainerFeeAgendaActivityOptions[club]) ? trainerFeeAgendaActivityOptions[club] : []);
   activityInput.innerHTML = "";
 
   const placeholder = document.createElement("option");
   placeholder.value = "";
-  placeholder.textContent = club ? "Selecteer activiteit" : "Selecteer eerst een club";
+  placeholder.textContent = feeType === TRAINER_FEE_DAY_TYPE || club ? "Selecteer activiteit" : "Selecteer eerst een club";
   activityInput.appendChild(placeholder);
 
   clubOptions.forEach((option) => {
@@ -104,14 +121,53 @@ function setTrainerFeeActivityOptions(activityInput, club, selectedActivity = ""
     activityInput.appendChild(node);
   });
 
-  if (selectedActivity && !clubOptions.some((option) => option.value === selectedActivity)) {
+  if (normalizedSelectedActivity && !clubOptions.some((option) => option.value === normalizedSelectedActivity)) {
     const selectedNode = document.createElement("option");
-    selectedNode.value = selectedActivity;
-    selectedNode.textContent = selectedActivity;
+    selectedNode.value = normalizedSelectedActivity;
+    selectedNode.textContent = normalizedSelectedActivity;
     activityInput.appendChild(selectedNode);
   }
 
-  activityInput.value = selectedActivity || "";
+  activityInput.value = normalizedSelectedActivity || (clubOptions.length === 1 ? clubOptions[0].value : "");
+}
+
+function setTrainerFeeClubOptions(clubInput, feeType, selectedClub = "") {
+  if (!(clubInput instanceof HTMLSelectElement)) {
+    return;
+  }
+
+  const normalizedSelectedClub = feeType === TRAINER_FEE_DAY_TYPE ? TRAINER_FEE_ALL_CLUBS : selectedClub;
+  const clubOptions = Array.isArray(trainerFeeClubOptionsByType[feeType]) ? trainerFeeClubOptionsByType[feeType] : [];
+  const fallbackOptions = Object.values(trainerFeeClubOptionsByType).flat().filter(Boolean);
+  const options = feeType === TRAINER_FEE_DAY_TYPE
+    ? [TRAINER_FEE_ALL_CLUBS]
+    : (clubOptions.length ? clubOptions : Array.from(new Set(fallbackOptions)));
+  clubInput.innerHTML = "";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = feeType ? "Selecteer club" : "Selecteer eerst een type";
+  clubInput.appendChild(placeholder);
+
+  options.forEach((club) => {
+    const value = String(club || "").trim();
+    if (!value) {
+      return;
+    }
+    const node = document.createElement("option");
+    node.value = value;
+    node.textContent = value;
+    clubInput.appendChild(node);
+  });
+
+  if (normalizedSelectedClub && !options.includes(normalizedSelectedClub)) {
+    const selectedNode = document.createElement("option");
+    selectedNode.value = normalizedSelectedClub;
+    selectedNode.textContent = normalizedSelectedClub;
+    clubInput.appendChild(selectedNode);
+  }
+
+  clubInput.value = normalizedSelectedClub || (options.length === 1 ? options[0] : "");
 }
 
 function addTrainerFeeRow(rowData = {}) {
@@ -125,19 +181,27 @@ function addTrainerFeeRow(rowData = {}) {
     return;
   }
 
+  const typeInput = row.querySelector('select[name="fee_type"]');
   const clubInput = row.querySelector('select[name="fee_club"]');
   const activityInput = row.querySelector('select[name="fee_activity"]');
   const amountInput = row.querySelector('input[name="fee_amount"]');
-  if (clubInput) {
-    clubInput.value = rowData.club || "";
+
+  if (typeInput) {
+    typeInput.value = rowData.type || (Array.isArray(rowData.types) ? rowData.types[0] : "") || "";
   }
-  setTrainerFeeActivityOptions(activityInput, clubInput?.value || "", rowData.activity || "");
+  setTrainerFeeClubOptions(clubInput, typeInput?.value || "", rowData.club || "");
+  setTrainerFeeActivityOptions(activityInput, clubInput?.value || "", rowData.activity || "", typeInput?.value || "");
   if (amountInput) {
     amountInput.value = rowData.amount || "";
   }
 
+  typeInput?.addEventListener("change", () => {
+    setTrainerFeeClubOptions(clubInput, typeInput.value, "");
+    setTrainerFeeActivityOptions(activityInput, clubInput?.value || "", "", typeInput.value);
+  });
+
   clubInput?.addEventListener("change", () => {
-    setTrainerFeeActivityOptions(activityInput, clubInput.value, "");
+    setTrainerFeeActivityOptions(activityInput, clubInput.value, "", typeInput?.value || "");
   });
 
   trainerFeeRows.appendChild(fragment);
@@ -175,6 +239,11 @@ function openTrainerDetail(button) {
   setDetailInputValue("#trainerDetailLastName", button.dataset.trainerLastName || "");
   setDetailInputValue("#trainerDetailEmailInput", button.dataset.trainerEmail || "");
   setDetailInputValue("#trainerDetailPhoneInput", button.dataset.trainerPhone === "-" ? "" : (button.dataset.trainerPhone || ""));
+  setDetailInputValue("#trainerDetailAddressInput", button.dataset.trainerAddress || "");
+  setDetailInputValue("#trainerDetailCityInput", button.dataset.trainerCity || "");
+  setDetailInputValue("#trainerDetailPostalCodeInput", button.dataset.trainerPostalCode || "");
+  setDetailInputValue("#trainerDetailBankAccountNumberInput", button.dataset.trainerBankAccountNumber || "");
+  setDetailInputValue("#trainerDetailBankAccountNameInput", button.dataset.trainerBankAccountName || "");
   setDetailInputValue("#trainerDetailInviteLinkInput", button.dataset.trainerInviteLink || "");
   setDetailInputValue("#trainerDetailLicenseInput", button.dataset.trainerLicense === "-" ? "" : (button.dataset.trainerLicense || ""));
   setDetailInputValue("#trainerDetailEducationInput", button.dataset.trainerEducation === "-" ? "" : (button.dataset.trainerEducation || ""));

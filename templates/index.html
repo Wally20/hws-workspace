@@ -15,6 +15,33 @@
   {% endif %}
 
   <section class="dashboard-panels dashboard-panels-triple">
+    {% if is_trainer_dashboard_user %}
+    <article class="summary-card compact-summary-card trainer-week-card" id="trainerWeekScheduleCard">
+      <p class="panel-title">Mijn afspraken deze week</p>
+      {% if trainer_week_schedule %}
+        <div class="trainer-week-schedule-list">
+          {% for appointment in trainer_week_schedule %}
+            <div class="trainer-week-appointment{% if appointment.status == 'geannuleerd' %} trainer-week-appointment-cancelled{% endif %}">
+              <div class="trainer-week-appointment-time">
+                <strong>{{ appointment.dateLabel }}</strong>
+                {% if appointment.timeLabel %}<span>{{ appointment.timeLabel }}</span>{% endif %}
+              </div>
+              <div class="trainer-week-appointment-copy">
+                <strong>{{ appointment.title }}</strong>
+                {% if appointment.location %}<span>{{ appointment.location }}</span>{% endif %}
+              </div>
+              {% if appointment.status == 'geannuleerd' %}
+                <span class="trainer-week-status">{{ appointment.statusLabel }}</span>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="trainer-week-empty">Je hebt deze week geen aankomende afspraken of trainingen.</p>
+      {% endif %}
+    </article>
+    {% endif %}
+
     {% if can_view_revenue %}
     <article class="summary-card compact-summary-card">
       <p class="panel-title">Rapporten</p>

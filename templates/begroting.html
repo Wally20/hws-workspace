@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block title %}Begroting | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Begroting</h1>
+      <p class="welcome-line">Selecteer agenda-activiteiten en bereken inkomsten, trainerbudget en resultaat per seizoen.</p>
+    </div>
+  </header>
+
+  {% if success %}
+    <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+  {% endif %}
+
+  <section class="orders-toolbar budget-toolbar">
+    <div class="orders-toolbar-copy">
+      <p class="orders-toolbar-title">{{ budget_summary.selectedSeasonLabel }}</p>
+      <p class="orders-toolbar-text">{{ budget_summary.lineCount }} begrotingsregels · {{ budget_summary.activityOptions|length }} activiteiten uit de agenda</p>
+    </div>
+    <form method="get" action="/begroting" class="revenue-filter-form">
+      <label for="budgetSeasonSelect" class="visually-hidden">Kies seizoen</label>
+      <select id="budgetSeasonSelect" name="season" class="revenue-select" data-auto-submit="1">
+        {% for option in season_options %}
+          <option value="{{ option.value }}" {% if option.value == budget_summary.selectedSeason %}selected{% endif %}>
+            {{ option.label }}
+          </option>
+        {% endfor %}
+      </select>
+    </form>
+  </section>
+
+  <section class="summary-card budget-message-card">
+    <div class="budget-card-head">
+      <div>
+        <p class="panel-title">Trainerbericht</p>
+      </div>
+      <div class="budget-message-actions">
+        <label class="budget-field budget-message-trainer-field">
+          <span class="visually-hidden">Trainer voor bericht</span>
+          <select id="budgetMessageTrainer">
+            <option value="">Kies trainer</option>
+            {% for trainer in trainer_options %}
+              <option value="{{ trainer.id }}">{{ trainer.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="button" class="subtle-button subtle-button-strong" id="copyBudgetMessage">Kopiëren</button>
+      </div>
+    </div>
+    <textarea id="budgetMessageOutput" class="budget-message-output" rows="12" readonly placeholder="Kies een trainer om automatisch een voorstelbericht te maken."></textarea>
+  </section>
+
+  <form method="post" action="/begroting" class="summary-card budget-card" id="budgetForm">
+    <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+    <input type="hidden" name="season" value="{{ budget_summary.selectedSeason }}">
+
+    <div class="budget-card-head">
+      <div>
+        <p class="panel-title">Regels</p>
+      </div>
+      <div class="budget-head-actions">
+        <button type="button" class="subtle-button subtle-button-strong budget-center-button" id="centerBudgetLines">Groeperen</button>
+        <button type="button" class="refresh-button budget-add-button" id="addBudgetLine">+ Regel</button>
+      </div>
+    </div>
+
+    <div class="budget-table-wrap">
+      <div class="budget-table" id="budgetTable">
+        <div class="budget-row budget-head-row">
+          <span></span>
+          <span>Activiteit</span>
+          <span>Aantal</span>
+          <span>Inkomst p/st</span>
+          <span>Trainer</span>
+          <span>Trainerbedrag</span>
+          <span>Resultaat</span>
+          <span></span>
+        </div>
+
+        <div id="budgetRows">
+          {% for line in budget_summary.lines %}
+            <div class="budget-row budget-input-row{% if line.isGrouped %} budget-row-grouped{% endif %}{% if line.isGroupLeader %} budget-row-group-leader{% endif %}{% if line.isGroupFollower %} budget-row-group-follower{% endif %}" data-budget-row>
+              <label class="budget-select-cell">
+                <input type="checkbox" data-budget-row-select>
+              </label>
+              <label class="budget-field budget-activity-field">
+                <span class="visually-hidden">Activiteit</span>
+                <select name="activity_key" data-budget-activity required>
+                  <option value="">Kies activiteit</option>
+                  {% for option in budget_summary.activityOptions %}
+                    <option value="{{ option.key }}" data-count="{{ option.count }}" {% if option.key == line.activityKey %}selected{% endif %}>
+                      {{ option.label }} ({{ option.count }}x)
+                    </option>
+                  {% endfor %}
+                  {% if line.count == 0 %}
+                    <option value="{{ line.activityKey }}" data-count="0" selected>{{ line.activityLabel }} (0x)</option>
+                  {% endif %}
+                </select>
+              </label>
+              <output class="budget-count" data-budget-count>{{ line.count }}</output>
+              <label class="budget-field">
+                <span class="visually-hidden">Inkomst per activiteit</span>
+                <input type="text" name="income_amount" inputmode="decimal" value="{{ line.incomeAmount }}" placeholder="0,00">
+              </label>
+              <label class="budget-field">
+                <span class="visually-hidden">Trainer</span>
+                <select name="trainer_id">
+                  <option value="">Geen trainer</option>
+                  {% for trainer in trainer_options %}
+                    <option value="{{ trainer.id }}" {% if trainer.id == line.trainerId %}selected{% endif %}>{{ trainer.name }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="budget-field">
+                <span class="visually-hidden">Trainerbedrag</span>
+                <input type="text" name="trainer_amount" inputmode="decimal" value="{{ line.trainerAmount }}" placeholder="0,00">
+              </label>
+              <input type="hidden" name="trainer_group" value="{{ line.trainerGroup }}" data-budget-group>
+              <span class="budget-result">
+                <strong>{% if not line.isGroupFollower %}{{ line.resultLabel }}{% endif %}</strong>
+              </span>
+              <button type="button" class="subtle-button action-small budget-remove-button" data-remove-budget-row aria-label="Regel verwijderen">×</button>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="budget-empty-state" id="budgetEmptyState" {% if budget_summary.lines %}hidden{% endif %}>
+      Er staan nog geen begrotingsregels in dit seizoen.
+    </div>
+
+    <div class="budget-totals">
+      <div>
+        <span>Omzet</span>
+        <strong>{{ budget_summary.totalIncomeLabel }}</strong>
+      </div>
+      <div>
+        <span>Trainerbudget</span>
+        <strong>{{ budget_summary.totalTrainerCostsLabel }}</strong>
+      </div>
+      <div class="budget-total-result">
+        <span>Resultaat</span>
+        <strong>{{ budget_summary.resultTotalLabel }}</strong>
+      </div>
+    </div>
+
+    <div class="team-form-actions budget-actions">
+      <button type="submit" class="team-primary-button">Begroting opslaan</button>
+    </div>
+  </form>
+
+  <template id="budgetRowTemplate">
+    <div class="budget-row budget-input-row" data-budget-row>
+      <label class="budget-select-cell">
+        <input type="checkbox" data-budget-row-select>
+      </label>
+      <label class="budget-field budget-activity-field">
+        <span class="visually-hidden">Activiteit</span>
+        <select name="activity_key" data-budget-activity required>
+          <option value="">Kies activiteit</option>
+          {% for option in budget_summary.activityOptions %}
+            <option value="{{ option.key }}" data-count="{{ option.count }}">{{ option.label }} ({{ option.count }}x)</option>
+          {% endfor %}
+        </select>
+      </label>
+      <output class="budget-count" data-budget-count>0</output>
+      <label class="budget-field">
+        <span class="visually-hidden">Inkomst per activiteit</span>
+        <input type="text" name="income_amount" inputmode="decimal" placeholder="0,00">
+      </label>
+      <label class="budget-field">
+        <span class="visually-hidden">Trainer</span>
+        <select name="trainer_id">
+          <option value="">Geen trainer</option>
+          {% for trainer in trainer_options %}
+            <option value="{{ trainer.id }}">{{ trainer.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="budget-field">
+        <span class="visually-hidden">Trainerbedrag</span>
+        <input type="text" name="trainer_amount" inputmode="decimal" placeholder="0,00">
+      </label>
+      <input type="hidden" name="trainer_group" value="" data-budget-group>
+      <span class="budget-result">
+        <strong>€ 0,00</strong>
+      </span>
+      <button type="button" class="subtle-button action-small budget-remove-button" data-remove-budget-row aria-label="Regel verwijderen">×</button>
+    </div>
+  </template>
+
+  <script type="application/json" id="budgetActivityOptionsData">{{ budget_summary.activityOptions|tojson }}</script>
+  <script src="../static/begroting.js?v={{ asset_version }}" defer></script>
+{% endblock %}

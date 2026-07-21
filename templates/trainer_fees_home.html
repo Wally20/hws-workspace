@@ -18,10 +18,10 @@
       </p>
     </div>
     <form method="get" action="/trainersvergoedingen" class="revenue-filter-form">
-      <label for="trainerFeesYearSelect" class="visually-hidden">Kies jaar</label>
-      <select id="trainerFeesYearSelect" name="year" class="revenue-select" data-auto-submit="1">
-        {% for option in year_options %}
-          <option value="{{ option.value }}" {% if option.value == fee_summary.selectedYear %}selected{% endif %}>
+      <label for="trainerFeesSeasonSelect" class="visually-hidden">Kies seizoen</label>
+      <select id="trainerFeesSeasonSelect" name="season" class="revenue-select" data-auto-submit="1">
+        {% for option in season_options %}
+          <option value="{{ option.value }}" {% if option.value == fee_summary.selectedSeason %}selected{% endif %}>
             {{ option.label }}
           </option>
         {% endfor %}
@@ -30,34 +30,48 @@
   </section>
 
   <section class="trainer-fees-month-tabs" aria-label="Maanden">
+    <a
+      href="/trainersvergoedingen?season={{ fee_summary.selectedSeason }}"
+      class="summary-card trainer-fees-month-tile {% if not fee_summary.selectedMonth %}trainer-fees-month-tile-active{% endif %}"
+      aria-current="{% if not fee_summary.selectedMonth %}page{% else %}false{% endif %}"
+    >
+      <span>Overzicht</span>
+      <strong>{{ fee_summary.yearTotalLabel }}</strong>
+    </a>
     {% for month in fee_summary.months %}
-      <article class="summary-card trainer-fees-month-tile">
+      <a
+        href="/trainersvergoedingen?season={{ fee_summary.selectedSeason }}&month={{ month.month }}"
+        class="summary-card trainer-fees-month-tile {% if fee_summary.selectedMonth == month.month %}trainer-fees-month-tile-active{% endif %}"
+        aria-current="{% if fee_summary.selectedMonth == month.month %}page{% else %}false{% endif %}"
+      >
         <span>{{ month.shortLabel }}</span>
         <strong>{{ month.totalLabel }}</strong>
-      </article>
+      </a>
     {% endfor %}
   </section>
 
   <section class="summary-card trainer-fees-overview-card">
     <div class="spaarpot-quarter-head">
       <div>
-        <p class="panel-title">{{ fee_summary.selectedYear }}</p>
-        <h2>Trainers per maand</h2>
+        <p class="panel-title">{{ fee_summary.selectedSeasonLabel }}</p>
+        <h2>{% if fee_summary.selectedMonth %}Trainers in {{ fee_summary.selectedMonthLabel|lower }}{% else %}Trainers per maand{% endif %}</h2>
       </div>
       <div class="spaarpot-quarter-reserve">
-        <span>Jaar totaal</span>
-        <strong>{{ fee_summary.yearTotalLabel }}</strong>
+        <span>{% if fee_summary.selectedMonth %}Maand totaal{% else %}Seizoen totaal{% endif %}</span>
+        <strong>{% if fee_summary.selectedMonth %}{{ fee_summary.selectedTotalLabel }}{% else %}{{ fee_summary.yearTotalLabel }}{% endif %}</strong>
       </div>
     </div>
 
     <div class="trainer-fees-table-wrap">
-      <div class="trainer-fees-table">
+      <div class="trainer-fees-table {% if fee_summary.selectedMonth %}trainer-fees-table-month-only{% endif %}">
         <div class="trainer-fees-row trainer-fees-head-row">
           <span>Trainer</span>
-          {% for month in fee_summary.months %}
+          {% for month in fee_summary.visibleMonths %}
             <span>{{ month.shortLabel }}</span>
           {% endfor %}
-          <span>Totaal</span>
+          {% if not fee_summary.selectedMonth %}
+            <span>Totaal</span>
+          {% endif %}
         </div>
 
         {% for trainer in fee_summary.trainers %}
@@ -67,9 +81,30 @@
               <small>{{ trainer.role }}</small>
             </span>
             {% for month in trainer.months %}
-              <span title="{{ month.trainingCount }} trainingen">{{ month.amountLabel }}</span>
+              {% if not fee_summary.selectedMonth or fee_summary.selectedMonth == month.month %}
+                <span title="{{ month.trainingCount }} trainingen">
+                  <span class="trainer-fees-month-cell">
+                    <span>{{ month.amountLabel }}</span>
+                    <form method="post" action="/trainersvergoedingen" class="trainer-fees-paid-form">
+                      <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+                      <input type="hidden" name="action" value="set_payment_status">
+                      <input type="hidden" name="trainer_id" value="{{ trainer.id }}">
+                      <input type="hidden" name="season" value="{{ fee_summary.selectedSeason }}">
+                      <input type="hidden" name="month" value="{{ month.month }}">
+                      <input type="hidden" name="selected_month" value="{{ fee_summary.selectedMonth or '' }}">
+                      <input type="hidden" name="paid" value="0">
+                      <label title="Overgemaakt">
+                        <input type="checkbox" name="paid" value="1" {% if month.paid %}checked{% endif %} onchange="this.form.submit()">
+                        <span class="visually-hidden">Overgemaakt</span>
+                      </label>
+                    </form>
+                  </span>
+                </span>
+              {% endif %}
             {% endfor %}
-            <span class="trainer-fees-total">{{ trainer.yearTotalLabel }}</span>
+            {% if not fee_summary.selectedMonth %}
+              <span class="trainer-fees-total">{{ trainer.yearTotalLabel }}</span>
+            {% endif %}
           </div>
         {% else %}
           <p class="spaarpot-empty trainer-fees-empty">Geen trainers gevonden.</p>

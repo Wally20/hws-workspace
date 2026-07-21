@@ -3,7 +3,7 @@ import re
 import sqlite3
 import tempfile
 import time
-from datetime import date
+from datetime import date, datetime
 from importlib import import_module
 from unittest.mock import Mock, patch
 
@@ -50,6 +50,131 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("HWS Voetbalschool", response.content.decode("utf-8"))
         self.assertIn('name="csrf_token"', response.content.decode("utf-8"))
+
+    def test_materials_club_pdf_is_single_landscape_a4_page(self):
+        club = {
+            "name": "Testclub",
+            "quantities": {"material-1": 12, "material-2": 20},
+        }
+        materials = [
+            {"key": "material-1", "name": "Ballen"},
+            {"key": "material-2", "name": "Hesjes"},
+        ]
+
+        pdf_bytes = legacy.create_materials_club_pdf(club, materials)
+
+        self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
+        self.assertEqual(pdf_bytes.count(b"/Type /Page\n"), 1)
+        self.assertIn(b"/MediaBox [ 0 0 841.8898 595.2756 ]", pdf_bytes)
+
+    def test_saved_materials_club_has_inline_pdf_export(self):
+        inventory = {
+            "materials": [
+                {
+                    "id": 1,
+                    "key": "material-1",
+                    "name": "Ballen",
+                    "totalCount": 8,
+                    "allocatedCount": 8,
+                    "availableCount": 0,
+                }
+            ],
+            "clubs": [
+                {
+                    "id": 42,
+                    "key": "club-42",
+                    "name": "VV Test",
+                    "quantities": {"material-1": 8},
+                    "totalCount": 8,
+                }
+            ],
+            "totalCount": 8,
+            "allocatedCount": 8,
+            "availableCount": 0,
+        }
+        client = self.build_authenticated_client()
+
+        with (
+            patch.object(legacy, "require_page_access", return_value=None),
+            patch.object(legacy, "load_materials_inventory", return_value=inventory),
+        ):
+            page_response = client.get("/materialen", secure=True)
+            pdf_response = client.get("/materialen/clubs/42/export-pdf", secure=True)
+
+        self.assertEqual(page_response.status_code, 200)
+        self.assertIn('/materialen/clubs/42/export-pdf', page_response.content.decode("utf-8"))
+        self.assertEqual(pdf_response.status_code, 200)
+        self.assertEqual(pdf_response["Content-Type"], "application/pdf")
+        self.assertIn('inline; filename="materialenkrat-vv-test.pdf"', pdf_response["Content-Disposition"])
+        self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
+
+    def test_saved_materials_clubs_can_be_exported_in_one_pdf(self):
+        inventory = {
+            "materials": [
+                {
+                    "id": 1,
+                    "key": "material-1",
+                    "name": "Ballen",
+                    "totalCount": 18,
+                    "allocatedCount": 18,
+                    "availableCount": 0,
+                }
+            ],
+            "clubs": [
+                {"id": 42, "key": "club-42", "name": "VV Test", "quantities": {"material-1": 8}, "totalCount": 8},
+                {"id": 43, "key": "club-43", "name": "SV Voorbeeld", "quantities": {"material-1": 10}, "totalCount": 10},
+            ],
+            "totalCount": 18,
+            "allocatedCount": 18,
+            "availableCount": 0,
+        }
+        client = self.build_authenticated_client()
+
+        with (
+            patch.object(legacy, "require_page_access", return_value=None),
+            patch.object(legacy, "load_materials_inventory", return_value=inventory),
+        ):
+            page_response = client.get("/materialen", secure=True)
+            pdf_response = client.get("/materialen/clubs/export-pdf", secure=True)
+
+        self.assertEqual(page_response.status_code, 200)
+        page_content = page_response.content.decode("utf-8")
+        self.assertIn("data-open-club-export-modal", page_content)
+        self.assertIn('value="42" data-export-club-checkbox checked', page_content)
+        self.assertIn('value="43" data-export-club-checkbox checked', page_content)
+        self.assertEqual(pdf_response.status_code, 200)
+        self.assertEqual(pdf_response["Content-Type"], "application/pdf")
+        self.assertIn(
+            'attachment; filename="materialenkratten-alle-clubs.pdf"',
+            pdf_response["Content-Disposition"],
+        )
+        self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
+        self.assertEqual(pdf_response.content.count(b"/Type /Page\n"), 2)
+
+    def test_materials_clubs_pdf_only_contains_selected_clubs(self):
+        inventory = {
+            "materials": [{"id": 1, "key": "material-1", "name": "Ballen"}],
+            "clubs": [
+                {"id": 42, "key": "club-42", "name": "VV Test", "quantities": {"material-1": 8}},
+                {"id": 43, "key": "club-43", "name": "SV Voorbeeld", "quantities": {"material-1": 10}},
+            ],
+        }
+        client = self.build_authenticated_client()
+
+        with (
+            patch.object(legacy, "require_page_access", return_value=None),
+            patch.object(legacy, "load_materials_inventory", return_value=inventory),
+        ):
+            pdf_response = client.get("/materialen/clubs/export-pdf?club_id=43", secure=True)
+
+        self.assertEqual(pdf_response.status_code, 200)
+        self.assertEqual(pdf_response["Content-Type"], "application/pdf")
+        self.assertIn(
+            'attachment; filename="materialenkratten-geselecteerde-clubs.pdf"',
+            pdf_response["Content-Disposition"],
+        )
+        self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
+        self.assertEqual(pdf_response.content.count(b"/Type /Page\n"), 1)
 
     def test_login_requires_valid_csrf_token(self):
         response = Client(enforce_csrf_checks=False).post(
@@ -344,6 +469,126 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
         self.assertIn("Live Ecwid-koppeling staat nog niet aan.", content)
+
+    def test_trainer_has_dashboard_access_and_lands_there_after_login(self):
+        trainer = {"id": "trainer-123", "isAdmin": False, "systemRole": "Trainer"}
+
+        self.assertIn("dashboard", legacy.get_visible_pages_for_user(trainer))
+        self.assertEqual(legacy.get_default_post_login_path(trainer), "/")
+
+    def test_trainer_week_schedule_only_contains_own_upcoming_items_this_week(self):
+        trainings = [
+            {
+                "id": "past-today",
+                "title": "Ochtendtraining",
+                "date": "2026-07-15",
+                "time": "08:00",
+                "endTime": "09:30",
+                "location": "Veld 1",
+                "status": "gegeven",
+                "statusLabel": "Gegeven",
+                "trainers": [{"id": "trainer-123", "name": "Test Trainer"}],
+            },
+            {
+                "id": "own-today",
+                "title": "Techniektraining JO12",
+                "date": "2026-07-15",
+                "time": "18:00",
+                "endTime": "19:30",
+                "location": "Sportpark Zuid",
+                "status": "gepland",
+                "statusLabel": "Gepland",
+                "trainers": [{"id": "trainer-123", "name": "Test Trainer"}],
+            },
+            {
+                "id": "other-trainer",
+                "title": "Andere training",
+                "date": "2026-07-16",
+                "time": "17:00",
+                "endTime": "18:00",
+                "location": "Veld 2",
+                "status": "gepland",
+                "statusLabel": "Gepland",
+                "trainers": [{"id": "trainer-999", "name": "Andere Trainer"}],
+            },
+            {
+                "id": "own-sunday",
+                "title": "Clinic",
+                "date": "2026-07-19",
+                "time": "10:00",
+                "endTime": "12:00",
+                "location": "HWS",
+                "status": "geannuleerd",
+                "statusLabel": "Geannuleerd",
+                "trainers": [{"id": "trainer-123", "name": "Test Trainer"}],
+            },
+            {
+                "id": "next-week",
+                "title": "Training volgende week",
+                "date": "2026-07-20",
+                "time": "18:00",
+                "endTime": "19:30",
+                "location": "HWS",
+                "status": "gepland",
+                "statusLabel": "Gepland",
+                "trainers": [{"id": "trainer-123", "name": "Test Trainer"}],
+            },
+        ]
+
+        with patch.object(legacy, "load_agenda_trainings", return_value=trainings) as mocked_load:
+            schedule = legacy.build_trainer_dashboard_week_schedule(
+                {"id": "trainer-123", "isAdmin": False, "systemRole": "Trainer"},
+                reference_datetime=datetime(2026, 7, 15, 12, 0),
+            )
+
+        mocked_load.assert_called_once_with("2026-07-15", "2026-07-19")
+        self.assertEqual([item["id"] for item in schedule], ["own-today", "own-sunday"])
+        self.assertEqual(schedule[0]["dateLabel"], "Vandaag")
+        self.assertEqual(schedule[0]["timeLabel"], "18:00 - 19:30")
+        self.assertEqual(schedule[1]["dateLabel"], "Zondag 19 juli")
+
+    def test_trainer_dashboard_renders_personal_week_schedule_tile(self):
+        trainer = {"id": "trainer-123", "fullName": "Test Trainer", "isAdmin": False, "systemRole": "Trainer"}
+        dashboard_payload = {
+            "source": "mock",
+            "summary": {},
+            "reportSummary": {"ecwidRevenue": 0, "moneybirdRevenue": 0, "combinedRevenue": 0},
+            "productSummary": [],
+            "lastUpdated": "",
+            "message": None,
+        }
+        schedule = [
+            {
+                "id": "own-training",
+                "date": "2026-07-16",
+                "dateLabel": "Morgen",
+                "time": "18:00",
+                "timeLabel": "18:00 - 19:30",
+                "title": "Techniektraining JO12",
+                "location": "Sportpark Zuid",
+                "status": "gepland",
+                "statusLabel": "Gepland",
+            }
+        ]
+
+        with patch.object(legacy, "get_current_user", return_value=trainer), patch.object(
+            legacy, "fetch_orders_non_blocking", return_value={}
+        ), patch.object(
+            legacy, "build_dashboard_frontend_payload", return_value=dashboard_payload
+        ), patch.object(
+            legacy, "build_trainer_dashboard_week_schedule", return_value=schedule
+        ), patch.object(
+            legacy,
+            "load_dashboard_weather_settings",
+            return_value={"weather_lat": "52.25", "weather_lon": "6.16", "weather_name": "Deventer"},
+        ):
+            response = self.build_authenticated_client().get("/", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode("utf-8")
+        self.assertIn("Mijn afspraken deze week", content)
+        self.assertIn("Techniektraining JO12", content)
+        self.assertIn("Sportpark Zuid", content)
 
     def test_orders_page_is_visible_for_all_authenticated_users(self):
         self.assertIn("orders", legacy.get_visible_pages_for_user({"id": "admin", "isAdmin": True}))

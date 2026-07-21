@@ -2,7 +2,7 @@
 <html lang="nl">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="{% block viewport %}width=device-width, initial-scale=1{% endblock %}">
     <meta name="csrf-token" content="{{ legacy_csrf_token }}">
     <meta name="theme-color" content="#111111">
     <meta name="mobile-web-app-capable" content="yes">
@@ -67,7 +67,7 @@
           </a>
           {% endif %}
           {% if 'management' in visible_pages %}
-          <a class="nav-item {% if active_page == 'management' or active_page == 'materialen' or active_page == 'voorstellen-maker' or active_page == 'overeenkomsten' or active_page == 'registrations' or active_page == 'trainers' %}nav-item-active{% endif %}" href="/management">
+          <a class="nav-item {% if active_page == 'management' or active_page == 'materialen' or active_page == 'begroting' or active_page == 'voorstellen-maker' or active_page == 'overeenkomsten' or active_page == 'registrations' or active_page == 'trainers' %}nav-item-active{% endif %}" href="/management">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none">
                 <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM16.5 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"></path>
@@ -118,7 +118,7 @@
                 <path d="M4 20a8 8 0 0 1 16 0"></path>
               </svg>
             </span>
-            <span>Persoonlijk Profiel</span>
+            <span>Profiel</span>
           </a>
           {% endif %}
         </nav>

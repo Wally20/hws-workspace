@@ -12,6 +12,18 @@ urlpatterns = [
     path("", views.index, name="index"),
     path("management", views.management_page, name="management_page"),
     path("materialen", views.materialen_page, name="materialen_page"),
+    path(
+        "materialen/clubs/export-pdf",
+        views.materialen_all_clubs_export_pdf,
+        name="materialen_all_clubs_export_pdf",
+    ),
+    path(
+        "materialen/clubs/<int:club_id>/export-pdf",
+        views.materialen_club_export_pdf,
+        name="materialen_club_export_pdf",
+    ),
+    path("begroting", views.budget_page, name="budget_page"),
+    path("management/begroting", views.budget_page, name="budget_page_alias"),
     path("aanmeldingen", views.registrations_page, name="registrations_page"),
     path(
         "aanmeldingen/<path:product_key>/teamindeling-export",
@@ -29,8 +41,6 @@ urlpatterns = [
     path("omzet/per-seizoen", views.revenue_season_page, name="revenue_season_page"),
     path("spaarpot", views.spaarpot_page, name="spaarpot_page"),
     path("trainersvergoedingen", views.trainer_fees_home_page, name="trainer_fees_home_page"),
-    path("trainersvergoedingen/per-training", views.trainer_fees_per_training_page, name="trainer_fees_per_training_page"),
-    path("trainersvergoedingen/per-maand", views.trainer_fees_per_month_page, name="trainer_fees_per_month_page"),
     path("profiel", views.personal_profile_page, name="personal_profile_page"),
     path("trainers", views.trainers_page, name="trainers_page"),
     path("agenda", views.agenda_page, name="agenda_page"),

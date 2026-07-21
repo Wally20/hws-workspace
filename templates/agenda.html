@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 
+{% block viewport %}width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no{% endblock %}
+
 {% block title %}Agenda | HWS Voetbalschool Workspace{% endblock %}
 
 {% block content %}
@@ -76,7 +78,58 @@
           <a href="/agenda?view=week&week=0&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}" class="subtle-button agenda-today-button">Vandaag</a>
         {% endif %}
       </div>
-      <h2 class="agenda-week-label">{{ month_label if agenda_view == "month" else week_label }}</h2>
+      {% if agenda_view == "week" %}
+        <div class="agenda-jump-wrap">
+          <button
+            type="button"
+            class="agenda-week-label agenda-week-label-button"
+            id="agendaWeekJumpToggle"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            aria-controls="agendaWeekJumpPanel"
+          >
+            {{ week_label }}
+          </button>
+          <div
+            class="agenda-week-jump-panel"
+            id="agendaWeekJumpPanel"
+            data-current-week="{{ week_offset }}"
+            data-current-month="{{ month_offset }}"
+            data-summary-filter="{{ agenda_summary_filter }}"
+            hidden
+          >
+            <div class="agenda-week-jump-group">
+              <span>Terug</span>
+              <div class="agenda-week-jump-actions" aria-label="Spring weken terug">
+                <a href="/agenda?view=week&week={{ week_offset - 26 }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}">-26</a>
+                <a href="/agenda?view=week&week={{ week_offset - 12 }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}">-12</a>
+                <a href="/agenda?view=week&week={{ week_offset - 8 }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}">-8</a>
+                <a href="/agenda?view=week&week={{ week_offset - 4 }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}">-4</a>
+                <a href="/agenda?view=week&week={{ week_offset - 2 }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}">-2</a>
+              </div>
+            </div>
+            <div class="agenda-week-jump-group">
+              <span>Vooruit</span>
+              <div class="agenda-week-jump-actions" aria-label="Spring weken vooruit">
+                <a href="/agenda?view=week&week={{ week_offset + 2 }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}">+2</a>
+                <a href="/agenda?view=week&week={{ week_offset + 4 }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}">+4</a>
+                <a href="/agenda?view=week&week={{ week_offset + 8 }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}">+8</a>
+                <a href="/agenda?view=week&week={{ week_offset + 12 }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}">+12</a>
+                <a href="/agenda?view=week&week={{ week_offset + 26 }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}">+26</a>
+              </div>
+            </div>
+            <form class="agenda-week-jump-form" id="agendaWeekJumpForm">
+              <label for="agendaWeekJumpInput">Aantal weken</label>
+              <div>
+                <input id="agendaWeekJumpInput" type="number" min="-104" max="104" step="1" value="4">
+                <button type="submit">Ga</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      {% else %}
+        <h2 class="agenda-week-label">{{ month_label }}</h2>
+      {% endif %}
       <div class="agenda-toolbar-right">
         <button type="button" id="toggleAgendaPlannerEdit" class="subtle-button action-small agenda-planner-toggle" aria-controls="agendaPlannerEditor" aria-expanded="false">Dagplanning</button>
         <a href="/agenda?view=week&week={{ week_offset }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}" class="agenda-view-pill{% if agenda_view == "week" %} agenda-view-pill-active{% endif %}">Week</a>
@@ -100,6 +153,8 @@
         <span class="agenda-legend-item"><span class="agenda-legend-swatch agenda-legend-border agenda-event-club-vv-gorssel"></span>VV Gorssel</span>
         <span class="agenda-legend-item"><span class="agenda-legend-swatch agenda-legend-border agenda-event-club-vv-oeken"></span>VV Oeken</span>
         <span class="agenda-legend-item"><span class="agenda-legend-swatch agenda-legend-border agenda-event-club-abs"></span>ABS</span>
+        <span class="agenda-legend-item"><span class="agenda-legend-swatch agenda-legend-border agenda-event-club-vv-diepenveen"></span>VV Diepenveen</span>
+        <span class="agenda-legend-item"><span class="agenda-legend-swatch agenda-legend-border agenda-event-club-apeldoornse-boys"></span>Apeldoornse Boys</span>
       </div>
     </div>
 
@@ -327,7 +382,7 @@
 
         <label class="field">
           <span>Type training</span>
-          <select name="training_type" required>
+          <select name="training_type" required data-agenda-training-type-select>
             <option value="">Selecteer type</option>
             {% for option in agenda_training_type_options %}
               <option value="{{ option.value }}">{{ option.label }}</option>
@@ -337,7 +392,7 @@
 
         <label class="field">
           <span>Club</span>
-          <select name="location" required>
+          <select name="location" required data-agenda-location-select>
             <option value="">Selecteer club</option>
             {% for club in agenda_club_options %}
               <option value="{{ club }}">{{ club }}</option>
@@ -400,7 +455,7 @@
 
         <label class="field">
           <span>Club</span>
-          <select name="location" required>
+          <select name="location" required data-agenda-location-select>
             <option value="">Selecteer club</option>
             {% for club in agenda_club_options %}
               <option value="{{ club }}">{{ club }}</option>
@@ -410,7 +465,7 @@
 
         <label class="field">
           <span>Type training</span>
-          <select name="training_type" required>
+          <select name="training_type" required data-agenda-training-type-select>
             <option value="">Selecteer type</option>
             {% for option in agenda_training_type_options %}
               <option value="{{ option.value }}">{{ option.label }}</option>
@@ -525,7 +580,7 @@
 
         <label class="field">
           <span>Type training</span>
-          <select name="training_type" id="agendaEditTrainingType" required>
+          <select name="training_type" id="agendaEditTrainingType" required data-agenda-training-type-select>
             <option value="">Selecteer type</option>
             {% for option in agenda_training_type_options %}
               <option value="{{ option.value }}">{{ option.label }}</option>
@@ -544,7 +599,7 @@
 
         <label class="field">
           <span>Club</span>
-          <select name="location" id="agendaEditLocation" required>
+          <select name="location" id="agendaEditLocation" required data-agenda-location-select>
             <option value="">Selecteer club</option>
             {% for club in agenda_club_options %}
               <option value="{{ club }}">{{ club }}</option>
@@ -574,5 +629,6 @@
     </div>
   </div>
 
+  <script type="application/json" id="agendaClubOptionsByTrainingType">{{ agenda_club_options_by_training_type|tojson }}</script>
   <script src="../static/agenda.js?v={{ asset_version }}" defer></script>
 {% endblock %}

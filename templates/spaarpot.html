@@ -16,14 +16,14 @@
     <div class="orders-toolbar-copy">
       <p class="orders-toolbar-title">Kwartaaloverzicht</p>
       <p class="orders-toolbar-text">
-        Selecteer een jaar en open daarna een kwartaal · Laatst bijgewerkt: {{ last_updated }}
+        Selecteer een seizoen en open daarna een kwartaal · Laatst bijgewerkt: {{ last_updated }}
       </p>
     </div>
     <form method="get" action="/spaarpot" class="revenue-filter-form">
-      <label for="spaarpotYearSelect" class="visually-hidden">Kies jaar</label>
-      <select id="spaarpotYearSelect" name="year" class="revenue-select" data-auto-submit="1">
-        {% for option in year_options %}
-          <option value="{{ option.value }}" {% if option.value == spaarpot_summary.selectedYear %}selected{% endif %}>
+      <label for="spaarpotSeasonSelect" class="visually-hidden">Kies seizoen</label>
+      <select id="spaarpotSeasonSelect" name="season" class="revenue-select" data-auto-submit="1">
+        {% for option in season_options %}
+          <option value="{{ option.value }}" {% if option.value == spaarpot_summary.selectedSeason %}selected{% endif %}>
             {{ option.label }}
           </option>
         {% endfor %}
@@ -51,7 +51,7 @@
     {% for quarter in spaarpot_summary.quarters %}
       <a
         class="summary-card spaarpot-quarter-tile {% if selected_quarter == quarter.quarter %}spaarpot-quarter-tile-active{% endif %}"
-        href="/spaarpot?year={{ spaarpot_summary.selectedYear }}&quarter={{ quarter.quarter }}"
+        href="/spaarpot?season={{ spaarpot_summary.selectedSeason }}&quarter={{ quarter.quarter }}"
         aria-current="{% if selected_quarter == quarter.quarter %}true{% else %}false{% endif %}"
       >
         <span class="panel-title">Q{{ quarter.quarter }} · {{ quarter.label }}</span>
@@ -94,7 +94,7 @@
     <form method="post" action="/spaarpot" class="spaarpot-manual-form">
       <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
       <input type="hidden" name="action" value="add_manual_entry">
-      <input type="hidden" name="year" value="{{ spaarpot_summary.selectedYear }}">
+      <input type="hidden" name="season" value="{{ spaarpot_summary.selectedSeason }}">
       <input type="hidden" name="quarter" value="{{ selected_quarter_summary.quarter }}">
       <label>
         <span>Omschrijving</span>
@@ -129,7 +129,7 @@
                 <form method="post" action="/spaarpot" class="spaarpot-delete-form">
                   <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
                   <input type="hidden" name="action" value="delete_manual_entry">
-                  <input type="hidden" name="year" value="{{ spaarpot_summary.selectedYear }}">
+                  <input type="hidden" name="season" value="{{ spaarpot_summary.selectedSeason }}">
                   <input type="hidden" name="quarter" value="{{ selected_quarter_summary.quarter }}">
                   <input type="hidden" name="entry_id" value="{{ payment.id }}">
                   <button type="submit" aria-label="Handmatige regel verwijderen">Verwijder</button>

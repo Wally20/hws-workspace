@@ -25,6 +25,7 @@ from datetime import date, datetime, time as dt_time, timedelta
 from math import atan2, ceil, cos, sin
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from xml.etree import ElementTree as XmlElementTree
+from zoneinfo import ZoneInfo
 
 import requests
 from django.conf import settings
@@ -191,18 +192,32 @@ AGENDA_DAY_PLAN_OPTIONS = (
     "Samenwerkende amateurclubs",
     "Techniektrainingen",
 )
-AGENDA_CLUB_OPTIONS = (
+AGENDA_AMATEUR_CLUB_OPTIONS = (
     "WWNA",
     "ABS",
     "VV Oeken",
     "VV Gorssel",
 )
+AGENDA_TECHNIQUE_CLUB_OPTIONS = (
+    "VV Diepenveen",
+    "ABS",
+    "Apeldoornse Boys",
+)
+AGENDA_CLUB_OPTIONS = tuple(dict.fromkeys((*AGENDA_AMATEUR_CLUB_OPTIONS, *AGENDA_TECHNIQUE_CLUB_OPTIONS)))
 AGENDA_CLUB_CLASS_NAMES = {
     "WWNA": "agenda-event-club-wwna",
     "ABS": "agenda-event-club-abs",
     "VV Oeken": "agenda-event-club-vv-oeken",
     "VV Gorssel": "agenda-event-club-vv-gorssel",
+    "VV Diepenveen": "agenda-event-club-vv-diepenveen",
+    "Apeldoornse Boys": "agenda-event-club-apeldoornse-boys",
 }
+AGENDA_CLUB_OPTIONS_BY_TRAINING_TYPE = {
+    "samenwerkende_amateurclub": AGENDA_AMATEUR_CLUB_OPTIONS,
+    "techniektraining": AGENDA_TECHNIQUE_CLUB_OPTIONS,
+}
+TRAINER_FEE_ALL_CLUBS_VALUE = "Alle clubs"
+TRAINER_FEE_ALL_ACTIVITIES_VALUE = "Alle activiteiten"
 AGENDA_TRAINING_TYPE_OPTIONS = (
     {
         "value": "voetbaldag",
@@ -254,6 +269,25 @@ TRAINER_FEE_ACTIVITY_OPTIONS = tuple(
     }
     for option in AGENDA_TRAINING_TYPE_OPTIONS
 )
+TRAINER_FEE_TYPE_OPTIONS = (
+    {
+        "value": "samenwerkende_amateurclub",
+        "label": "Samenwerkende amateurclub",
+    },
+    {
+        "value": "techniektraining",
+        "label": "Techniektraining",
+    },
+    {
+        "value": "voetbaldag_summercamp",
+        "label": "Voetbaldag/SummerCamp",
+    },
+)
+TRAINER_FEE_CLUB_OPTIONS_BY_TYPE = {
+    "samenwerkende_amateurclub": AGENDA_AMATEUR_CLUB_OPTIONS,
+    "techniektraining": AGENDA_TECHNIQUE_CLUB_OPTIONS,
+    "voetbaldag_summercamp": (TRAINER_FEE_ALL_CLUBS_VALUE,),
+}
 AGENDA_NO_ACTIVITY_COPY_REASONS = {
     "2026-10-19": "herfstvakantie",
     "2026-10-21": "herfstvakantie",
@@ -365,6 +399,12 @@ ecwid_orders_cache: Dict[str, Any] = {
 }
 ecwid_orders_cache_lock = threading.Lock()
 ecwid_refresh_in_progress = False
+moneybird_cache: Dict[str, Any] = {
+    "payload": None,
+    "cached_at": 0.0,
+}
+moneybird_cache_lock = threading.Lock()
+moneybird_refresh_in_progress = False
 catalog_products_cache: Dict[str, Any] = {
     "payload": None,
     "cached_at": 0.0,
@@ -727,7 +767,7 @@ WORKSPACE_SEARCH_PAGES = (
     },
     {
         "key": "profile",
-        "title": "Persoonlijk profiel",
+        "title": "Profiel",
         "path": "/profiel",
         "section": "Algemeen",
         "description": "Eigen profiel en account bekijken.",
@@ -1282,7 +1322,6 @@ def inject_navigation_permissions():
         "visible_pages": get_visible_pages_for_user(user),
         "workspace_search_pages": get_workspace_search_pages_for_user(user),
         "can_view_revenue": bool(user and user.get("isAdmin")),
-        "is_social_media_manager": is_social_media_manager(user),
     }
 
 
@@ -3648,6 +3687,11 @@ def init_db() -> None:
                 education TEXT,
                 availability_days TEXT,
                 phone TEXT,
+                address TEXT,
+                city TEXT,
+                postal_code TEXT,
+                bank_account_number TEXT,
+                bank_account_name TEXT,
                 notes TEXT,
                 trainer_fees_json TEXT NOT NULL DEFAULT '[]',
                 is_admin INTEGER NOT NULL DEFAULT 0,
@@ -3819,12 +3863,6 @@ def init_db() -> None:
                 FOREIGN KEY (material_id) REFERENCES material_items(id) ON DELETE CASCADE
             );
 
-            CREATE INDEX IF NOT EXISTS idx_material_items_sort
-            ON material_items (sort_order ASC, id ASC);
-
-            CREATE INDEX IF NOT EXISTS idx_material_clubs_sort
-            ON material_clubs (sort_order ASC, id ASC);
-
             CREATE TABLE IF NOT EXISTS social_media_ideas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -3925,6 +3963,42 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_spaarpot_manual_entries_period
             ON spaarpot_manual_entries (year, quarter);
 
+            CREATE TABLE IF NOT EXISTS external_api_cache (
+                cache_key TEXT PRIMARY KEY,
+                config_fingerprint TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                cached_at REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS trainer_fee_payment_statuses (
+                trainer_id TEXT NOT NULL,
+                season_start_year INTEGER NOT NULL,
+                month INTEGER NOT NULL,
+                paid INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (trainer_id, season_start_year, month)
+            );
+
+            CREATE TABLE IF NOT EXISTS budget_lines (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                season_start_year INTEGER NOT NULL,
+                training_type TEXT NOT NULL,
+                club TEXT NOT NULL,
+                activity_title TEXT NOT NULL,
+                income_amount TEXT NOT NULL DEFAULT '',
+                trainer_amount TEXT NOT NULL DEFAULT '',
+                trainer_payment_mode TEXT NOT NULL DEFAULT 'per_activity',
+                trainer_bundle_count INTEGER NOT NULL DEFAULT 1,
+                trainer_group TEXT NOT NULL DEFAULT '',
+                trainer_id TEXT,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_budget_lines_season
+            ON budget_lines (season_start_year, sort_order);
+
             CREATE TABLE IF NOT EXISTS web_push_subscriptions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
@@ -3966,6 +4040,16 @@ def init_db() -> None:
             connection.execute("ALTER TABLE trainer_profiles ADD COLUMN education TEXT")
         if "availability_days" not in existing_columns:
             connection.execute("ALTER TABLE trainer_profiles ADD COLUMN availability_days TEXT")
+        if "address" not in existing_columns:
+            connection.execute("ALTER TABLE trainer_profiles ADD COLUMN address TEXT")
+        if "city" not in existing_columns:
+            connection.execute("ALTER TABLE trainer_profiles ADD COLUMN city TEXT")
+        if "postal_code" not in existing_columns:
+            connection.execute("ALTER TABLE trainer_profiles ADD COLUMN postal_code TEXT")
+        if "bank_account_number" not in existing_columns:
+            connection.execute("ALTER TABLE trainer_profiles ADD COLUMN bank_account_number TEXT")
+        if "bank_account_name" not in existing_columns:
+            connection.execute("ALTER TABLE trainer_profiles ADD COLUMN bank_account_name TEXT")
         if "trainer_fees_json" not in existing_columns:
             connection.execute("ALTER TABLE trainer_profiles ADD COLUMN trainer_fees_json TEXT NOT NULL DEFAULT '[]'")
 
@@ -3993,6 +4077,13 @@ def init_db() -> None:
             connection.execute("ALTER TABLE agenda_trainings ADD COLUMN training_type TEXT NOT NULL DEFAULT 'samenwerkende_amateurclub'")
         if "status" not in agenda_training_columns:
             connection.execute("ALTER TABLE agenda_trainings ADD COLUMN status TEXT NOT NULL DEFAULT 'gepland'")
+
+        budget_line_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(budget_lines)").fetchall()
+        }
+        if "trainer_group" not in budget_line_columns:
+            connection.execute("ALTER TABLE budget_lines ADD COLUMN trainer_group TEXT NOT NULL DEFAULT ''")
 
         football_playbook_columns = {
             row["name"]
@@ -4219,6 +4310,18 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_proposal_lines_proposal_sort
             ON proposal_lines (proposal_id, sort_order ASC, id ASC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_material_items_sort
+            ON material_items (sort_order ASC, id ASC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_material_clubs_sort
+            ON material_clubs (sort_order ASC, id ASC)
             """
         )
 
@@ -10631,7 +10734,7 @@ def format_datetime_display(value: str, fallback: str = "-") -> str:
 def can_manage_content(user: Optional[Dict[str, Any]]) -> bool:
     if not user:
         return False
-    return bool(user.get("isAdmin")) or is_social_media_manager(user)
+    return bool(user.get("isAdmin"))
 
 
 def derive_recovered_album_title(album_id: int, remote_path: str) -> str:
@@ -11304,23 +11407,25 @@ def normalize_system_role(role: str) -> str:
     normalized_role = role.strip().lower()
     if normalized_role in {"admin", "beheerder"}:
         return "Admin"
+    # Accounts with the retired role remain usable as regular trainer accounts.
     if normalized_role == "social media beheerder":
-        return "Social media beheerder"
+        return "Trainer"
     return role.strip()
 
 
 def is_allowed_system_role(role: str) -> bool:
-    return normalize_system_role(role) in {"Admin", "Social media beheerder", "Trainer"}
+    return normalize_system_role(role) in {"Admin", "Trainer"}
 
 
 def role_grants_admin_access(role: str) -> bool:
     return normalize_system_role(role) == "Admin"
 
 
-def is_social_media_manager(user: Optional[Dict[str, Any]]) -> bool:
+def is_trainer_user(user: Optional[Dict[str, Any]]) -> bool:
     if not user:
         return False
-    return normalize_system_role(str(user.get("systemRole") or user.get("role") or "")) == "Social media beheerder"
+    role = normalize_system_role(str(user.get("systemRole") or user.get("role") or ""))
+    return role.casefold() == "trainer"
 
 
 def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
@@ -11341,6 +11446,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "revenue",
             "spaarpot",
             "trainer-fees",
+            "begroting",
             "voorstellen-maker",
             "overeenkomsten",
             "oefenstof",
@@ -11353,27 +11459,10 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "trainers",
             "profile",
         }
-    if is_social_media_manager(user):
-        return {
-            "dashboard",
-            "draaiboeken",
-            "voetbaldagen",
-            "samenwerkende-amateurclubs",
-            "management",
-            "materialen",
-            "orders",
-            "leads",
-            "voorstellen-maker",
-            "overeenkomsten",
-            "oefenstof",
-            "oefeningen-bibliotheek",
-            "trainingen",
-            "marketing",
-            "social-media",
-            "content",
-            "profile",
-        }
-    return {"management", "materialen", "orders", "leads", "draaiboeken", "voetbaldagen", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "marketing", "profile"}
+    visible_pages = {"management", "materialen", "orders", "leads", "draaiboeken", "voetbaldagen", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "marketing", "profile"}
+    if is_trainer_user(user):
+        visible_pages.add("dashboard")
+    return visible_pages
 
 
 def user_can_access_page(user: Optional[Dict[str, Any]], page_key: str) -> bool:
@@ -11465,6 +11554,356 @@ def load_materials_inventory() -> Dict[str, Any]:
         "allocatedCount": sum(material["allocatedCount"] for material in materials),
         "availableCount": sum(material["availableCount"] for material in materials),
     }
+
+
+def _create_materials_club_pdf_portrait(club: Dict[str, Any], materials: List[Dict[str, Any]]) -> bytes:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.pdfgen import canvas
+    except ImportError as exc:
+        raise RuntimeError("De PDF-library ontbreekt. Installeer de packages uit requirements.txt.") from exc
+
+    font_root = os.path.join(os.path.dirname(__file__), "static", "assets", "fonts")
+    font_names = {
+        "regular": "MaterialsPoppins",
+        "bold": "MaterialsPoppinsBold",
+        "extra_bold": "MaterialsPoppinsExtraBold",
+    }
+    font_files = {
+        "regular": "Poppins-Regular.ttf",
+        "bold": "Poppins-Bold.ttf",
+        "extra_bold": "Poppins-ExtraBold.ttf",
+    }
+    registered_fonts = set(pdfmetrics.getRegisteredFontNames())
+    for key, font_name in font_names.items():
+        if font_name not in registered_fonts:
+            pdfmetrics.registerFont(TTFont(font_name, os.path.join(font_root, font_files[key])))
+
+    rows = []
+    quantities = club.get("quantities") if isinstance(club.get("quantities"), dict) else {}
+    for material in materials:
+        quantity = parse_non_negative_int(quantities.get(material.get("key"), 0))
+        if quantity > 0:
+            rows.append({"name": str(material.get("name") or "Materiaal").strip(), "quantity": quantity})
+
+    buffer = BytesIO()
+    page_width, page_height = A4
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    pdf.setTitle(f"Materialenkrat - {club.get('name') or 'Club'}")
+    pdf.setAuthor("HWS Voetbalschool")
+    black = colors.HexColor("#111111")
+    charcoal = colors.HexColor("#252525")
+    muted = colors.HexColor("#717171")
+    line = colors.HexColor("#dddddd")
+    soft = colors.HexColor("#f4f4f4")
+    white = colors.white
+    gold = colors.HexColor("#d6a34f")
+    margin = 40
+
+    pdf.setFillColor(black)
+    pdf.rect(0, page_height - 177, page_width, 177, fill=1, stroke=0)
+    pdf.setFillColor(gold)
+    pdf.rect(0, page_height - 183, page_width, 6, fill=1, stroke=0)
+
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "assets", "hws-logo.png")
+    if os.path.exists(logo_path):
+        pdf.drawImage(ImageReader(logo_path), page_width - 143, page_height - 155, 105, 105, preserveAspectRatio=True, mask="auto", anchor="c")
+
+    pdf.setFillColor(gold)
+    pdf.setFont(font_names["bold"], 9)
+    pdf.drawString(margin, page_height - 50, "HWS VOETBALSCHOOL")
+    pdf.setFillColor(white)
+    pdf.setFont(font_names["extra_bold"], 25)
+    pdf.drawString(margin, page_height - 85, "MATERIALENKRAT")
+    pdf.setFont(font_names["bold"], 18)
+    club_name = str(club.get("name") or "Club").strip()
+    pdf.drawString(margin, page_height - 116, club_name[:38])
+    pdf.setFillColor(colors.HexColor("#cfcfcf"))
+    pdf.setFont(font_names["regular"], 8.5)
+    pdf.drawString(margin, page_height - 143, f"Vast overzicht  •  bijgewerkt {date.today().strftime('%d-%m-%Y')}")
+
+    total_quantity = sum(row["quantity"] for row in rows)
+    summary_y = page_height - 236
+    card_gap = 12
+    card_width = (page_width - (2 * margin) - card_gap) / 2
+    for index, (label, value) in enumerate((("TOTAAL AANTAL", total_quantity), ("SOORTEN MATERIAAL", len(rows)))):
+        x = margin + index * (card_width + card_gap)
+        pdf.setFillColor(soft)
+        pdf.roundRect(x, summary_y, card_width, 43, 6, fill=1, stroke=0)
+        pdf.setFillColor(muted)
+        pdf.setFont(font_names["bold"], 7.5)
+        pdf.drawString(x + 13, summary_y + 25, label)
+        pdf.setFillColor(black)
+        pdf.setFont(font_names["extra_bold"], 15)
+        pdf.drawRightString(x + card_width - 13, summary_y + 18, str(value))
+
+    list_top = summary_y - 39
+    pdf.setFillColor(black)
+    pdf.setFont(font_names["extra_bold"], 12)
+    pdf.drawString(margin, list_top, "INHOUD VAN DE KRAT")
+    pdf.setFillColor(muted)
+    pdf.setFont(font_names["regular"], 7.7)
+    pdf.drawRightString(page_width - margin, list_top, "Controleer en vink af")
+
+    list_bottom = 92
+    list_height = list_top - 22 - list_bottom
+    row_count = len(rows)
+    column_count = 1 if row_count <= 13 else 2 if row_count <= 34 else 3
+    rows_per_column = max(1, ceil(row_count / column_count))
+    column_gap = 13
+    column_width = (page_width - (2 * margin) - ((column_count - 1) * column_gap)) / column_count
+    row_height = min(31, list_height / rows_per_column)
+    name_size = 9 if column_count == 1 else 8 if column_count == 2 else 6.7
+
+    if not rows:
+        pdf.setFillColor(soft)
+        pdf.roundRect(margin, list_top - 84, page_width - (2 * margin), 62, 7, fill=1, stroke=0)
+        pdf.setFillColor(charcoal)
+        pdf.setFont(font_names["bold"], 10)
+        pdf.drawCentredString(page_width / 2, list_top - 52, "Voor deze club zijn nog geen materialen opgeslagen.")
+    else:
+        for index, row in enumerate(rows):
+            column_index = index // rows_per_column
+            row_index = index % rows_per_column
+            x = margin + column_index * (column_width + column_gap)
+            y_top = list_top - 22 - (row_index * row_height)
+            pdf.setStrokeColor(line)
+            pdf.setLineWidth(0.6)
+            pdf.line(x, y_top - row_height, x + column_width, y_top - row_height)
+            box_size = min(12, max(8, row_height - 12))
+            box_y = y_top - ((row_height + box_size) / 2) + 1
+            pdf.setStrokeColor(charcoal)
+            pdf.setLineWidth(1)
+            pdf.rect(x, box_y, box_size, box_size, fill=0, stroke=1)
+            pdf.setFillColor(black)
+            pdf.setFont(font_names["bold"], name_size)
+            max_name_width = column_width - box_size - 48
+            material_name = row["name"]
+            while len(material_name) > 3 and pdfmetrics.stringWidth(material_name, font_names["bold"], name_size) > max_name_width:
+                material_name = material_name[:-1]
+            if material_name != row["name"]:
+                material_name = f"{material_name.rstrip()}…"
+            pdf.drawString(x + box_size + 9, y_top - (row_height / 2) - (name_size / 3), material_name)
+            pdf.setFillColor(gold)
+            pdf.setFont(font_names["extra_bold"], 10 if column_count < 3 else 8.5)
+            pdf.drawRightString(x + column_width, y_top - (row_height / 2) - 3, f"{row['quantity']}×")
+
+    pdf.setStrokeColor(line)
+    pdf.line(margin, 68, page_width - margin, 68)
+    pdf.setFillColor(muted)
+    pdf.setFont(font_names["regular"], 7.2)
+    pdf.drawString(margin, 49, "Controleer de krat na gebruik en meld ontbrekend of beschadigd materiaal bij HWS.")
+    pdf.setFillColor(black)
+    pdf.setFont(font_names["bold"], 7.2)
+    pdf.drawRightString(page_width - margin, 49, "hwsvoetbalschool.nl")
+
+    pdf.showPage()
+    pdf.save()
+    buffer.seek(0)
+    return buffer.read()
+
+
+def create_materials_club_pdf(
+    club: Dict[str, Any],
+    materials: List[Dict[str, Any]],
+    *,
+    _pdf: Optional[Any] = None,
+) -> bytes:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.pdfgen import canvas
+    except ImportError as exc:
+        raise RuntimeError("De PDF-library ontbreekt. Installeer de packages uit requirements.txt.") from exc
+
+    font_root = os.path.join(os.path.dirname(__file__), "static", "assets", "fonts")
+    font_names = {
+        "regular": "MaterialsPoppins",
+        "bold": "MaterialsPoppinsBold",
+        "extra_bold": "MaterialsPoppinsExtraBold",
+    }
+    font_files = {
+        "regular": "Poppins-Regular.ttf",
+        "bold": "Poppins-Bold.ttf",
+        "extra_bold": "Poppins-ExtraBold.ttf",
+    }
+    registered_fonts = set(pdfmetrics.getRegisteredFontNames())
+    for key, font_name in font_names.items():
+        if font_name not in registered_fonts:
+            pdfmetrics.registerFont(TTFont(font_name, os.path.join(font_root, font_files[key])))
+
+    rows = []
+    quantities = club.get("quantities") if isinstance(club.get("quantities"), dict) else {}
+    for material in materials:
+        quantity = parse_non_negative_int(quantities.get(material.get("key"), 0))
+        if quantity > 0:
+            rows.append({"name": str(material.get("name") or "Materiaal").strip(), "quantity": quantity})
+
+    buffer = BytesIO() if _pdf is None else None
+    page_width, page_height = landscape(A4)
+    pdf = _pdf or canvas.Canvas(buffer, pagesize=(page_width, page_height))
+    pdf.setTitle(f"Materialenkrat - {club.get('name') or 'Club'}")
+    pdf.setAuthor("HWS Voetbalschool")
+    black = colors.HexColor("#111111")
+    charcoal = colors.HexColor("#252525")
+    muted = colors.HexColor("#6f6f6f")
+    line = colors.HexColor("#dddddd")
+    soft = colors.HexColor("#f4f4f4")
+    white = colors.white
+    gold = colors.HexColor("#d6a34f")
+    margin = 36
+
+    pdf.setFillColor(black)
+    pdf.rect(0, page_height - 125, page_width, 125, fill=1, stroke=0)
+    pdf.setFillColor(gold)
+    pdf.rect(0, page_height - 130, page_width, 5, fill=1, stroke=0)
+
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "assets", "hws-logo.png")
+    if os.path.exists(logo_path):
+        pdf.drawImage(ImageReader(logo_path), page_width - 132, page_height - 119, 98, 98, preserveAspectRatio=True, mask="auto", anchor="c")
+
+    pdf.setFillColor(gold)
+    pdf.setFont(font_names["bold"], 8.5)
+    pdf.drawString(margin, page_height - 34, "HWS VOETBALSCHOOL")
+    pdf.setFillColor(white)
+    pdf.setFont(font_names["extra_bold"], 23)
+    title_y = page_height - 76
+    club_name = str(club.get("name") or "Club").strip().upper()
+    title_prefix = "MATERIALENKRAT "
+    title_max_width = page_width - 150 - margin
+    while len(club_name) > 3 and pdfmetrics.stringWidth(
+        f"{title_prefix}{club_name}", font_names["extra_bold"], 23
+    ) > title_max_width:
+        club_name = club_name[:-1]
+    pdf.drawString(margin, title_y, f"{title_prefix}{club_name}")
+
+    column_gap = 24
+    left_width = (page_width - (2 * margin) - column_gap) / 2
+    right_x = margin + left_width + column_gap
+    right_width = page_width - right_x - margin
+    list_top = page_height - 160
+    pdf.setFillColor(black)
+    pdf.setFont(font_names["extra_bold"], 11)
+    pdf.drawString(margin, list_top, "MATERIALEN IN DE KRAT")
+
+    list_bottom = 176
+    list_height = list_top - 17 - list_bottom
+    row_count = len(rows)
+    column_count = 1 if row_count <= 10 else 2 if row_count <= 22 else 3
+    rows_per_column = max(1, ceil(row_count / column_count))
+    material_column_gap = 14
+    column_width = (left_width - ((column_count - 1) * material_column_gap)) / column_count
+    row_height = min(25, list_height / rows_per_column)
+    name_size = 8.5 if column_count == 1 else 7.5 if column_count == 2 else 6.5
+
+    if not rows:
+        pdf.setFillColor(soft)
+        pdf.roundRect(margin, list_top - 70, left_width, 50, 7, fill=1, stroke=0)
+        pdf.setFillColor(charcoal)
+        pdf.setFont(font_names["bold"], 8.5)
+        pdf.drawCentredString(margin + (left_width / 2), list_top - 48, "Voor deze club zijn nog geen materialen opgeslagen.")
+    else:
+        for index, row in enumerate(rows):
+            column_index = index // rows_per_column
+            row_index = index % rows_per_column
+            x = margin + column_index * (column_width + material_column_gap)
+            y_top = list_top - 17 - (row_index * row_height)
+            pdf.setStrokeColor(line)
+            pdf.setLineWidth(0.5)
+            pdf.line(x, y_top - row_height, x + column_width, y_top - row_height)
+            bullet_radius = 2.7
+            bullet_y = y_top - (row_height / 2) - 1
+            pdf.setFillColor(gold)
+            pdf.circle(x + bullet_radius, bullet_y, bullet_radius, fill=1, stroke=0)
+            pdf.setFillColor(black)
+            pdf.setFont(font_names["bold"], name_size)
+            max_name_width = column_width - 42
+            material_name = row["name"]
+            while len(material_name) > 3 and pdfmetrics.stringWidth(material_name, font_names["bold"], name_size) > max_name_width:
+                material_name = material_name[:-1]
+            if material_name != row["name"]:
+                material_name = f"{material_name.rstrip()}…"
+            pdf.drawString(x + 12, y_top - (row_height / 2) - (name_size / 3), material_name)
+            pdf.setFillColor(gold)
+            pdf.setFont(font_names["extra_bold"], 9 if column_count < 3 else 7.5)
+            pdf.drawRightString(x + column_width, y_top - (row_height / 2) - 3, f"{row['quantity']}×")
+
+    contact_y = 47
+    contact_height = 103
+    pdf.setFillColor(soft)
+    pdf.roundRect(right_x, contact_y, right_width, contact_height, 8, fill=1, stroke=0)
+    pdf.setFillColor(gold)
+    pdf.roundRect(right_x, contact_y, 6, contact_height, 3, fill=1, stroke=0)
+    pdf.setFillColor(black)
+    pdf.setFont(font_names["extra_bold"], 9.5)
+    pdf.drawString(right_x + 19, contact_y + contact_height - 24, "CONTACTPERSOON")
+    pdf.setFont(font_names["bold"], 9)
+    pdf.drawString(right_x + 19, contact_y + contact_height - 47, "David van Walstijn")
+    pdf.setFillColor(muted)
+    pdf.setFont(font_names["regular"], 8)
+    pdf.drawString(right_x + 19, contact_y + 29, "info@hwsvoetbalschool.nl")
+    pdf.setFillColor(black)
+    pdf.setFont(font_names["bold"], 9)
+    pdf.drawString(right_x + 19, contact_y + 13, "06-24845896")
+
+    rules_y = contact_y + contact_height + 14
+    rules_height = list_top - rules_y + 2
+    pdf.setFillColor(soft)
+    pdf.roundRect(right_x, rules_y, right_width, rules_height, 8, fill=1, stroke=0)
+    pdf.setFillColor(black)
+    pdf.setFont(font_names["extra_bold"], 11)
+    pdf.drawString(right_x + 20, rules_y + rules_height - 31, "AFSPRAKEN RONDOM DE MATERIALEN")
+    rule_lines = [
+        ["Tel vóór en na iedere training de ballen en hoedjes."],
+        ["Zet het trainingsveld vóór aanvang zorgvuldig uit.", "Ruim het veld na afloop volledig op."],
+        ["Controleer na iedere training of al het materiaal", "compleet en onbeschadigd is."],
+        ["Ontbreekt er materiaal of moeten de hesjes worden gewassen?", "Geef dit direct door aan de contactpersoon."],
+    ]
+    rule_y = rules_y + rules_height - 70
+    for rule_index, lines in enumerate(rule_lines, start=1):
+        pdf.setFillColor(gold)
+        pdf.circle(right_x + 30, rule_y + 2, 10, fill=1, stroke=0)
+        pdf.setFillColor(black)
+        pdf.setFont(font_names["extra_bold"], 8)
+        pdf.drawCentredString(right_x + 30, rule_y - 0.8, str(rule_index))
+        for line_index, text in enumerate(lines):
+            font_key = "bold" if line_index == 0 or rule_index == 3 else "regular"
+            pdf.setFont(font_names[font_key], 8.3)
+            pdf.drawString(right_x + 52, rule_y - (line_index * 13), text)
+        rule_y -= 42 if len(lines) == 1 else 49
+
+    pdf.showPage()
+    if buffer is None:
+        return b""
+    pdf.save()
+    buffer.seek(0)
+    return buffer.read()
+
+
+def create_materials_all_clubs_pdf(clubs: List[Dict[str, Any]], materials: List[Dict[str, Any]]) -> bytes:
+    try:
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.pdfgen import canvas
+    except ImportError as exc:
+        raise RuntimeError("De PDF-library ontbreekt. Installeer de packages uit requirements.txt.") from exc
+
+    buffer = BytesIO()
+    page_width, page_height = landscape(A4)
+    pdf = canvas.Canvas(buffer, pagesize=(page_width, page_height))
+    for club in clubs:
+        create_materials_club_pdf(club, materials, _pdf=pdf)
+    pdf.setTitle("Materialenkratten - alle clubs")
+    pdf.setAuthor("HWS Voetbalschool")
+    pdf.save()
+    buffer.seek(0)
+    return buffer.read()
 
 
 def build_materials_inventory_from_form() -> Dict[str, Any]:
@@ -11564,11 +12003,12 @@ def save_materials_inventory(inventory: Dict[str, Any]) -> None:
     clear_local_data_cache()
 
 
-def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, str]]:
+def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, Any]]:
     rows = raw_rows if isinstance(raw_rows, list) else []
     normalized_rows = []
-    valid_clubs = set(AGENDA_CLUB_OPTIONS)
     valid_activities = {str(option["value"]): str(option["label"]) for option in TRAINER_FEE_ACTIVITY_OPTIONS}
+    valid_activities[TRAINER_FEE_ALL_ACTIVITIES_VALUE] = TRAINER_FEE_ALL_ACTIVITIES_VALUE
+    valid_types = {str(option["value"]): str(option["label"]) for option in TRAINER_FEE_TYPE_OPTIONS}
     for club_options in build_trainer_fee_agenda_activity_options().values():
         for option in club_options:
             valid_activities.setdefault(str(option["value"]), str(option["label"]))
@@ -11579,13 +12019,32 @@ def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, str]]:
         club = str(item.get("club") or "").strip()
         activity = str(item.get("activity") or item.get("activityType") or "").strip()
         amount = str(item.get("amount") or "").strip()
-        if not club and not activity and not amount:
+        raw_types = item.get("types")
+        if isinstance(raw_types, list):
+            types = [str(value or "").strip() for value in raw_types]
+        else:
+            single_type = str(item.get("type") or "").strip()
+            types = [single_type] if single_type else []
+        types = [value for value in types if value in valid_types]
+        fee_type = types[0] if types else ""
+        if not club and not activity and not amount and not fee_type:
             continue
+        valid_clubs = set(TRAINER_FEE_CLUB_OPTIONS_BY_TYPE.get(fee_type, AGENDA_CLUB_OPTIONS))
+        if fee_type == "voetbaldag_summercamp":
+            valid_clubs.add(TRAINER_FEE_ALL_CLUBS_VALUE)
         if club not in valid_clubs:
             club = ""
+        if activity == TRAINER_FEE_ALL_ACTIVITIES_VALUE and fee_type != "voetbaldag_summercamp":
+            activity = ""
+        if activity not in valid_activities:
+            activity = ""
         normalized_rows.append(
             {
                 "club": club,
+                "type": fee_type,
+                "typeLabel": valid_types.get(fee_type, fee_type),
+                "types": [fee_type] if fee_type else [],
+                "typeLabels": [valid_types[fee_type]] if fee_type else [],
                 "activity": activity,
                 "activityLabel": valid_activities.get(activity, activity),
                 "amount": amount,
@@ -11595,15 +12054,17 @@ def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, str]]:
     return normalized_rows
 
 
-def parse_trainer_fee_rows_from_form(form_data: Any) -> List[Dict[str, str]]:
+def parse_trainer_fee_rows_from_form(form_data: Any) -> List[Dict[str, Any]]:
+    types = form_data.getlist("fee_type")
     clubs = form_data.getlist("fee_club")
     activities = form_data.getlist("fee_activity")
     amounts = form_data.getlist("fee_amount")
-    max_length = max(len(clubs), len(activities), len(amounts), 0)
+    max_length = max(len(types), len(clubs), len(activities), len(amounts), 0)
     raw_rows = []
     for index in range(max_length):
         raw_rows.append(
             {
+                "type": types[index] if index < len(types) else "",
                 "club": clubs[index] if index < len(clubs) else "",
                 "activity": activities[index] if index < len(activities) else "",
                 "amount": amounts[index] if index < len(amounts) else "",
@@ -11612,7 +12073,7 @@ def parse_trainer_fee_rows_from_form(form_data: Any) -> List[Dict[str, str]]:
     return normalize_trainer_fee_rows(raw_rows)
 
 
-def trainer_fees_json_dumps(rows: List[Dict[str, str]]) -> str:
+def trainer_fees_json_dumps(rows: List[Dict[str, Any]]) -> str:
     return json.dumps(normalize_trainer_fee_rows(rows), ensure_ascii=False)
 
 
@@ -11643,6 +12104,20 @@ def build_trainer_fee_agenda_activity_options() -> Dict[str, List[Dict[str, str]
     return options_by_club
 
 
+def build_trainer_fee_club_options_by_type() -> Dict[str, List[str]]:
+    return {
+        key: list(value)
+        for key, value in TRAINER_FEE_CLUB_OPTIONS_BY_TYPE.items()
+    }
+
+
+def build_agenda_club_options_by_training_type() -> Dict[str, List[str]]:
+    return {
+        key: list(value)
+        for key, value in AGENDA_CLUB_OPTIONS_BY_TRAINING_TYPE.items()
+    }
+
+
 def build_trainer_fee_year_options(trainings: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     years = {
         parsed_date.year
@@ -11659,17 +12134,96 @@ def parse_trainer_fee_amount(value: Any) -> Decimal:
     return amount if amount > 0 else Decimal("0")
 
 
-def find_trainer_fee_amount(profile: Dict[str, Any], club: str, activity: str) -> Decimal:
+def get_trainer_fee_type_for_training(training_type: Any) -> str:
+    normalized_type = str(training_type or "").strip()
+    if normalized_type in {"voetbaldag", "summercamp"}:
+        return "voetbaldag_summercamp"
+    if normalized_type in {"samenwerkende_amateurclub", "techniektraining"}:
+        return normalized_type
+    return ""
+
+
+def trainer_fee_row_matches(fee_row: Dict[str, Any], fee_type: str, club: str, activity: str) -> bool:
+    row_type = str(fee_row.get("type") or "").strip()
+    row_club = str(fee_row.get("club") or "").strip()
+    row_activity = str(fee_row.get("activity") or "").strip()
+
+    if not row_club or not row_activity:
+        return False
+    if row_type and row_type != fee_type:
+        return False
+    if row_club and row_club != TRAINER_FEE_ALL_CLUBS_VALUE and row_club != club:
+        return False
+    if row_activity and row_activity != TRAINER_FEE_ALL_ACTIVITIES_VALUE and row_activity != activity:
+        return False
+    return True
+
+
+def find_trainer_fee_amount(profile: Dict[str, Any], club: str, activity: str, fee_type: str = "") -> Decimal:
     for fee_row in profile.get("trainerFees") or []:
-        if str(fee_row.get("club") or "").strip() != club:
-            continue
-        if str(fee_row.get("activity") or "").strip() != activity:
+        if not trainer_fee_row_matches(fee_row, fee_type, club, activity):
             continue
         return parse_trainer_fee_amount(fee_row.get("amount"))
     return Decimal("0")
 
 
-def build_trainer_fee_monthly_summary(selected_year: int) -> Dict[str, Any]:
+def trainer_fee_training_counts_for_summary(training: Dict[str, Any]) -> bool:
+    return str(training.get("status") or "").strip() == "gegeven"
+
+
+def load_trainer_fee_payment_statuses(season_start_year: int) -> Dict[Tuple[str, int], bool]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT trainer_id, month, paid
+            FROM trainer_fee_payment_statuses
+            WHERE season_start_year = ?
+            """,
+            (season_start_year,),
+        ).fetchall()
+    return {
+        (str(row["trainer_id"] or "").strip(), int(row["month"])): bool(row["paid"])
+        for row in rows
+    }
+
+
+def save_trainer_fee_payment_status(trainer_id: str, season_start_year: int, month: int, paid: bool) -> None:
+    normalized_trainer_id = trainer_id.strip()
+    if not normalized_trainer_id or month < 1 or month > 12:
+        return
+    updated_at = datetime.now().isoformat(timespec="seconds")
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO trainer_fee_payment_statuses (trainer_id, season_start_year, month, paid, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(trainer_id, season_start_year, month)
+            DO UPDATE SET paid = excluded.paid, updated_at = excluded.updated_at
+            """,
+            (normalized_trainer_id, season_start_year, month, 1 if paid else 0, updated_at),
+        )
+    clear_local_data_cache()
+
+
+def build_trainer_fee_season_options(trainings: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    season_years = {
+        get_season_start_year_for_date(parsed_date)
+        for training in trainings
+        for parsed_date in [parse_iso_date(str(training.get("date") or ""))]
+        if parsed_date is not None
+    }
+    current_season_start_year = get_season_start_year_for_date(date.today())
+    season_years.add(current_season_start_year)
+    season_years.add(current_season_start_year + 1)
+    return [
+        {"value": str(year), "label": get_football_season_label(year)}
+        for year in sorted(season_years, reverse=True)
+    ]
+
+
+def build_trainer_fee_monthly_summary(season_start_year: int, selected_month: Optional[int] = None) -> Dict[str, Any]:
+    season_range = get_football_season_range(season_start_year)
+    season_months = get_season_months(season_start_year)
     profiles = [
         profile
         for profile in load_trainer_profiles()
@@ -11685,19 +12239,21 @@ def build_trainer_fee_monthly_summary(selected_year: int) -> Dict[str, Any]:
         str(profile.get("id") or "").strip(): {month: 0 for month in range(1, 13)}
         for profile in profiles
     }
+    payment_statuses = load_trainer_fee_payment_statuses(season_start_year)
 
-    trainings = load_agenda_trainings(f"{selected_year}-01-01", f"{selected_year}-12-31")
+    trainings = load_agenda_trainings(season_range["start"].isoformat(), season_range["end"].isoformat())
     matched_training_count = 0
     missing_rate_count = 0
 
     for training in trainings:
-        if str(training.get("status") or "").strip() != "gegeven":
+        if not trainer_fee_training_counts_for_summary(training):
             continue
         training_date = parse_iso_date(str(training.get("date") or ""))
-        if training_date is None or training_date.year != selected_year:
+        if training_date is None or training_date < season_range["start"] or training_date > season_range["end"]:
             continue
         club = normalize_agenda_club(training.get("location"))
         activity = str(training.get("title") or "").strip()
+        fee_type = get_trainer_fee_type_for_training(training.get("trainingType"))
         if not club or not activity:
             continue
         for trainer in training.get("trainers") or []:
@@ -11705,7 +12261,7 @@ def build_trainer_fee_monthly_summary(selected_year: int) -> Dict[str, Any]:
             profile = profiles_by_id.get(trainer_id)
             if profile is None:
                 continue
-            amount = find_trainer_fee_amount(profile, club, activity)
+            amount = find_trainer_fee_amount(profile, club, activity, fee_type)
             if amount <= 0:
                 missing_rate_count += 1
                 continue
@@ -11728,35 +12284,314 @@ def build_trainer_fee_monthly_summary(selected_year: int) -> Dict[str, Any]:
                 "role": str(profile.get("systemRole") or "").strip(),
                 "months": [
                     {
-                        "month": month,
-                        "amount": round(float(monthly_amounts.get(month, Decimal("0"))), 2),
-                        "amountLabel": format_currency(float(monthly_amounts.get(month, Decimal("0")))).replace("EUR", "€"),
-                        "trainingCount": monthly_counts.get(month, 0),
+                        "month": month_meta["month"],
+                        "year": month_meta["year"],
+                        "label": month_meta["label"],
+                        "shortLabel": month_meta["shortLabel"],
+                        "amount": round(float(monthly_amounts.get(month_meta["month"], Decimal("0"))), 2),
+                        "amountLabel": format_currency(float(monthly_amounts.get(month_meta["month"], Decimal("0")))).replace("EUR", "€"),
+                        "trainingCount": monthly_counts.get(month_meta["month"], 0),
+                        "paid": payment_statuses.get((trainer_id, month_meta["month"]), False),
                     }
-                    for month in range(1, 13)
+                    for month_meta in season_months
                 ],
                 "yearTotal": round(float(year_total), 2),
                 "yearTotalLabel": format_currency(float(year_total)).replace("EUR", "€"),
             }
         )
 
+    months = [
+        {
+            "month": month_meta["month"],
+            "year": month_meta["year"],
+            "label": month_meta["label"],
+            "shortLabel": month_meta["shortLabel"],
+            "total": round(float(month_totals[month_meta["month"]]), 2),
+            "totalLabel": format_currency(float(month_totals[month_meta["month"]])).replace("EUR", "€"),
+        }
+        for month_meta in season_months
+    ]
+    visible_months = [month for month in months if month["month"] == selected_month] if selected_month else months
+    selected_total = month_totals.get(selected_month, Decimal("0")) if selected_month else sum(month_totals.values(), Decimal("0"))
+
     return {
-        "selectedYear": str(selected_year),
-        "months": [
-            {
-                "month": month,
-                "label": DUTCH_FULL_MONTH_NAMES[month - 1],
-                "shortLabel": DUTCH_MONTH_NAMES[month - 1],
-                "total": round(float(month_totals[month]), 2),
-                "totalLabel": format_currency(float(month_totals[month])).replace("EUR", "€"),
-            }
-            for month in range(1, 13)
-        ],
+        "selectedSeason": str(season_start_year),
+        "selectedSeasonLabel": get_football_season_label(season_start_year),
+        "selectedMonth": selected_month,
+        "selectedMonthLabel": DUTCH_FULL_MONTH_NAMES[selected_month - 1] if selected_month else "",
+        "months": months,
+        "visibleMonths": visible_months,
         "trainers": trainer_rows,
         "yearTotal": round(float(sum(month_totals.values(), Decimal("0"))), 2),
         "yearTotalLabel": format_currency(float(sum(month_totals.values(), Decimal("0")))).replace("EUR", "€"),
+        "selectedTotal": round(float(selected_total), 2),
+        "selectedTotalLabel": format_currency(float(selected_total)).replace("EUR", "€"),
         "matchedTrainingCount": matched_training_count,
         "missingRateCount": missing_rate_count,
+    }
+
+
+def build_budget_activity_key(training_type: Any, club: Any, activity_title: Any) -> str:
+    return "||".join(
+        [
+            str(training_type or "").strip(),
+            str(club or "").strip(),
+            str(activity_title or "").strip(),
+        ]
+    )
+
+
+def parse_budget_activity_key(value: Any) -> Dict[str, str]:
+    parts = str(value or "").split("||", 2)
+    if len(parts) != 3:
+        return {"trainingType": "", "club": "", "activityTitle": ""}
+    training_type, club, activity_title = (part.strip() for part in parts)
+    return {
+        "trainingType": training_type if get_agenda_training_type_option(training_type)["value"] == training_type else "",
+        "club": normalize_agenda_club(club),
+        "activityTitle": activity_title,
+    }
+
+
+def build_budget_activity_options(season_start_year: int) -> List[Dict[str, Any]]:
+    season_range = get_football_season_range(season_start_year)
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for training in load_agenda_trainings(season_range["start"].isoformat(), season_range["end"].isoformat()):
+        if str(training.get("status") or "").strip() == "geannuleerd":
+            continue
+        training_type = str(training.get("trainingType") or "").strip()
+        club = normalize_agenda_club(training.get("location"))
+        activity_title = str(training.get("title") or "").strip()
+        if not training_type or not club or not activity_title:
+            continue
+        key = build_budget_activity_key(training_type, club, activity_title)
+        if key not in grouped:
+            grouped[key] = {
+                "key": key,
+                "trainingType": training_type,
+                "trainingTypeLabel": str(training.get("trainingTypeLabel") or "").strip(),
+                "club": club,
+                "activityTitle": activity_title,
+                "label": f"{activity_title} - {club} - {training.get('trainingTypeLabel') or training_type}",
+                "count": 0,
+                "scheduleSlots": [],
+            }
+        grouped[key]["count"] += 1
+        training_date = parse_iso_date(str(training.get("date") or "").strip())
+        start_time = str(training.get("time") or "").strip()
+        end_time = str(training.get("endTime") or "").strip()
+        if training_date is not None and start_time:
+            slot = {
+                "weekday": DUTCH_WEEKDAY_NAMES[training_date.weekday()],
+                "weekdayIndex": training_date.weekday(),
+                "startTime": start_time,
+                "endTime": end_time,
+            }
+            slot_key = f"{slot['weekdayIndex']}|{slot['startTime']}|{slot['endTime']}"
+            existing_slot_keys = {
+                f"{item['weekdayIndex']}|{item['startTime']}|{item['endTime']}"
+                for item in grouped[key]["scheduleSlots"]
+            }
+            if slot_key not in existing_slot_keys:
+                grouped[key]["scheduleSlots"].append(slot)
+                grouped[key]["scheduleSlots"].sort(
+                    key=lambda item: (int(item["weekdayIndex"]), str(item["startTime"]), str(item["endTime"]))
+                )
+    return sorted(grouped.values(), key=lambda item: (str(item["club"]).lower(), str(item["activityTitle"]).lower()))
+
+
+def load_budget_lines(season_start_year: int) -> List[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, season_start_year, training_type, club, activity_title, income_amount,
+                   trainer_amount, trainer_payment_mode, trainer_bundle_count, trainer_group, trainer_id,
+                   sort_order, created_at, updated_at
+            FROM budget_lines
+            WHERE season_start_year = ?
+            ORDER BY sort_order ASC, id ASC
+            """,
+            (season_start_year,),
+        ).fetchall()
+    return [
+        {
+            "id": int(row["id"]),
+            "seasonStartYear": int(row["season_start_year"]),
+            "trainingType": str(row["training_type"] or "").strip(),
+            "club": str(row["club"] or "").strip(),
+            "activityTitle": str(row["activity_title"] or "").strip(),
+            "activityKey": build_budget_activity_key(row["training_type"], row["club"], row["activity_title"]),
+            "incomeAmount": str(row["income_amount"] or "").strip(),
+            "trainerAmount": str(row["trainer_amount"] or "").strip(),
+            "trainerPaymentMode": str(row["trainer_payment_mode"] or "per_activity").strip(),
+            "trainerBundleCount": max(1, parse_non_negative_int(row["trainer_bundle_count"])),
+            "trainerGroup": str(row["trainer_group"] or "").strip(),
+            "trainerId": str(row["trainer_id"] or "").strip(),
+        }
+        for row in rows
+    ]
+
+
+def parse_budget_lines_from_form(form_data: Any, season_start_year: int) -> List[Dict[str, Any]]:
+    activity_keys = form_data.getlist("activity_key")
+    income_amounts = form_data.getlist("income_amount")
+    trainer_amounts = form_data.getlist("trainer_amount")
+    trainer_groups = form_data.getlist("trainer_group")
+    trainer_ids = form_data.getlist("trainer_id")
+    valid_trainer_ids = {option["id"] for option in build_agenda_trainer_options()}
+    rows = []
+    max_length = max(
+        len(activity_keys),
+        len(income_amounts),
+        len(trainer_amounts),
+        len(trainer_groups),
+        len(trainer_ids),
+        0,
+    )
+    for index in range(max_length):
+        activity = parse_budget_activity_key(activity_keys[index] if index < len(activity_keys) else "")
+        if not activity["trainingType"] or not activity["club"] or not activity["activityTitle"]:
+            continue
+        trainer_id = str(trainer_ids[index] if index < len(trainer_ids) else "").strip()
+        trainer_group = str(trainer_groups[index] if index < len(trainer_groups) else "").strip()
+        rows.append(
+            {
+                "seasonStartYear": season_start_year,
+                "trainingType": activity["trainingType"],
+                "club": activity["club"],
+                "activityTitle": activity["activityTitle"],
+                "incomeAmount": format_contract_money(parse_decimal_amount(income_amounts[index] if index < len(income_amounts) else "")),
+                "trainerAmount": format_contract_money(parse_decimal_amount(trainer_amounts[index] if index < len(trainer_amounts) else "")),
+                "trainerPaymentMode": "per_group" if trainer_group else "per_activity",
+                "trainerBundleCount": 1,
+                "trainerGroup": trainer_group,
+                "trainerId": trainer_id if trainer_id in valid_trainer_ids else "",
+            }
+        )
+    return rows
+
+
+def save_budget_lines(season_start_year: int, rows: List[Dict[str, Any]]) -> None:
+    now = utcnow_iso()
+    with get_db_connection() as connection:
+        connection.execute("DELETE FROM budget_lines WHERE season_start_year = ?", (season_start_year,))
+        connection.executemany(
+            """
+            INSERT INTO budget_lines (
+                season_start_year, training_type, club, activity_title, income_amount,
+                trainer_amount, trainer_payment_mode, trainer_bundle_count, trainer_group, trainer_id,
+                sort_order, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    season_start_year,
+                    row["trainingType"],
+                    row["club"],
+                    row["activityTitle"],
+                    row["incomeAmount"],
+                    row["trainerAmount"],
+                    row["trainerPaymentMode"],
+                    row["trainerBundleCount"],
+                    row["trainerGroup"],
+                    row["trainerId"],
+                    index,
+                    now,
+                    now,
+                )
+                for index, row in enumerate(rows)
+            ],
+        )
+    clear_local_data_cache()
+
+
+def build_budget_summary(season_start_year: int) -> Dict[str, Any]:
+    activity_options = build_budget_activity_options(season_start_year)
+    activity_counts = {option["key"]: int(option["count"]) for option in activity_options}
+    activity_labels = {option["key"]: str(option["label"]) for option in activity_options}
+    trainer_names = {option["id"]: option["name"] for option in build_agenda_trainer_options()}
+    budget_lines = load_budget_lines(season_start_year)
+    group_summaries: Dict[str, Dict[str, Any]] = {}
+    for index, line in enumerate(budget_lines):
+        trainer_group = str(line.get("trainerGroup") or "").strip()
+        if not trainer_group:
+            continue
+        group_key = trainer_group.casefold()
+        count = activity_counts.get(line["activityKey"], 0)
+        income_total = parse_decimal_amount(line.get("incomeAmount")) * count
+        if group_key not in group_summaries:
+            group_summaries[group_key] = {
+                "leaderIndex": index,
+                "trainingCount": count,
+                "incomeTotal": income_total,
+                "trainerAmount": parse_decimal_amount(line.get("trainerAmount")),
+            }
+        else:
+            group_summaries[group_key]["trainingCount"] = max(int(group_summaries[group_key]["trainingCount"]), count)
+            group_summaries[group_key]["incomeTotal"] += income_total
+    lines = []
+    total_income = Decimal("0")
+    total_trainer_costs = Decimal("0")
+
+    for line_index, line in enumerate(budget_lines):
+        key = line["activityKey"]
+        count = activity_counts.get(key, 0)
+        income_amount = parse_decimal_amount(line.get("incomeAmount"))
+        trainer_amount = parse_decimal_amount(line.get("trainerAmount"))
+        trainer_group = str(line.get("trainerGroup") or "").strip()
+        income_total = income_amount * count
+        total_income += income_total
+        group_key = trainer_group.casefold() if trainer_group else ""
+        group_summary = group_summaries.get(group_key) if group_key else None
+        is_group_leader = bool(group_summary and int(group_summary["leaderIndex"]) == line_index)
+        is_group_follower = bool(group_summary and int(group_summary["leaderIndex"]) != line_index)
+        if group_summary:
+            if is_group_leader:
+                trainer_cost = group_summary["trainerAmount"] * int(group_summary["trainingCount"])
+                result = group_summary["incomeTotal"] - trainer_cost
+                display_income_total = group_summary["incomeTotal"]
+                total_trainer_costs += trainer_cost
+            else:
+                trainer_cost = Decimal("0")
+                result = Decimal("0")
+                display_income_total = Decimal("0")
+        else:
+            trainer_cost = trainer_amount * count
+            result = income_total - trainer_cost
+            display_income_total = income_total
+            total_trainer_costs += trainer_cost
+        lines.append(
+            {
+                **line,
+                "activityLabel": activity_labels.get(key) or f"{line['activityTitle']} - {line['club']}",
+                "count": count,
+                "incomeTotal": round(float(display_income_total), 2),
+                "incomeTotalLabel": format_currency(float(display_income_total)).replace("EUR", "€"),
+                "trainerCost": round(float(trainer_cost), 2),
+                "trainerCostLabel": format_currency(float(trainer_cost)).replace("EUR", "€"),
+                "result": round(float(result), 2),
+                "resultLabel": format_currency(float(result)).replace("EUR", "€"),
+                "trainerName": trainer_names.get(str(line.get("trainerId") or "").strip(), ""),
+                "isGrouped": bool(group_summary),
+                "isGroupLeader": is_group_leader,
+                "isGroupFollower": is_group_follower,
+            }
+        )
+
+    result_total = total_income - total_trainer_costs
+    return {
+        "selectedSeason": str(season_start_year),
+        "selectedSeasonLabel": get_football_season_label(season_start_year),
+        "activityOptions": activity_options,
+        "lines": lines,
+        "lineCount": len(lines),
+        "totalIncome": round(float(total_income), 2),
+        "totalIncomeLabel": format_currency(float(total_income)).replace("EUR", "€"),
+        "totalTrainerCosts": round(float(total_trainer_costs), 2),
+        "totalTrainerCostsLabel": format_currency(float(total_trainer_costs)).replace("EUR", "€"),
+        "resultTotal": round(float(result_total), 2),
+        "resultTotalLabel": format_currency(float(result_total)).replace("EUR", "€"),
     }
 
 
@@ -11783,6 +12618,11 @@ def build_user_payload(row: sqlite3.Row) -> Dict[str, Any]:
         "education": str(row["education"] or "").strip(),
         "availabilityDays": [day for day in str(row["availability_days"] or "").split(",") if day],
         "phone": str(row["phone"] or "").strip(),
+        "address": str(row["address"] or "").strip() if "address" in row.keys() else "",
+        "city": str(row["city"] or "").strip() if "city" in row.keys() else "",
+        "postalCode": str(row["postal_code"] or "").strip() if "postal_code" in row.keys() else "",
+        "bankAccountNumber": str(row["bank_account_number"] or "").strip() if "bank_account_number" in row.keys() else "",
+        "bankAccountName": str(row["bank_account_name"] or "").strip() if "bank_account_name" in row.keys() else "",
         "notes": str(row["notes"] or "").strip(),
         "trainerFees": normalize_trainer_fee_rows(trainer_fees_payload),
         "isAdmin": bool(row["is_admin"]) or role_grants_admin_access(system_role),
@@ -11824,10 +12664,15 @@ def update_trainer_profile(
     knvb_license: str,
     education: str,
     phone: str,
+    address: str,
+    city: str,
+    postal_code: str,
+    bank_account_number: str,
+    bank_account_name: str,
     notes: str,
     availability_days: List[str],
     is_admin: bool,
-    trainer_fees: Optional[List[Dict[str, str]]] = None,
+    trainer_fees: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     with get_db_connection() as connection:
         if trainer_fees is None:
@@ -11845,6 +12690,11 @@ def update_trainer_profile(
                     education = ?,
                     availability_days = ?,
                     phone = ?,
+                    address = ?,
+                    city = ?,
+                    postal_code = ?,
+                    bank_account_number = ?,
+                    bank_account_name = ?,
                     notes = ?,
                     is_admin = ?
                 WHERE id = ?
@@ -11860,6 +12710,11 @@ def update_trainer_profile(
                     education.strip(),
                     ",".join(day.strip() for day in availability_days if day.strip()),
                     phone.strip(),
+                    address.strip(),
+                    city.strip(),
+                    postal_code.strip(),
+                    bank_account_number.strip(),
+                    bank_account_name.strip(),
                     notes.strip(),
                     1 if is_admin else 0,
                     profile_id.strip(),
@@ -11880,6 +12735,11 @@ def update_trainer_profile(
                     education = ?,
                     availability_days = ?,
                     phone = ?,
+                    address = ?,
+                    city = ?,
+                    postal_code = ?,
+                    bank_account_number = ?,
+                    bank_account_name = ?,
                     notes = ?,
                     is_admin = ?,
                     trainer_fees_json = ?
@@ -11896,6 +12756,11 @@ def update_trainer_profile(
                     education.strip(),
                     ",".join(day.strip() for day in availability_days if day.strip()),
                     phone.strip(),
+                    address.strip(),
+                    city.strip(),
+                    postal_code.strip(),
+                    bank_account_number.strip(),
+                    bank_account_name.strip(),
                     notes.strip(),
                     1 if is_admin else 0,
                     trainer_fees_json_dumps(trainer_fees),
@@ -11981,6 +12846,11 @@ def load_trainer_profiles() -> List[Dict[str, Any]]:
                     education,
                     availability_days,
                     phone,
+                    address,
+                    city,
+                    postal_code,
+                    bank_account_number,
+                    bank_account_name,
                     notes,
                     trainer_fees_json,
                     is_admin,
@@ -12111,7 +12981,12 @@ def add_trainer_profile(
     education: str,
     availability_days: List[str],
     phone: str,
-    notes: str,
+    address: str = "",
+    city: str = "",
+    postal_code: str = "",
+    bank_account_number: str = "",
+    bank_account_name: str = "",
+    notes: str = "",
     is_admin: bool = False,
 ) -> None:
     created_at = datetime.now().isoformat(timespec="seconds")
@@ -12122,8 +12997,9 @@ def add_trainer_profile(
             """
             INSERT INTO trainer_profiles (
                 id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at,
-                role, member_type, system_role, knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                role, member_type, system_role, knvb_license, education, availability_days, phone, address, city, postal_code,
+                bank_account_number, bank_account_name, notes, is_admin, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 profile_id,
@@ -12141,6 +13017,11 @@ def add_trainer_profile(
                 education.strip(),
                 ",".join(day.strip() for day in availability_days if day.strip()),
                 phone.strip(),
+                address.strip(),
+                city.strip(),
+                postal_code.strip(),
+                bank_account_number.strip(),
+                bank_account_name.strip(),
                 notes.strip(),
                 1 if is_admin else 0,
                 "Actief",
@@ -12160,6 +13041,11 @@ def create_trainer_invite_profile(
     education: str,
     availability_days: List[str],
     phone: str,
+    address: str,
+    city: str,
+    postal_code: str,
+    bank_account_number: str,
+    bank_account_name: str,
     notes: str,
     is_admin: bool = False,
 ) -> Dict[str, str]:
@@ -12173,8 +13059,9 @@ def create_trainer_invite_profile(
             """
             INSERT INTO trainer_profiles (
                 id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at,
-                role, member_type, system_role, knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                role, member_type, system_role, knvb_license, education, availability_days, phone, address, city, postal_code,
+                bank_account_number, bank_account_name, notes, is_admin, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 profile_id,
@@ -12192,6 +13079,11 @@ def create_trainer_invite_profile(
                 education.strip(),
                 ",".join(day.strip() for day in availability_days if day.strip()),
                 phone.strip(),
+                address.strip(),
+                city.strip(),
+                postal_code.strip(),
+                bank_account_number.strip(),
+                bank_account_name.strip(),
                 notes.strip(),
                 1 if is_admin else 0,
                 "Uitgenodigd",
@@ -12216,7 +13108,8 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
                 """
                 SELECT
                     id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
-                    knvb_license, education, availability_days, phone, notes, trainer_fees_json, is_admin, status, created_at
+                    knvb_license, education, availability_days, phone, address, city, postal_code, bank_account_number,
+                    bank_account_name, notes, trainer_fees_json, is_admin, status, created_at
                 FROM trainer_profiles
                 WHERE id = ?
                 LIMIT 1
@@ -12241,7 +13134,8 @@ def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
                 """
                 SELECT
                     id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
-                    knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
+                    knvb_license, education, availability_days, phone, address, city, postal_code, bank_account_number,
+                    bank_account_name, notes, is_admin, status, created_at
                 FROM trainer_profiles
                 WHERE lower(username) = lower(?)
                 LIMIT 1
@@ -12266,7 +13160,8 @@ def get_user_by_login(login_value: str) -> Optional[Dict[str, Any]]:
                 """
                 SELECT
                     id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
-                    knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
+                    knvb_license, education, availability_days, phone, address, city, postal_code, bank_account_number,
+                    bank_account_name, notes, is_admin, status, created_at
                 FROM trainer_profiles
                 WHERE lower(email) = lower(?) OR lower(username) = lower(?)
                 ORDER BY is_admin DESC, created_at ASC
@@ -12292,7 +13187,8 @@ def get_user_by_invite_token(invite_token: str) -> Optional[Dict[str, Any]]:
                 """
                 SELECT
                     id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
-                    knvb_license, education, availability_days, phone, notes, is_admin, status, created_at
+                    knvb_license, education, availability_days, phone, address, city, postal_code, bank_account_number,
+                    bank_account_name, notes, is_admin, status, created_at
                 FROM trainer_profiles
                 WHERE invite_token = ?
                 LIMIT 1
@@ -12381,7 +13277,7 @@ def require_admin_user() -> Optional[Any]:
 def get_default_post_login_path(user: Dict[str, Any]) -> str:
     if user.get("isAdmin"):
         return "/trainers"
-    if is_social_media_manager(user):
+    if is_trainer_user(user):
         return "/"
     return "/profiel"
 
@@ -12415,6 +13311,80 @@ def get_week_days(week_start: date) -> List[Dict[str, Any]]:
             }
         )
     return days
+
+
+def build_trainer_dashboard_week_schedule(
+    user: Optional[Dict[str, Any]],
+    reference_datetime: Optional[datetime] = None,
+) -> List[Dict[str, Any]]:
+    if not is_trainer_user(user):
+        return []
+
+    trainer_id = str(user.get("id") or "").strip()
+    if not trainer_id:
+        return []
+
+    current_moment = reference_datetime or datetime.now(ZoneInfo(settings.TIME_ZONE)).replace(tzinfo=None)
+    current_day = current_moment.date()
+    week_end = current_day + timedelta(days=6 - current_day.weekday())
+    schedule: List[Dict[str, Any]] = []
+
+    for training in load_agenda_trainings(current_day.isoformat(), week_end.isoformat()):
+        assigned_trainer_ids = {
+            str(trainer.get("id") or "").strip()
+            for trainer in training.get("trainers") or []
+            if isinstance(trainer, dict)
+        }
+        if trainer_id not in assigned_trainer_ids:
+            continue
+
+        try:
+            training_day = date.fromisoformat(str(training.get("date") or "").strip())
+        except ValueError:
+            continue
+        if training_day < current_day or training_day > week_end:
+            continue
+
+        start_time = str(training.get("time") or "").strip()
+        end_time = str(training.get("endTime") or "").strip()
+        if training_day == current_day and (end_time or start_time):
+            try:
+                final_time = datetime.strptime(end_time or start_time, "%H:%M").time()
+            except ValueError:
+                final_time = None
+            if final_time is not None and final_time <= current_moment.time():
+                continue
+
+        if training_day == current_day:
+            date_label = "Vandaag"
+        elif training_day == current_day + timedelta(days=1):
+            date_label = "Morgen"
+        else:
+            date_label = (
+                f"{DUTCH_WEEKDAY_NAMES[training_day.weekday()]} "
+                f"{training_day.day} {DUTCH_FULL_MONTH_NAMES[training_day.month - 1]}"
+            )
+
+        time_label = start_time
+        if start_time and end_time:
+            time_label = f"{start_time} - {end_time}"
+
+        schedule.append(
+            {
+                "id": str(training.get("id") or "").strip(),
+                "date": training_day.isoformat(),
+                "dateLabel": date_label,
+                "time": start_time,
+                "timeLabel": time_label,
+                "title": str(training.get("title") or "Training").strip() or "Training",
+                "location": str(training.get("location") or "").strip(),
+                "status": str(training.get("status") or "").strip(),
+                "statusLabel": str(training.get("statusLabel") or "Gepland").strip() or "Gepland",
+            }
+        )
+
+    schedule.sort(key=lambda item: (item["date"], item["time"], item["title"].casefold()))
+    return schedule
 
 
 def format_agenda_summary_day_label(day_value: date) -> str:
@@ -13990,8 +14960,12 @@ def fetch_moneybird_summary() -> Dict[str, Any]:
 
 
 def fetch_dashboard_payload() -> Dict[str, Any]:
-    ecwid_payload = fetch_orders_from_ecwid()
-    moneybird_payload = fetch_moneybird_summary()
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        ecwid_future = executor.submit(fetch_orders_from_ecwid)
+        moneybird_future = executor.submit(fetch_moneybird_summary)
+        ecwid_payload = ecwid_future.result()
+        moneybird_payload = moneybird_future.result()
+
     ecwid_summary = ecwid_payload.get("summary", build_summary(ecwid_payload.get("items", [])))
     report_summary = build_report_summary(ecwid_summary, moneybird_payload)
     messages = [message for message in [ecwid_payload.get("message"), moneybird_payload.get("message")] if message]
@@ -14016,10 +14990,15 @@ def refresh_orders_cache() -> None:
     global refresh_in_progress
     try:
         payload = fetch_dashboard_payload()
+        cached_at = time.time()
+        config_fingerprint = get_external_cache_fingerprint(include_moneybird=True)
         with cache_lock:
             orders_cache["payload"] = payload
-            orders_cache["cached_at"] = time.time()
-            orders_cache["config_fingerprint"] = get_external_cache_fingerprint(include_moneybird=True)
+            orders_cache["cached_at"] = cached_at
+            orders_cache["config_fingerprint"] = config_fingerprint
+        moneybird_payload = payload.get("moneybird")
+        if isinstance(moneybird_payload, dict):
+            store_moneybird_cache_payload(moneybird_payload, cached_at, config_fingerprint)
     finally:
         refresh_in_progress = False
 
@@ -14052,6 +15031,172 @@ def start_ecwid_orders_background_refresh() -> None:
 
     ecwid_refresh_in_progress = True
     threading.Thread(target=refresh_ecwid_orders_cache, daemon=True).start()
+
+
+def get_empty_moneybird_payload(message: Optional[str] = None) -> Dict[str, Any]:
+    return {
+        "source": "pending",
+        "invoiceCount": 0,
+        "revenue_received": 0.0,
+        "revenue_total": 0.0,
+        "revenue_outstanding": 0.0,
+        "expenses_total": 0.0,
+        "lastSyncedAt": "",
+        "invoices": [],
+        "financialMutations": [],
+        "ledgerAccountTypes": {},
+        "message": message,
+        "cachedAt": 0.0,
+    }
+
+
+def serialize_external_cache_fingerprint(config_fingerprint: Any) -> str:
+    try:
+        return json.dumps(config_fingerprint, ensure_ascii=True, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        return str(config_fingerprint)
+
+
+def load_persistent_external_cache(cache_key: str, config_fingerprint: Any) -> Optional[Dict[str, Any]]:
+    serialized_fingerprint = serialize_external_cache_fingerprint(config_fingerprint)
+    try:
+        with get_db_connection() as connection:
+            row = connection.execute(
+                """
+                SELECT payload_json, cached_at
+                FROM external_api_cache
+                WHERE cache_key = ? AND config_fingerprint = ?
+                """,
+                (cache_key, serialized_fingerprint),
+            ).fetchone()
+    except sqlite3.Error:
+        return None
+    if row is None:
+        return None
+    try:
+        payload = json.loads(str(row["payload_json"] or "{}"))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return {
+        "payload": payload,
+        "cached_at": float(row["cached_at"] or 0.0),
+    }
+
+
+def save_persistent_external_cache(cache_key: str, config_fingerprint: Any, payload: Dict[str, Any], cached_at: float) -> None:
+    try:
+        serialized_fingerprint = serialize_external_cache_fingerprint(config_fingerprint)
+        payload_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        with get_db_connection() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO external_api_cache (cache_key, config_fingerprint, payload_json, cached_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (cache_key, serialized_fingerprint, payload_json, cached_at),
+            )
+            connection.commit()
+    except (sqlite3.Error, TypeError, ValueError) as exc:
+        app.logger.warning("Externe API-cache opslaan mislukt voor %s: %s", cache_key, exc)
+        return
+
+
+def store_moneybird_cache_payload(payload: Dict[str, Any], cached_at: float, config_fingerprint: str) -> None:
+    with moneybird_cache_lock:
+        moneybird_cache["payload"] = payload
+        moneybird_cache["cached_at"] = cached_at
+        moneybird_cache["config_fingerprint"] = config_fingerprint
+    save_persistent_external_cache("moneybird_summary", config_fingerprint, payload, cached_at)
+
+
+def refresh_moneybird_cache() -> None:
+    global moneybird_refresh_in_progress
+    try:
+        payload = fetch_moneybird_summary()
+        store_moneybird_cache_payload(
+            payload,
+            time.time(),
+            get_external_cache_fingerprint(include_moneybird=True),
+        )
+    finally:
+        moneybird_refresh_in_progress = False
+
+
+def start_moneybird_background_refresh() -> None:
+    global moneybird_refresh_in_progress
+    if moneybird_refresh_in_progress:
+        return
+
+    moneybird_refresh_in_progress = True
+    threading.Thread(target=refresh_moneybird_cache, daemon=True).start()
+
+
+def fetch_moneybird_non_blocking(force_refresh: bool = False) -> Dict[str, Any]:
+    now = time.time()
+    config_fingerprint = get_external_cache_fingerprint(include_moneybird=True)
+    with moneybird_cache_lock:
+        cached_payload = moneybird_cache.get("payload")
+        cached_at = float(moneybird_cache.get("cached_at") or 0.0)
+        cached_fingerprint = moneybird_cache.get("config_fingerprint")
+
+    cache_matches_config = cached_fingerprint == config_fingerprint
+    cache_is_fresh = cached_payload is not None and cache_matches_config and now - cached_at < CACHE_TTL_SECONDS
+
+    if not force_refresh and cache_is_fresh:
+        payload = dict(cached_payload)
+        payload["cachedAt"] = cached_at
+        return payload
+
+    if not force_refresh and cached_payload is not None and cache_matches_config:
+        payload = dict(cached_payload)
+        payload["cachedAt"] = cached_at
+        start_moneybird_background_refresh()
+        return payload
+
+    with cache_lock:
+        dashboard_payload = orders_cache.get("payload")
+        dashboard_cached_at = float(orders_cache.get("cached_at") or 0.0)
+        dashboard_fingerprint = orders_cache.get("config_fingerprint")
+
+    if not force_refresh and dashboard_fingerprint == config_fingerprint and dashboard_payload:
+        moneybird_payload = dashboard_payload.get("moneybird") if isinstance(dashboard_payload, dict) else None
+        if moneybird_payload:
+            payload = dict(moneybird_payload)
+            payload["cachedAt"] = dashboard_cached_at
+            store_moneybird_cache_payload(moneybird_payload, dashboard_cached_at, config_fingerprint)
+            if now - dashboard_cached_at >= CACHE_TTL_SECONDS:
+                start_moneybird_background_refresh()
+            return payload
+
+    persistent_cache = load_persistent_external_cache("moneybird_summary", config_fingerprint)
+    if not force_refresh and persistent_cache is not None:
+        cached_at = float(persistent_cache.get("cached_at") or 0.0)
+        payload = dict(persistent_cache.get("payload") or {})
+        payload["cachedAt"] = cached_at
+        with moneybird_cache_lock:
+            moneybird_cache["payload"] = persistent_cache.get("payload")
+            moneybird_cache["cached_at"] = cached_at
+            moneybird_cache["config_fingerprint"] = config_fingerprint
+        if now - cached_at >= CACHE_TTL_SECONDS:
+            start_moneybird_background_refresh()
+        return payload
+
+    try:
+        payload = fetch_moneybird_summary()
+        cached_at = time.time()
+        store_moneybird_cache_payload(payload, cached_at, config_fingerprint)
+        payload_with_cache = dict(payload)
+        payload_with_cache["cachedAt"] = cached_at
+        return payload_with_cache
+    except requests.RequestException:
+        start_moneybird_background_refresh()
+
+    start_moneybird_background_refresh()
+    return get_empty_moneybird_payload(
+        "Moneybird wordt op de achtergrond bijgewerkt. De nieuwste betalingen verschijnen zo automatisch."
+    )
 
 
 def fetch_orders(force_refresh: bool = False) -> Dict[str, Any]:
@@ -14092,6 +15237,10 @@ def fetch_orders(force_refresh: bool = False) -> Dict[str, Any]:
         orders_cache["payload"] = payload
         orders_cache["cached_at"] = now
         orders_cache["config_fingerprint"] = config_fingerprint
+
+    moneybird_payload = payload.get("moneybird")
+    if isinstance(moneybird_payload, dict):
+        store_moneybird_cache_payload(moneybird_payload, now, config_fingerprint)
 
     payload_with_cache = dict(payload)
     payload_with_cache["cachedAt"] = now
@@ -14343,6 +15492,55 @@ def get_football_season_range(season_start_year: int) -> Dict[str, date]:
         "start": date(season_start_year, 7, 1),
         "end": date(season_start_year + 1, 6, 30),
     }
+
+
+def get_season_start_year_for_date(value: date) -> int:
+    return value.year if value.month >= 7 else value.year - 1
+
+
+def get_season_months(season_start_year: int) -> List[Dict[str, Any]]:
+    return [
+        {
+            "month": month,
+            "year": season_start_year if month >= 7 else season_start_year + 1,
+            "label": DUTCH_FULL_MONTH_NAMES[month - 1],
+            "shortLabel": DUTCH_MONTH_NAMES[month - 1],
+        }
+        for month in (7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6)
+    ]
+
+
+def get_season_quarters(season_start_year: int) -> List[Dict[str, Any]]:
+    return [
+        {
+            "quarter": 1,
+            "label": "Jul - Sep",
+            "periodLabel": f"1 juli {season_start_year} t/m 30 september {season_start_year}",
+            "months": {7, 8, 9},
+            "yearsByMonth": {7: season_start_year, 8: season_start_year, 9: season_start_year},
+        },
+        {
+            "quarter": 2,
+            "label": "Okt - Dec",
+            "periodLabel": f"1 oktober {season_start_year} t/m 31 december {season_start_year}",
+            "months": {10, 11, 12},
+            "yearsByMonth": {10: season_start_year, 11: season_start_year, 12: season_start_year},
+        },
+        {
+            "quarter": 3,
+            "label": "Jan - Mrt",
+            "periodLabel": f"1 januari {season_start_year + 1} t/m 31 maart {season_start_year + 1}",
+            "months": {1, 2, 3},
+            "yearsByMonth": {1: season_start_year + 1, 2: season_start_year + 1, 3: season_start_year + 1},
+        },
+        {
+            "quarter": 4,
+            "label": "Apr - Jun",
+            "periodLabel": f"1 april {season_start_year + 1} t/m 30 juni {season_start_year + 1}",
+            "months": {4, 5, 6},
+            "yearsByMonth": {4: season_start_year + 1, 5: season_start_year + 1, 6: season_start_year + 1},
+        },
+    ]
 
 
 def build_moneybird_revenue_by_month(moneybird_invoices: List[Dict[str, Any]]) -> Dict[str, Decimal]:
@@ -14775,40 +15973,104 @@ def send_spaarpot_push_reminders(target_date: Optional[date] = None) -> Dict[str
     }
 
 
-def build_spaarpot_year_options(payment_entries: List[Dict[str, Any]]) -> List[Dict[str, str]]:
-    years = sorted({int(entry["year"]) for entry in payment_entries}, reverse=True)
-    if not years:
-        years = [date.today().year]
-    return [{"value": str(year), "label": str(year)} for year in years]
+def build_spaarpot_season_options(payment_entries: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    season_years = {
+        get_season_start_year_for_date(entry_date)
+        for entry in payment_entries
+        for entry_date in [get_spaarpot_entry_period_date(entry)]
+        if entry_date is not None
+    }
+    current_season_start_year = get_season_start_year_for_date(date.today())
+    season_years.add(current_season_start_year)
+    season_years.add(current_season_start_year + 1)
+    return [
+        {"value": str(year), "label": get_football_season_label(year)}
+        for year in sorted(season_years, reverse=True)
+    ]
+
+
+def get_default_spaarpot_season(payment_entries: List[Dict[str, Any]]) -> str:
+    current_season_start_year = get_season_start_year_for_date(date.today())
+    entry_seasons = {
+        get_season_start_year_for_date(entry_date)
+        for entry in payment_entries
+        for entry_date in [get_spaarpot_entry_period_date(entry)]
+        if entry_date is not None
+    }
+    if current_season_start_year in entry_seasons:
+        return str(current_season_start_year)
+    if entry_seasons:
+        return str(max(entry_seasons))
+    return str(current_season_start_year)
+
+
+def get_spaarpot_entry_season_quarter(entry: Dict[str, Any]) -> Optional[int]:
+    entry_date = get_spaarpot_entry_period_date(entry)
+    if entry_date is None:
+        return None
+    if entry_date.month in {7, 8, 9}:
+        return 1
+    if entry_date.month in {10, 11, 12}:
+        return 2
+    if entry_date.month in {1, 2, 3}:
+        return 3
+    return 4
+
+
+def get_spaarpot_entry_period_date(entry: Dict[str, Any]) -> Optional[date]:
+    if entry.get("source") == "manual":
+        try:
+            year = int(entry.get("year"))
+            quarter = int(entry.get("quarter"))
+        except (TypeError, ValueError):
+            return None
+        quarter_start_month = {1: 1, 2: 4, 3: 7, 4: 10}.get(quarter)
+        return date(year, quarter_start_month, 1) if quarter_start_month else None
+    return parse_iso_date(str(entry.get("date") or ""))
+
+
+def get_calendar_period_for_season_quarter(season_start_year: int, season_quarter: int) -> Tuple[int, int]:
+    if season_quarter == 1:
+        return season_start_year, 3
+    if season_quarter == 2:
+        return season_start_year, 4
+    if season_quarter == 3:
+        return season_start_year + 1, 1
+    return season_start_year + 1, 2
 
 
 def build_spaarpot_quarter_summary(
     payment_entries: List[Dict[str, Any]],
-    selected_year: int,
+    season_start_year: int,
 ) -> Dict[str, Any]:
     quarters = []
-    year_income = Decimal("0")
-    year_reserve = Decimal("0")
-    year_payment_count = 0
+    season_range = get_football_season_range(season_start_year)
+    season_income = Decimal("0")
+    season_reserve = Decimal("0")
+    season_payment_count = 0
 
-    for quarter in range(1, 5):
+    for quarter_meta in get_season_quarters(season_start_year):
+        quarter = int(quarter_meta["quarter"])
         quarter_entries = [
             entry
             for entry in payment_entries
-            if int(entry["year"]) == selected_year and int(entry["quarter"]) == quarter
+            for entry_date in [get_spaarpot_entry_period_date(entry)]
+            if entry_date is not None
+            and season_range["start"] <= entry_date <= season_range["end"]
+            and get_spaarpot_entry_season_quarter(entry) == quarter
         ]
         income = sum(decimal_from_value(entry["amount"]) for entry in quarter_entries)
         reserve = sum(decimal_from_value(entry["reserve"]) for entry in quarter_entries)
         payment_count = sum(1 for entry in quarter_entries if entry.get("source") != "manual")
         manual_count = sum(1 for entry in quarter_entries if entry.get("source") == "manual")
-        year_income += income
-        year_reserve += reserve
-        year_payment_count += payment_count
+        season_income += income
+        season_reserve += reserve
+        season_payment_count += payment_count
         quarters.append(
             {
                 "quarter": quarter,
-                "label": get_quarter_label(quarter),
-                "periodLabel": get_quarter_period_label(selected_year, quarter),
+                "label": str(quarter_meta["label"]),
+                "periodLabel": str(quarter_meta["periodLabel"]),
                 "income": round(float(income), 2),
                 "reserve": round(float(reserve), 2),
                 "paymentCount": payment_count,
@@ -14819,11 +16081,12 @@ def build_spaarpot_quarter_summary(
         )
 
     return {
-        "selectedYear": str(selected_year),
+        "selectedSeason": str(season_start_year),
+        "selectedSeasonLabel": get_football_season_label(season_start_year),
         "quarters": quarters,
-        "income": round(float(year_income), 2),
-        "reserve": round(float(year_reserve), 2),
-        "paymentCount": year_payment_count,
+        "income": round(float(season_income), 2),
+        "reserve": round(float(season_reserve), 2),
+        "paymentCount": season_payment_count,
         "ratePercentage": round(float(VAT_SAVINGS_RATE * Decimal("100")), 2),
     }
 
@@ -15202,11 +16465,14 @@ def index() -> str:
     if access_redirect is not None:
         return access_redirect
 
+    user = get_current_user()
     payload = fetch_orders_non_blocking()
     dashboard_payload = build_dashboard_frontend_payload(payload)
     return render_template(
         "index.html",
         active_page="dashboard",
+        is_trainer_dashboard_user=is_trainer_user(user),
+        trainer_week_schedule=build_trainer_dashboard_week_schedule(user),
         dashboard_weather=load_dashboard_weather_settings(),
         source=dashboard_payload["source"],
         summary=dashboard_payload["summary"],
@@ -15414,6 +16680,42 @@ def management_page() -> str:
     return render_template("management.html", active_page="management")
 
 
+@app.route("/management/begroting", methods=["GET", "POST"])
+@app.route("/begroting", methods=["GET", "POST"])
+def budget_page() -> str:
+    access_redirect = require_page_access("begroting")
+    if access_redirect is not None:
+        return access_redirect
+
+    all_trainings = load_agenda_trainings()
+    season_options = build_trainer_fee_season_options(all_trainings)
+    available_seasons = {option["value"] for option in season_options}
+    season_source = request.form if request.method == "POST" else request.args
+    default_budget_season = season_options[0]["value"] if season_options else str(get_season_start_year_for_date(date.today()))
+    selected_season = season_source.get("season", "").strip() or default_budget_season
+    if selected_season not in available_seasons:
+        selected_season = season_options[0]["value"] if season_options else str(get_season_start_year_for_date(date.today()))
+
+    try:
+        season_start_year = int(selected_season)
+    except ValueError:
+        season_start_year = get_season_start_year_for_date(date.today())
+
+    if request.method == "POST":
+        rows = parse_budget_lines_from_form(request.form, season_start_year)
+        save_budget_lines(season_start_year, rows)
+        return redirect(url_for("budget_page", season=season_start_year, success="Begroting opgeslagen."))
+
+    return render_template(
+        "begroting.html",
+        active_page="begroting",
+        season_options=season_options,
+        budget_summary=build_budget_summary(season_start_year),
+        trainer_options=build_agenda_trainer_options(),
+        success=request.args.get("success", "").strip(),
+    )
+
+
 @app.route("/materialen", methods=["GET", "POST"])
 def materialen_page() -> str:
     access_redirect = require_page_access("materialen")
@@ -15439,6 +16741,76 @@ def materialen_page() -> str:
         active_page="materialen",
         inventory=inventory,
         saved=saved,
+    )
+
+
+@app.get("/materialen/clubs/<int:club_id>/export-pdf")
+def materialen_club_export_pdf(club_id: int):
+    access_redirect = require_page_access("materialen")
+    if access_redirect is not None:
+        return access_redirect
+
+    inventory = load_materials_inventory()
+    club = next((item for item in inventory["clubs"] if item["id"] == club_id), None)
+    if club is None:
+        return redirect(url_for("materialen_page"))
+
+    try:
+        pdf_bytes = create_materials_club_pdf(club, inventory["materials"])
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    club_slug = slugify_value(club.get("name") or "club")
+    return (
+        pdf_bytes,
+        200,
+        {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": f'inline; filename="materialenkrat-{club_slug}.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.get("/materialen/clubs/export-pdf")
+def materialen_all_clubs_export_pdf():
+    access_redirect = require_page_access("materialen")
+    if access_redirect is not None:
+        return access_redirect
+
+    inventory = load_materials_inventory()
+    if not inventory["clubs"]:
+        return redirect(url_for("materialen_page"))
+
+    requested_club_ids = request.args.getlist("club_id")
+    selected_clubs = inventory["clubs"]
+    if requested_club_ids:
+        selected_club_ids = {
+            int(club_id)
+            for club_id in requested_club_ids
+            if str(club_id).strip().isdigit() and int(club_id) > 0
+        }
+        selected_clubs = [club for club in inventory["clubs"] if club["id"] in selected_club_ids]
+        if not selected_clubs:
+            return redirect(url_for("materialen_page"))
+
+    try:
+        pdf_bytes = create_materials_all_clubs_pdf(selected_clubs, inventory["materials"])
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    return (
+        pdf_bytes,
+        200,
+        {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": (
+                'attachment; filename="materialenkratten-geselecteerde-clubs.pdf"'
+                if requested_club_ids
+                else 'attachment; filename="materialenkratten-alle-clubs.pdf"'
+            ),
+            "Cache-Control": "no-store",
+        },
     )
 
 
@@ -16104,22 +17476,23 @@ def spaarpot_page() -> str:
 
     if request.method == "POST":
         action = request.form.get("action", "").strip()
-        selected_year = request.form.get("year", "").strip() or str(date.today().year)
+        selected_season = request.form.get("season", request.form.get("year", "")).strip() or str(get_season_start_year_for_date(date.today()))
         selected_quarter = request.form.get("quarter", "").strip() or "1"
         try:
-            year_number = int(selected_year)
+            season_start_year = int(selected_season)
             quarter_number = int(selected_quarter)
         except ValueError:
             return redirect(url_for("spaarpot_page"))
         if quarter_number not in {1, 2, 3, 4}:
-            return redirect(url_for("spaarpot_page", year=year_number))
+            return redirect(url_for("spaarpot_page", season=season_start_year))
 
         if action == "add_manual_entry":
             description = request.form.get("description", "").strip()
             amount = parse_decimal_amount(request.form.get("amount", ""))
             if description and amount > 0:
-                create_spaarpot_manual_entry(year_number, quarter_number, description, amount)
-            return redirect(url_for("spaarpot_page", year=year_number, quarter=quarter_number))
+                calendar_year, calendar_quarter = get_calendar_period_for_season_quarter(season_start_year, quarter_number)
+                create_spaarpot_manual_entry(calendar_year, calendar_quarter, description, amount)
+            return redirect(url_for("spaarpot_page", season=season_start_year, quarter=quarter_number))
 
         if action == "delete_manual_entry":
             try:
@@ -16128,26 +17501,34 @@ def spaarpot_page() -> str:
                 entry_id = 0
             if entry_id > 0:
                 delete_spaarpot_manual_entry(entry_id)
-            return redirect(url_for("spaarpot_page", year=year_number, quarter=quarter_number))
+            return redirect(url_for("spaarpot_page", season=season_start_year, quarter=quarter_number))
 
-        return redirect(url_for("spaarpot_page", year=year_number, quarter=quarter_number))
+        return redirect(url_for("spaarpot_page", season=season_start_year, quarter=quarter_number))
 
-    payload = fetch_orders_non_blocking()
-    moneybird = payload.get("moneybird", {})
+    moneybird = fetch_moneybird_non_blocking()
     payment_entries = build_spaarpot_payment_entries(
         moneybird.get("invoices", []),
         moneybird.get("financialMutations", []),
     )
     payment_entries.extend(load_spaarpot_manual_entries())
     payment_entries = sorted(payment_entries, key=lambda item: (item["date"], item["invoiceId"]), reverse=True)
-    year_options = build_spaarpot_year_options(payment_entries)
+    season_options = build_spaarpot_season_options(payment_entries)
 
-    selected_year = request.args.get("year", "").strip()
-    available_years = {option["value"] for option in year_options}
-    if selected_year not in available_years:
-        selected_year = year_options[0]["value"] if year_options else str(date.today().year)
+    selected_season = request.args.get("season", request.args.get("year", "")).strip()
+    available_seasons = {option["value"] for option in season_options}
+    if selected_season not in available_seasons:
+        default_season = get_default_spaarpot_season(payment_entries)
+        selected_season = default_season if default_season in available_seasons else (
+            season_options[0]["value"] if season_options else str(get_season_start_year_for_date(date.today()))
+        )
 
-    spaarpot_summary = build_spaarpot_quarter_summary(payment_entries, int(selected_year))
+    spaarpot_summary = build_spaarpot_quarter_summary(payment_entries, int(selected_season))
+    if not any(quarter["entryCount"] > 0 for quarter in spaarpot_summary["quarters"]):
+        default_season = get_default_spaarpot_season(payment_entries)
+        if default_season != selected_season and default_season in available_seasons:
+            selected_season = default_season
+            spaarpot_summary = build_spaarpot_quarter_summary(payment_entries, int(selected_season))
+
     selected_quarter = request.args.get("quarter", "").strip()
     available_quarters = {"1", "2", "3", "4"}
     if selected_quarter not in available_quarters:
@@ -16169,12 +17550,12 @@ def spaarpot_page() -> str:
     return render_template(
         "spaarpot.html",
         active_page="spaarpot",
-        year_options=year_options,
+        season_options=season_options,
         spaarpot_summary=spaarpot_summary,
         selected_quarter=selected_quarter_number,
         selected_quarter_summary=selected_quarter_summary,
-        last_updated=format_cache_timestamp(payload.get("cachedAt", 0.0)),
-        message=payload.get("message"),
+        last_updated=format_cache_timestamp(moneybird.get("cachedAt", 0.0)),
+        message=moneybird.get("message"),
     )
 
 
@@ -16224,25 +17605,53 @@ def api_push_unsubscribe():
     return jsonify({"ok": True})
 
 
-@app.get("/trainersvergoedingen")
+@app.route("/trainersvergoedingen", methods=["GET", "POST"])
 def trainer_fees_home_page() -> str:
     access_redirect = require_page_access("trainer-fees")
     if access_redirect is not None:
         return access_redirect
 
+    if request.method == "POST":
+        action = request.form.get("action", "").strip()
+        selected_season = request.form.get("season", "").strip() or str(get_season_start_year_for_date(date.today()))
+        selected_month = request.form.get("month", "").strip()
+        try:
+            season_start_year = int(selected_season)
+            month_number = int(selected_month)
+        except ValueError:
+            return redirect(url_for("trainer_fees_home_page"))
+        if action == "set_payment_status":
+            save_trainer_fee_payment_status(
+                request.form.get("trainer_id", "").strip(),
+                season_start_year,
+                month_number,
+                request.form.get("paid", "").strip() == "1",
+            )
+        redirect_kwargs: Dict[str, Any] = {"season": season_start_year}
+        selected_month_filter = request.form.get("selected_month", "").strip()
+        if selected_month_filter:
+            redirect_kwargs["month"] = selected_month_filter
+        return redirect(url_for("trainer_fees_home_page", **redirect_kwargs))
+
     auto_mark_completed_agenda_trainings()
     all_trainings = load_agenda_trainings()
-    year_options = build_trainer_fee_year_options(all_trainings)
-    available_years = {option["value"] for option in year_options}
-    selected_year = request.args.get("year", "").strip() or str(date.today().year)
-    if selected_year not in available_years:
-        selected_year = year_options[0]["value"] if year_options else str(date.today().year)
-    fee_summary = build_trainer_fee_monthly_summary(int(selected_year))
+    season_options = build_trainer_fee_season_options(all_trainings)
+    available_seasons = {option["value"] for option in season_options}
+    selected_season = request.args.get("season", request.args.get("year", "")).strip() or str(get_season_start_year_for_date(date.today()))
+    if selected_season not in available_seasons:
+        selected_season = season_options[0]["value"] if season_options else str(get_season_start_year_for_date(date.today()))
+    try:
+        selected_month = int(request.args.get("month", "").strip())
+    except ValueError:
+        selected_month = None
+    if selected_month is not None and (selected_month < 1 or selected_month > 12):
+        selected_month = None
+    fee_summary = build_trainer_fee_monthly_summary(int(selected_season), selected_month)
 
     return render_template(
         "trainer_fees_home.html",
         active_page="trainer-fees",
-        year_options=year_options,
+        season_options=season_options,
         fee_summary=fee_summary,
     )
 
@@ -16269,10 +17678,15 @@ def personal_profile_page() -> str:
         knvb_license = request.form.get("knvb_license", "").strip()
         education = request.form.get("education", "").strip()
         phone = request.form.get("phone", "").strip()
+        address = request.form.get("address", "").strip()
+        city = request.form.get("city", "").strip()
+        postal_code = request.form.get("postal_code", "").strip()
+        bank_account_number = request.form.get("bank_account_number", "").strip()
+        bank_account_name = request.form.get("bank_account_name", "").strip()
         notes = request.form.get("notes", "").strip()
         availability_days = request.form.getlist("availability_days")
 
-        if not full_name or not email or not system_role:
+        if not full_name or not email or not system_role or not address or not city or not postal_code or not bank_account_number or not bank_account_name:
             return redirect(url_for("personal_profile_page", error="Vul alle verplichte velden in."))
         if not is_valid_email_address(email):
             return redirect(url_for("personal_profile_page", error="Vul een geldig e-mailadres in."))
@@ -16291,6 +17705,11 @@ def personal_profile_page() -> str:
             knvb_license,
             education,
             phone,
+            address,
+            city,
+            postal_code,
+            bank_account_number,
+            bank_account_name,
             notes,
             availability_days,
             is_admin,
@@ -16302,6 +17721,11 @@ def personal_profile_page() -> str:
     profile["firstName"] = name_parts[0] if name_parts else ""
     profile["lastName"] = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
     profile["initials"] = "".join(part[:1] for part in name_parts[:2]).upper() or "PP"
+    is_trainer_profile = is_trainer_user(user)
+    profile_sections = {"persoonlijke-informatie", "kleding-en-sleutels", "planning", "trainersvergoeding"}
+    active_profile_section = request.args.get("onderdeel", "persoonlijke-informatie").strip()
+    if not is_trainer_profile or active_profile_section not in profile_sections:
+        active_profile_section = "persoonlijke-informatie"
 
     return render_template(
         "personal_profile.html",
@@ -16310,6 +17734,8 @@ def personal_profile_page() -> str:
         form_error=form_error,
         form_success=form_success,
         can_edit_role=bool(user.get("isAdmin")),
+        is_trainer_profile=is_trainer_profile,
+        active_profile_section=active_profile_section,
     )
 
 
@@ -16338,6 +17764,11 @@ def trainers_page() -> str:
             education = request.form.get("education", "").strip()
             availability_days = request.form.getlist("availability_days")
             phone = request.form.get("phone", "").strip()
+            address = request.form.get("address", "").strip()
+            city = request.form.get("city", "").strip()
+            postal_code = request.form.get("postal_code", "").strip()
+            bank_account_number = request.form.get("bank_account_number", "").strip()
+            bank_account_name = request.form.get("bank_account_name", "").strip()
             notes = request.form.get("notes", "").strip()
             trainer_fees = parse_trainer_fee_rows_from_form(request.form)
 
@@ -16365,6 +17796,11 @@ def trainers_page() -> str:
                 knvb_license,
                 education,
                 phone,
+                address,
+                city,
+                postal_code,
+                bank_account_number,
+                bank_account_name,
                 notes,
                 availability_days,
                 is_admin,
@@ -16402,9 +17838,14 @@ def trainers_page() -> str:
         education = request.form.get("education", "").strip()
         availability_days = request.form.getlist("availability_days")
         phone = request.form.get("phone", "").strip()
+        address = request.form.get("address", "").strip()
+        city = request.form.get("city", "").strip()
+        postal_code = request.form.get("postal_code", "").strip()
+        bank_account_number = request.form.get("bank_account_number", "").strip()
+        bank_account_name = request.form.get("bank_account_name", "").strip()
         notes = request.form.get("notes", "").strip()
 
-        if not full_name or not email or not system_role:
+        if not full_name or not email or not system_role or not address or not city or not postal_code or not bank_account_number or not bank_account_name:
             return redirect(url_for("trainers_page", error="Vul alle verplichte velden in."))
         if not is_valid_email_address(email):
             return redirect(url_for("trainers_page", error="Vul een geldig e-mailadres in."))
@@ -16425,6 +17866,11 @@ def trainers_page() -> str:
                 education,
                 availability_days,
                 phone,
+                address,
+                city,
+                postal_code,
+                bank_account_number,
+                bank_account_name,
                 notes,
                 is_admin=is_admin,
             )
@@ -16457,6 +17903,7 @@ def trainers_page() -> str:
         agenda_club_options=AGENDA_CLUB_OPTIONS,
         trainer_fee_activity_options=TRAINER_FEE_ACTIVITY_OPTIONS,
         trainer_fee_agenda_activity_options=build_trainer_fee_agenda_activity_options(),
+        trainer_fee_club_options_by_type=build_trainer_fee_club_options_by_type(),
     )
 
 
@@ -16772,6 +18219,7 @@ def agenda_page() -> str:
         today_week_offset=0,
         agenda_day_plan_options=AGENDA_DAY_PLAN_OPTIONS,
         agenda_club_options=AGENDA_CLUB_OPTIONS,
+        agenda_club_options_by_training_type=build_agenda_club_options_by_training_type(),
         agenda_training_type_options=AGENDA_TRAINING_TYPE_OPTIONS,
         agenda_training_status_options=AGENDA_TRAINING_STATUS_OPTIONS,
         agenda_trainer_options=build_agenda_trainer_options(),
