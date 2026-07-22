@@ -59,20 +59,35 @@ window.HwsSidebar = {
 };
 
 const workspaceNavigation = document.querySelector("#workspaceNavigation");
+const workspaceNavigationToggle = workspaceNavigation?.querySelector("[data-navigation-toggle]");
+const workspaceNavigationMenu = workspaceNavigation?.querySelector("#workspaceNavigationMenu");
 const workspaceNavigationClose = workspaceNavigation?.querySelector("[data-navigation-close]");
 
-function closeWorkspaceNavigation() {
-  if (workspaceNavigation instanceof HTMLDetailsElement) {
-    workspaceNavigation.open = false;
+function setWorkspaceNavigationOpen(isOpen) {
+  if (!workspaceNavigation || !(workspaceNavigationToggle instanceof HTMLButtonElement) || !workspaceNavigationMenu) {
+    return;
   }
+
+  workspaceNavigation.classList.toggle("is-open", isOpen);
+  workspaceNavigationToggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  workspaceNavigationToggle.setAttribute("aria-label", isOpen ? "Sluit paginamenu" : "Open paginamenu");
+  workspaceNavigationMenu.hidden = !isOpen;
 }
+
+function closeWorkspaceNavigation() {
+  setWorkspaceNavigationOpen(false);
+}
+
+workspaceNavigationToggle?.addEventListener("click", () => {
+  setWorkspaceNavigationOpen(workspaceNavigationToggle.getAttribute("aria-expanded") !== "true");
+});
 
 workspaceNavigationClose?.addEventListener("click", closeWorkspaceNavigation);
 
 document.addEventListener("click", (event) => {
   if (
-    workspaceNavigation instanceof HTMLDetailsElement
-    && workspaceNavigation.open
+    workspaceNavigation
+    && workspaceNavigation.classList.contains("is-open")
     && event.target instanceof Node
     && !workspaceNavigation.contains(event.target)
   ) {
@@ -81,9 +96,9 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && workspaceNavigation instanceof HTMLDetailsElement && workspaceNavigation.open) {
+  if (event.key === "Escape" && workspaceNavigation?.classList.contains("is-open")) {
     closeWorkspaceNavigation();
-    workspaceNavigation.querySelector("summary")?.focus();
+    workspaceNavigationToggle?.focus();
   }
 });
 

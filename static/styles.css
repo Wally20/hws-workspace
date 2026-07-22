@@ -9984,15 +9984,8 @@ body.sidebar-collapsed .app-layout {
   min-width: 0;
 }
 
-.workspace-navigation summary {
-  list-style: none;
-}
-
-.workspace-navigation summary::-webkit-details-marker {
-  display: none;
-}
-
 .workspace-navigation-toggle {
+  width: 100%;
   min-height: 52px;
   padding: 7px 14px 7px 17px;
   display: flex;
@@ -10003,12 +9996,14 @@ body.sidebar-collapsed .app-layout {
   border-radius: 14px;
   background: #f7f7f7;
   color: var(--text);
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .workspace-navigation-toggle:hover,
-.workspace-navigation[open] .workspace-navigation-toggle {
+.workspace-navigation.is-open .workspace-navigation-toggle {
   border-color: #bdbdbd;
   background: #fff;
   box-shadow: 0 7px 20px rgba(0, 0, 0, 0.07);
@@ -10053,7 +10048,7 @@ body.sidebar-collapsed .app-layout {
   stroke-linejoin: round;
 }
 
-.workspace-navigation[open] .workspace-navigation-toggle > svg {
+.workspace-navigation.is-open .workspace-navigation-toggle > svg {
   transform: rotate(180deg);
 }
 
@@ -10071,6 +10066,10 @@ body.sidebar-collapsed .app-layout {
   border-radius: 18px;
   background: var(--surface);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.2);
+}
+
+.workspace-navigation-menu[hidden] {
+  display: none;
 }
 
 .workspace-navigation-menu-head {

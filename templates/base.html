@@ -26,8 +26,15 @@
             <span>Workspace</span>
           </a>
 
-          <details class="workspace-navigation" id="workspaceNavigation">
-            <summary class="workspace-navigation-toggle" aria-label="Open paginamenu">
+          <div class="workspace-navigation" id="workspaceNavigation">
+            <button
+              type="button"
+              class="workspace-navigation-toggle"
+              aria-label="Open paginamenu"
+              aria-expanded="false"
+              aria-controls="workspaceNavigationMenu"
+              data-navigation-toggle
+            >
               <span class="workspace-navigation-title">
                 <small>Pagina</small>
                 <strong>{{ current_page_title }}</strong>
@@ -35,9 +42,9 @@
               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="m7 9.5 5 5 5-5"></path>
               </svg>
-            </summary>
+            </button>
 
-            <nav class="workspace-navigation-menu" aria-label="Alle pagina's">
+            <nav class="workspace-navigation-menu" id="workspaceNavigationMenu" aria-label="Alle pagina's" hidden>
               <div class="workspace-navigation-menu-head">
                 <div>
                   <p>Ga naar</p>
@@ -78,7 +85,7 @@
                 </form>
               </div>
             </nav>
-          </details>
+          </div>
 
           <a class="workspace-profile-link" href="/profiel" aria-label="Naar profiel">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
