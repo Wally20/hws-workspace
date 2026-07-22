@@ -63,6 +63,7 @@ const workspaceNavigationToggle = workspaceNavigation?.querySelector("[data-navi
 const workspaceNavigationMenu = document.querySelector("#workspaceNavigationMenu");
 const workspaceNavigationClose = workspaceNavigationMenu?.querySelector("[data-navigation-close]");
 const workspaceNavigationBackdrop = document.querySelector("[data-navigation-backdrop]");
+const desktopNavigationBlocks = document.querySelectorAll("[data-desktop-nav-block]");
 
 function setWorkspaceNavigationOpen(isOpen) {
   if (!workspaceNavigation || !(workspaceNavigationToggle instanceof HTMLButtonElement) || !workspaceNavigationMenu) {
@@ -89,6 +90,41 @@ workspaceNavigationToggle?.addEventListener("click", () => {
 
 workspaceNavigationClose?.addEventListener("click", closeWorkspaceNavigation);
 workspaceNavigationBackdrop?.addEventListener("click", closeWorkspaceNavigation);
+
+desktopNavigationBlocks.forEach((block) => {
+  const toggle = block.querySelector(".workspace-nav-block-toggle");
+  if (!(toggle instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const setExpanded = (isExpanded) => {
+    toggle.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+  };
+
+  block.addEventListener("mouseenter", () => setExpanded(true));
+  block.addEventListener("mouseleave", () => setExpanded(false));
+  block.addEventListener("focusin", () => setExpanded(true));
+  block.addEventListener("focusout", () => {
+    window.requestAnimationFrame(() => setExpanded(block.contains(document.activeElement)));
+  });
+  block.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+    event.preventDefault();
+    setExpanded(false);
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+});
+
+const desktopNavigationQuery = window.matchMedia("(min-width: 1180px)");
+desktopNavigationQuery.addEventListener?.("change", (event) => {
+  if (event.matches) {
+    closeWorkspaceNavigation();
+  }
+});
 
 document.addEventListener("click", (event) => {
   if (

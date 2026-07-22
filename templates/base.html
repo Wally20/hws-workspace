@@ -26,6 +26,74 @@
             <span>Workspace</span>
           </a>
 
+          <nav class="workspace-desktop-navigation" aria-label="Hoofdnavigatie">
+            {% for section, pages in workspace_search_pages|groupby("section") %}
+              {% set section_state = namespace(is_active=false) %}
+              {% for page in pages %}
+                {% if current_workspace_navigation_path == page.path %}
+                  {% set section_state.is_active = true %}
+                {% endif %}
+              {% endfor %}
+              <div class="workspace-nav-block{% if section_state.is_active %} is-active{% endif %}" data-desktop-nav-block>
+                <button
+                  class="workspace-nav-block-toggle"
+                  type="button"
+                  aria-haspopup="true"
+                  aria-expanded="false"
+                  aria-controls="workspaceNavDropdown{{ loop.index }}"
+                >
+                  <span class="workspace-nav-block-icon" aria-hidden="true">
+                    {% if section == "Algemeen" %}
+                      <svg viewBox="0 0 24 24" fill="none"><path d="M4 13h6V4H4v9Zm10 7h6v-9h-6v9ZM4 20h6v-3H4v3Zm10-13h6V4h-6v3Z"></path></svg>
+                    {% elif section == "Draaiboeken" %}
+                      <svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h8l3 3V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"></path><path d="M9 10h6M9 14h6M9 18h4M15 3.5V7h3"></path></svg>
+                    {% elif section == "Financiën" %}
+                      <svg viewBox="0 0 24 24" fill="none"><path d="M4 19.5h16M6.5 16V10m5.5 6V6.5m5.5 9.5v-4"></path><path d="m5 7 5-3 4 2 5-3"></path></svg>
+                    {% elif section == "Management" %}
+                      <svg viewBox="0 0 24 24" fill="none"><path d="M4 20V8l8-4 8 4v12"></path><path d="M8 20v-6h8v6M8.5 9.5h.01m3.49 0h.01m3.49 0h.01"></path></svg>
+                    {% elif section == "Marketing" %}
+                      <svg viewBox="0 0 24 24" fill="none"><path d="m4 13 12-6v10L4 13Z"></path><path d="M7 14.5 8 20h4l-1.5-7M18 9.5a3.5 3.5 0 0 1 0 5"></path></svg>
+                    {% else %}
+                      <svg viewBox="0 0 24 24" fill="none"><path d="M5 4h5v5H5V4Zm9 0h5v5h-5V4ZM5 15h5v5H5v-5Zm9-3h5v8h-5v-8Z"></path></svg>
+                    {% endif %}
+                  </span>
+                  <span class="workspace-nav-block-copy">
+                    <small>0{{ loop.index }}</small>
+                    <strong>{{ section }}</strong>
+                  </span>
+                  <svg class="workspace-nav-block-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="m8 10 4 4 4-4"></path>
+                  </svg>
+                </button>
+
+                <div class="workspace-nav-dropdown" id="workspaceNavDropdown{{ loop.index }}">
+                  <div class="workspace-nav-dropdown-head">
+                    <span>
+                      <small>Onderdeel</small>
+                      <strong>{{ section }}</strong>
+                    </span>
+                    <span class="workspace-nav-dropdown-count">{{ pages|length }} pagina{% if pages|length != 1 %}'s{% endif %}</span>
+                  </div>
+                  <div class="workspace-nav-dropdown-links">
+                    {% for page in pages %}
+                      <a
+                        class="workspace-nav-dropdown-link{% if current_workspace_navigation_path == page.path %} is-active{% endif %}"
+                        href="{{ page.path }}"
+                        {% if current_workspace_navigation_path == page.path %}aria-current="page"{% endif %}
+                      >
+                        <span>
+                          <strong>{{ page.title }}</strong>
+                          <small>{{ page.description }}</small>
+                        </span>
+                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 6 6 6-6 6"></path></svg>
+                      </a>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </nav>
+
           <div class="workspace-navigation" id="workspaceNavigation">
             <button
               type="button"
