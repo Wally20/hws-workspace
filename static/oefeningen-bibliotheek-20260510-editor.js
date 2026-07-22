@@ -1,6 +1,11 @@
 const exerciseDataNode = document.querySelector("#exerciseData");
 const exerciseImportPreviewDataNode = document.querySelector("#exerciseImportPreviewData");
 const exerciseModal = document.querySelector("#exerciseModal");
+// Move the modal out of .main-content so the sticky mobile navigation cannot
+// create a higher stacking layer or offset the viewport-sized dialog.
+if (exerciseModal && exerciseModal.parentElement !== document.body) {
+  document.body.appendChild(exerciseModal);
+}
 const closeExerciseModal = document.querySelector("#closeExerciseModal");
 const exerciseField = document.querySelector("#exerciseField");
 const exerciseMediaToggle = document.querySelector("#exerciseMediaToggle");
