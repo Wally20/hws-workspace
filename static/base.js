@@ -60,8 +60,9 @@ window.HwsSidebar = {
 
 const workspaceNavigation = document.querySelector("#workspaceNavigation");
 const workspaceNavigationToggle = workspaceNavigation?.querySelector("[data-navigation-toggle]");
-const workspaceNavigationMenu = workspaceNavigation?.querySelector("#workspaceNavigationMenu");
-const workspaceNavigationClose = workspaceNavigation?.querySelector("[data-navigation-close]");
+const workspaceNavigationMenu = document.querySelector("#workspaceNavigationMenu");
+const workspaceNavigationClose = workspaceNavigationMenu?.querySelector("[data-navigation-close]");
+const workspaceNavigationBackdrop = document.querySelector("[data-navigation-backdrop]");
 
 function setWorkspaceNavigationOpen(isOpen) {
   if (!workspaceNavigation || !(workspaceNavigationToggle instanceof HTMLButtonElement) || !workspaceNavigationMenu) {
@@ -72,6 +73,10 @@ function setWorkspaceNavigationOpen(isOpen) {
   workspaceNavigationToggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
   workspaceNavigationToggle.setAttribute("aria-label", isOpen ? "Sluit paginamenu" : "Open paginamenu");
   workspaceNavigationMenu.hidden = !isOpen;
+  if (workspaceNavigationBackdrop instanceof HTMLButtonElement) {
+    workspaceNavigationBackdrop.hidden = !isOpen;
+  }
+  document.body.classList.toggle("workspace-navigation-open", isOpen);
 }
 
 function closeWorkspaceNavigation() {
@@ -83,6 +88,7 @@ workspaceNavigationToggle?.addEventListener("click", () => {
 });
 
 workspaceNavigationClose?.addEventListener("click", closeWorkspaceNavigation);
+workspaceNavigationBackdrop?.addEventListener("click", closeWorkspaceNavigation);
 
 document.addEventListener("click", (event) => {
   if (
@@ -90,6 +96,7 @@ document.addEventListener("click", (event) => {
     && workspaceNavigation.classList.contains("is-open")
     && event.target instanceof Node
     && !workspaceNavigation.contains(event.target)
+    && !workspaceNavigationMenu?.contains(event.target)
   ) {
     closeWorkspaceNavigation();
   }

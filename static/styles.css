@@ -9944,7 +9944,7 @@ body.sidebar-collapsed .app-layout {
 .workspace-topbar {
   position: sticky;
   top: 0;
-  z-index: 100;
+  z-index: 10002;
   border-bottom: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
@@ -10053,9 +10053,10 @@ body.sidebar-collapsed .app-layout {
 }
 
 .workspace-navigation-menu {
-  position: absolute;
-  top: calc(100% + 10px);
+  position: fixed;
+  top: 86px;
   left: 50%;
+  z-index: 10001;
   width: min(520px, calc(100vw - 32px));
   max-height: min(760px, calc(100vh - 102px));
   transform: translateX(-50%);
@@ -10066,10 +10067,40 @@ body.sidebar-collapsed .app-layout {
   border-radius: 18px;
   background: var(--surface);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.2);
+  pointer-events: auto;
+  animation: workspace-navigation-drop 0.18s ease-out;
 }
 
-.workspace-navigation-menu[hidden] {
+.workspace-navigation-menu[hidden],
+.workspace-navigation-backdrop[hidden] {
   display: none;
+}
+
+.workspace-navigation-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: rgba(18, 18, 18, 0.24);
+  cursor: default;
+}
+
+body.workspace-navigation-open {
+  overflow: hidden;
+}
+
+@keyframes workspace-navigation-drop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 .workspace-navigation-menu-head {
@@ -10263,7 +10294,6 @@ body.sidebar-collapsed .app-layout {
   }
 
   .workspace-navigation-menu {
-    position: fixed;
     top: 76px;
     right: 12px;
     bottom: 12px;
@@ -10271,6 +10301,7 @@ body.sidebar-collapsed .app-layout {
     width: auto;
     max-height: none;
     transform: none;
+    animation-name: workspace-navigation-drop-mobile;
   }
 
   .workspace-navigation-menu-head {
@@ -10284,6 +10315,17 @@ body.sidebar-collapsed .app-layout {
   .workspace-navigation-link {
     min-height: 45px;
   }
+
+  @keyframes workspace-navigation-drop-mobile {
+    from {
+      opacity: 0;
+      transform: translateY(-12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }
 
 @media print {
@@ -10293,6 +10335,8 @@ body.sidebar-collapsed .app-layout {
 
   .sidebar,
   .workspace-topbar,
+  .workspace-navigation-backdrop,
+  .workspace-navigation-menu,
   .workspace-search-fab,
   .workspace-search-backdrop,
   .workspace-search-panel,

@@ -43,48 +43,6 @@
                 <path d="m7 9.5 5 5 5-5"></path>
               </svg>
             </button>
-
-            <nav class="workspace-navigation-menu" id="workspaceNavigationMenu" aria-label="Alle pagina's" hidden>
-              <div class="workspace-navigation-menu-head">
-                <div>
-                  <p>Ga naar</p>
-                  <h2>Alle pagina's</h2>
-                </div>
-                <button type="button" class="workspace-navigation-close" data-navigation-close aria-label="Paginamenu sluiten">
-                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M6 6l12 12M18 6 6 18"></path>
-                  </svg>
-                </button>
-              </div>
-
-              <div class="workspace-navigation-scroll">
-                {% for section, pages in workspace_search_pages|groupby("section") %}
-                  <section class="workspace-navigation-group" aria-labelledby="navigation-section-{{ loop.index }}">
-                    <h3 id="navigation-section-{{ loop.index }}">{{ section }}</h3>
-                    <div class="workspace-navigation-links">
-                      {% for page in pages %}
-                        <a
-                          class="workspace-navigation-link{% if current_workspace_navigation_path == page.path %} is-active{% endif %}"
-                          href="{{ page.path }}"
-                          {% if current_workspace_navigation_path == page.path %}aria-current="page"{% endif %}
-                        >
-                          <span>{{ page.title }}</span>
-                          {% if current_workspace_navigation_path == page.path %}<small>Huidige pagina</small>{% endif %}
-                        </a>
-                      {% endfor %}
-                    </div>
-                  </section>
-                {% endfor %}
-              </div>
-
-              <div class="workspace-navigation-footer">
-                <a href="/profiel">Profiel</a>
-                <form method="post" action="/logout">
-                  <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
-                  <button type="submit">Uitloggen</button>
-                </form>
-              </div>
-            </nav>
           </div>
 
           <a class="workspace-profile-link" href="/profiel" aria-label="Naar profiel">
@@ -95,6 +53,49 @@
           </a>
         </div>
       </header>
+
+      <button class="workspace-navigation-backdrop" type="button" data-navigation-backdrop aria-label="Paginamenu sluiten" hidden></button>
+      <nav class="workspace-navigation-menu" id="workspaceNavigationMenu" aria-label="Alle pagina's" hidden>
+        <div class="workspace-navigation-menu-head">
+          <div>
+            <p>Ga naar</p>
+            <h2>Alle pagina's</h2>
+          </div>
+          <button type="button" class="workspace-navigation-close" data-navigation-close aria-label="Paginamenu sluiten">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="workspace-navigation-scroll">
+          {% for section, pages in workspace_search_pages|groupby("section") %}
+            <section class="workspace-navigation-group" aria-labelledby="navigation-section-{{ loop.index }}">
+              <h3 id="navigation-section-{{ loop.index }}">{{ section }}</h3>
+              <div class="workspace-navigation-links">
+                {% for page in pages %}
+                  <a
+                    class="workspace-navigation-link{% if current_workspace_navigation_path == page.path %} is-active{% endif %}"
+                    href="{{ page.path }}"
+                    {% if current_workspace_navigation_path == page.path %}aria-current="page"{% endif %}
+                  >
+                    <span>{{ page.title }}</span>
+                    {% if current_workspace_navigation_path == page.path %}<small>Huidige pagina</small>{% endif %}
+                  </a>
+                {% endfor %}
+              </div>
+            </section>
+          {% endfor %}
+        </div>
+
+        <div class="workspace-navigation-footer">
+          <a href="/profiel">Profiel</a>
+          <form method="post" action="/logout">
+            <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+            <button type="submit">Uitloggen</button>
+          </form>
+        </div>
+      </nav>
 
       <main class="main-content">
         {% block content %}{% endblock %}
