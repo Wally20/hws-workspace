@@ -486,7 +486,24 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertIn("dashboard", legacy.get_visible_pages_for_user(trainer))
         self.assertIn("agenda", legacy.get_visible_pages_for_user(trainer))
+        self.assertNotIn("management", legacy.get_visible_pages_for_user(trainer))
+        self.assertNotIn("marketing", legacy.get_visible_pages_for_user(trainer))
         self.assertEqual(legacy.get_default_post_login_path(trainer), "/")
+
+    def test_trainer_cannot_open_management_or_marketing_pages(self):
+        trainer = {
+            "id": "trainer-123",
+            "fullName": "Test Trainer",
+            "isAdmin": False,
+            "systemRole": "Trainer",
+        }
+
+        with patch.object(legacy, "get_current_user", return_value=trainer):
+            management_response = Client().get("/management", secure=True)
+            marketing_response = Client().get("/marketing", secure=True)
+
+        self.assertRedirects(management_response, "/", fetch_redirect_response=False)
+        self.assertRedirects(marketing_response, "/", fetch_redirect_response=False)
 
     def test_trainer_agenda_only_renders_assigned_appointments_and_is_read_only(self):
         trainer = {

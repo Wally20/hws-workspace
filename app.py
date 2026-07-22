@@ -11482,7 +11482,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "trainers",
             "profile",
         }
-    visible_pages = {"management", "materialen", "orders", "leads", "draaiboeken", "voetbaldagen", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "marketing", "profile"}
+    visible_pages = {"materialen", "orders", "leads", "draaiboeken", "voetbaldagen", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "profile"}
     if is_trainer_user(user):
         visible_pages.update({"dashboard", "agenda"})
     return visible_pages
