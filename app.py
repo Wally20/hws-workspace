@@ -11428,6 +11428,29 @@ def is_trainer_user(user: Optional[Dict[str, Any]]) -> bool:
     return role.casefold() == "trainer"
 
 
+def filter_agenda_trainings_for_user(
+    trainings: List[Dict[str, Any]],
+    user: Optional[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    if not is_trainer_user(user):
+        return trainings
+
+    trainer_id = str(user.get("id") or "").strip() if user else ""
+    if not trainer_id:
+        return []
+
+    return [
+        training
+        for training in trainings
+        if trainer_id
+        in {
+            str(trainer.get("id") or "").strip()
+            for trainer in training.get("trainers") or []
+            if isinstance(trainer, dict)
+        }
+    ]
+
+
 def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
     if not user:
         return set()
@@ -11461,7 +11484,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
         }
     visible_pages = {"management", "materialen", "orders", "leads", "draaiboeken", "voetbaldagen", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "marketing", "profile"}
     if is_trainer_user(user):
-        visible_pages.add("dashboard")
+        visible_pages.update({"dashboard", "agenda"})
     return visible_pages
 
 
@@ -18065,6 +18088,11 @@ def agenda_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
+    user = get_current_user()
+    is_trainer_agenda_user = is_trainer_user(user)
+    if request.method == "POST" and is_trainer_agenda_user:
+        return "Trainers kunnen de agenda alleen bekijken.", 403
+
     auto_mark_completed_agenda_trainings()
     view_mode = normalize_agenda_label(request.args.get("view", "week")).lower() or "week"
     if view_mode not in {"week", "month"}:
@@ -18319,12 +18347,15 @@ def agenda_page() -> str:
     selected_summary_start = selected_summary_filter.get("start")
     selected_summary_end = selected_summary_filter.get("end")
     if isinstance(selected_summary_start, date) and isinstance(selected_summary_end, date):
-        summary_trainings = load_agenda_trainings(
-            selected_summary_start.isoformat(),
-            selected_summary_end.isoformat(),
+        summary_trainings = filter_agenda_trainings_for_user(
+            load_agenda_trainings(
+                selected_summary_start.isoformat(),
+                selected_summary_end.isoformat(),
+            ),
+            user,
         )
     else:
-        summary_trainings = load_agenda_trainings()
+        summary_trainings = filter_agenda_trainings_for_user(load_agenda_trainings(), user)
     for day in visible_days:
         day["planType"] = day_plans.get(day["key"], "")
     agenda_day_plan_summary = build_agenda_day_plan_summary(
@@ -18341,8 +18372,14 @@ def agenda_page() -> str:
         )
     except requests.RequestException:
         agenda_external_labels = {day["key"]: [] for day in visible_days}
-    trainings = load_agenda_trainings(week_start.isoformat(), week_end.isoformat())
-    month_trainings = load_agenda_trainings(month_visible_start.isoformat(), month_visible_end.isoformat())
+    trainings = filter_agenda_trainings_for_user(
+        load_agenda_trainings(week_start.isoformat(), week_end.isoformat()),
+        user,
+    )
+    month_trainings = filter_agenda_trainings_for_user(
+        load_agenda_trainings(month_visible_start.isoformat(), month_visible_end.isoformat()),
+        user,
+    )
     calendar_events = build_agenda_week_events(trainings, week_start)
     month_events = build_agenda_month_events(month_trainings, set(visible_day_keys))
     time_slots = [f"{hour:02d}" for hour in range(24)]
@@ -18378,6 +18415,7 @@ def agenda_page() -> str:
         agenda_day_plan_summary=agenda_day_plan_summary,
         agenda_external_labels=agenda_external_labels,
         agenda_school_region=AGENDA_SCHOOL_REGION,
+        can_manage_agenda=not is_trainer_agenda_user,
         success=request.args.get("success", "").strip(),
         error=request.args.get("error", "").strip(),
     )

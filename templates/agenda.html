@@ -11,10 +11,10 @@
         <h1>Agenda</h1>
         <p class="welcome-line">Voeg trainingen toe en houd je planning overzichtelijk bij.</p>
       </div>
-      <div class="agenda-header-actions">
+      {% if can_manage_agenda %}<div class="agenda-header-actions">
         <button type="button" id="openAgendaBulkModal" class="subtle-button subtle-button-strong">Meerdere trainingen</button>
         <button type="button" id="openAgendaModal" class="refresh-button">+ Nieuwe Training</button>
-      </div>
+      </div>{% endif %}
     </div>
   </header>
 
@@ -26,7 +26,7 @@
     <section class="notice trainers-notice trainers-notice-error">{{ error }}</section>
   {% endif %}
 
-  <section class="summary-card feature-list-card old-function-tile agenda-planner-card" id="agendaPlannerEditor" hidden>
+  {% if can_manage_agenda %}<section class="summary-card feature-list-card old-function-tile agenda-planner-card" id="agendaPlannerEditor" hidden>
     <div class="feature-list-head">
       <div>
         <p class="panel-title">Dagplanning bewerken</p>
@@ -63,7 +63,7 @@
         <button type="submit" class="subtle-button subtle-button-strong">Dagplanning opslaan</button>
       </div>
     </form>
-  </section>
+  </section>{% endif %}
 
   <section class="agenda-calendar-card">
     <div class="agenda-toolbar">
@@ -131,7 +131,7 @@
         <h2 class="agenda-week-label">{{ month_label }}</h2>
       {% endif %}
       <div class="agenda-toolbar-right">
-        <button type="button" id="toggleAgendaPlannerEdit" class="subtle-button action-small agenda-planner-toggle" aria-controls="agendaPlannerEditor" aria-expanded="false">Dagplanning</button>
+        {% if can_manage_agenda %}<button type="button" id="toggleAgendaPlannerEdit" class="subtle-button action-small agenda-planner-toggle" aria-controls="agendaPlannerEditor" aria-expanded="false">Dagplanning</button>{% endif %}
         <a href="/agenda?view=week&week={{ week_offset }}&month={{ month_offset }}&summary_filter={{ agenda_summary_filter }}" class="agenda-view-pill{% if agenda_view == "week" %} agenda-view-pill-active{% endif %}">Week</a>
         <a href="/agenda?view=month&month={{ month_offset }}&week={{ week_offset }}&summary_filter={{ agenda_summary_filter }}" class="agenda-view-pill{% if agenda_view == "month" %} agenda-view-pill-active{% endif %}">Maand</a>
       </div>
@@ -344,7 +344,7 @@
     </div>
   </section>
 
-  <div id="agendaModal" class="agenda-modal" hidden>
+  {% if can_manage_agenda %}<div id="agendaModal" class="agenda-modal" hidden>
     <div class="agenda-modal-backdrop" data-close-modal="1"></div>
     <div class="agenda-modal-dialog">
       <div class="agenda-modal-header">
@@ -419,9 +419,9 @@
         </div>
       </form>
     </div>
-  </div>
+  </div>{% endif %}
 
-  <div id="agendaBulkModal" class="agenda-modal" hidden>
+  {% if can_manage_agenda %}<div id="agendaBulkModal" class="agenda-modal" hidden>
     <div class="agenda-modal-backdrop" data-close-bulk-modal="1"></div>
     <div class="agenda-modal-dialog agenda-bulk-dialog">
       <div class="agenda-modal-header">
@@ -526,9 +526,9 @@
         </div>
       </form>
     </div>
-  </div>
+  </div>{% endif %}
 
-  <div id="agendaEditModal" class="agenda-modal" hidden>
+  {% if can_manage_agenda %}<div id="agendaEditModal" class="agenda-modal" hidden>
     <div class="agenda-modal-backdrop" data-close-edit-modal="1"></div>
     <div class="agenda-modal-dialog">
       <div class="agenda-modal-header">
@@ -627,7 +627,7 @@
         </div>
       </form>
     </div>
-  </div>
+  </div>{% endif %}
 
   <script type="application/json" id="agendaClubOptionsByTrainingType">{{ agenda_club_options_by_training_type|tojson }}</script>
   <script src="../static/agenda.js?v={{ asset_version }}" defer></script>

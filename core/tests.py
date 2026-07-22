@@ -485,7 +485,55 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         trainer = {"id": "trainer-123", "isAdmin": False, "systemRole": "Trainer"}
 
         self.assertIn("dashboard", legacy.get_visible_pages_for_user(trainer))
+        self.assertIn("agenda", legacy.get_visible_pages_for_user(trainer))
         self.assertEqual(legacy.get_default_post_login_path(trainer), "/")
+
+    def test_trainer_agenda_only_renders_assigned_appointments_and_is_read_only(self):
+        trainer = {
+            "id": "trainer-123",
+            "fullName": "Test Trainer",
+            "isAdmin": False,
+            "systemRole": "Trainer",
+        }
+        today = legacy.date.today()
+        own_training = {
+            "id": "own-training",
+            "title": "Mijn eigen training",
+            "date": today.isoformat(),
+            "time": "18:00",
+            "endTime": "19:00",
+            "location": "VV Gorssel",
+            "trainingType": "techniektraining",
+            "trainingTypeLabel": "Techniektraining",
+            "trainingTypeClass": "agenda-event-type-techniektraining",
+            "status": "gepland",
+            "statusLabel": "Gepland",
+            "statusClass": "agenda-event-status-gepland",
+            "trainers": [{"id": "trainer-123", "name": "Test Trainer"}],
+            "notes": "",
+        }
+        other_training = {
+            **own_training,
+            "id": "other-training",
+            "title": "Training van een collega",
+            "trainers": [{"id": "trainer-999", "name": "Andere Trainer"}],
+        }
+
+        with (
+            patch.object(legacy, "get_current_user", return_value=trainer),
+            patch.object(legacy, "load_agenda_trainings", return_value=[own_training, other_training]),
+            patch.object(legacy, "auto_mark_completed_agenda_trainings", return_value=0),
+            patch.object(legacy, "build_agenda_external_labels", return_value={}),
+        ):
+            response = Client().get("/agenda", secure=True)
+            post_response = Client().post("/agenda", {"action": "delete_training"}, secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Mijn eigen training")
+        self.assertNotContains(response, "Training van een collega")
+        self.assertNotContains(response, "+ Nieuwe Training")
+        self.assertNotContains(response, 'id="agendaEditModal"')
+        self.assertEqual(post_response.status_code, 403)
 
     def test_trainer_dashboard_hides_upcoming_event_registrations_card(self):
         trainer = {
