@@ -10779,6 +10779,209 @@ body.workspace-navigation-open {
   }
 }
 
+/* Eenvoudige witte desktopnavigatie met schuin afgesneden knoppen. */
+@media (min-width: 1180px) {
+  .workspace-topbar {
+    border-bottom: 1px solid #e7e7e7;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 5px 18px rgba(0, 0, 0, 0.045);
+    backdrop-filter: blur(14px);
+  }
+
+  .workspace-topbar::after {
+    display: none;
+  }
+
+  .workspace-topbar-inner {
+    min-height: 78px;
+  }
+
+  .workspace-brand img,
+  .workspace-brand:hover img {
+    filter: none;
+    transform: none;
+  }
+
+  .workspace-desktop-navigation {
+    padding: 0;
+    gap: 5px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .workspace-nav-block {
+    --nav-glow: #111111;
+  }
+
+  .workspace-nav-block-toggle,
+  .workspace-nav-block.is-active .workspace-nav-block-toggle,
+  .workspace-nav-block:hover .workspace-nav-block-toggle,
+  .workspace-nav-block:focus-within .workspace-nav-block-toggle {
+    min-height: 48px;
+    padding: 9px 17px;
+    justify-content: center;
+    gap: 8px;
+    overflow: visible;
+    border: 1px solid #dedede;
+    border-radius: 0;
+    background: #ffffff;
+    color: #181818;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.045);
+    clip-path: polygon(11px 0, 100% 0, calc(100% - 11px) 100%, 0 100%);
+    transform: none;
+  }
+
+  .workspace-nav-block:first-child .workspace-nav-block-toggle {
+    clip-path: polygon(0 0, 100% 0, calc(100% - 11px) 100%, 0 100%);
+  }
+
+  .workspace-nav-block:last-child .workspace-nav-block-toggle {
+    clip-path: polygon(11px 0, 100% 0, 100% 100%, 0 100%);
+  }
+
+  .workspace-nav-block:hover .workspace-nav-block-toggle,
+  .workspace-nav-block:focus-within .workspace-nav-block-toggle {
+    border-color: #bdbdbd;
+    background: #f8f8f8;
+    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.075);
+  }
+
+  .workspace-nav-block.is-active .workspace-nav-block-toggle {
+    border-color: #111111;
+    background: #ffffff;
+    box-shadow: inset 0 -3px 0 #111111, 0 3px 10px rgba(0, 0, 0, 0.05);
+  }
+
+  .workspace-nav-block-toggle::after,
+  .workspace-nav-block.is-active .workspace-nav-block-toggle::after,
+  .workspace-nav-block:hover .workspace-nav-block-toggle::after,
+  .workspace-nav-block:focus-within .workspace-nav-block-toggle::after {
+    display: none;
+  }
+
+  .workspace-nav-block-toggle:focus-visible {
+    outline: 2px solid #111111;
+    outline-offset: 3px;
+  }
+
+  .workspace-nav-block-icon,
+  .workspace-nav-block-copy small {
+    display: none;
+  }
+
+  .workspace-nav-block-copy {
+    display: block;
+    flex: 0 1 auto;
+    text-align: center;
+  }
+
+  .workspace-nav-block-copy strong {
+    font-size: clamp(0.68rem, 0.72vw, 0.79rem);
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  .workspace-nav-block-chevron {
+    width: 14px;
+    height: 14px;
+    flex-basis: 14px;
+    color: #777777;
+  }
+
+  .workspace-nav-block:hover .workspace-nav-block-chevron,
+  .workspace-nav-block:focus-within .workspace-nav-block-chevron {
+    color: #111111;
+  }
+
+  .workspace-nav-dropdown {
+    top: calc(100% + 9px);
+    width: min(350px, calc(100vw - 32px));
+    padding: 7px;
+    border: 1px solid #dddddd;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #181818;
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.14);
+    backdrop-filter: none;
+  }
+
+  .workspace-nav-dropdown-head {
+    min-height: 54px;
+    padding: 8px 10px 10px;
+    border-bottom-color: #e8e8e8;
+  }
+
+  .workspace-nav-dropdown-head small {
+    color: #8a8a8a;
+  }
+
+  .workspace-nav-dropdown-head strong {
+    font-size: 0.95rem;
+  }
+
+  .workspace-nav-dropdown-count {
+    border-color: #e2e2e2;
+    background: #f5f5f5;
+    color: #6d6d6d;
+  }
+
+  .workspace-nav-dropdown-link {
+    min-height: 50px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    color: #222222;
+  }
+
+  .workspace-nav-dropdown-link small {
+    color: #8a8a8a;
+  }
+
+  .workspace-nav-dropdown-link svg {
+    color: #9a9a9a;
+  }
+
+  .workspace-nav-dropdown-link:hover,
+  .workspace-nav-dropdown-link:focus-visible {
+    border-color: #e2e2e2;
+    background: #f5f5f5;
+    color: #111111;
+  }
+
+  .workspace-nav-dropdown-link:hover svg,
+  .workspace-nav-dropdown-link:focus-visible svg {
+    color: #111111;
+  }
+
+  .workspace-nav-dropdown-link.is-active {
+    border-color: #d5d5d5;
+    background: #f1f1f1;
+  }
+
+  .workspace-nav-dropdown-link.is-active::before {
+    width: 2px;
+    background: #111111;
+    box-shadow: none;
+  }
+
+  .workspace-profile-link,
+  .workspace-profile-link:hover {
+    width: 44px;
+    height: 44px;
+    border-color: #dedede;
+    border-radius: 11px;
+    background: #ffffff;
+    color: #111111;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.045);
+    transform: none;
+  }
+
+  .workspace-profile-link::after {
+    display: none;
+  }
+}
+
 /* De naam staat al in de vaste paginakiezer. */
 .page-header h1,
 .hero-home-panel h1 {
