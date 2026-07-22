@@ -487,6 +487,26 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("dashboard", legacy.get_visible_pages_for_user(trainer))
         self.assertEqual(legacy.get_default_post_login_path(trainer), "/")
 
+    def test_trainer_dashboard_hides_upcoming_event_registrations_card(self):
+        trainer = {
+            "id": "trainer-123",
+            "fullName": "Test Trainer",
+            "isAdmin": False,
+            "systemRole": "Trainer",
+        }
+
+        with (
+            patch.object(legacy, "get_current_user", return_value=trainer),
+            patch.object(legacy, "fetch_orders_non_blocking", return_value=legacy.get_empty_dashboard_payload()),
+            patch.object(legacy, "build_trainer_dashboard_week_schedule", return_value=[]),
+        ):
+            response = Client().get("/", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Mijn afspraken deze week")
+        self.assertNotContains(response, "Inschrijvingen Aankomende Events")
+        self.assertNotContains(response, 'id="eventsSummaryCard"')
+
     def test_trainer_week_schedule_only_contains_own_upcoming_items_this_week(self):
         trainings = [
             {

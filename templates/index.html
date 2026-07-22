@@ -62,6 +62,7 @@
     </article>
     {% endif %}
 
+    {% if not is_trainer_dashboard_user %}
     <article class="summary-card compact-summary-card" id="eventsSummaryCard">
       <p class="panel-title">Inschrijvingen Aankomende Events</p>
       <div class="panel-actions">
@@ -90,6 +91,7 @@
         </div>
       </div>
     </article>
+    {% endif %}
 
     <article
       class="summary-card compact-summary-card weather-card"
