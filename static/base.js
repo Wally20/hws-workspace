@@ -306,7 +306,7 @@ initWorkspacePageSearch();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/service-worker.js?v=2026-07-22-exercise-layout-2", { updateViaCache: "none" }).then((registration) => {
+    navigator.serviceWorker.register("/service-worker.js?v=2026-07-22-exercise-layout-3", { updateViaCache: "none" }).then((registration) => {
       registration.update().catch(() => {});
     }).catch(() => {});
   });

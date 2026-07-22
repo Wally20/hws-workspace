@@ -9071,6 +9071,27 @@ body.sidebar-collapsed .exercise-modal {
 }
 
 @media (max-width: 980px) {
+  body > .exercise-modal,
+  body.sidebar-collapsed > .exercise-modal {
+    position: fixed;
+    inset: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw;
+    margin: 0;
+  }
+
+  body > .exercise-modal > .exercise-modal-dialog {
+    width: calc(100vw - 12px) !important;
+    max-width: calc(100vw - 12px) !important;
+    margin: 0 !important;
+    justify-self: center;
+    align-self: center;
+  }
+
+  body > .exercise-modal .exercise-detail-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
   .exercise-modal {
     left: 0;
     width: 100%;

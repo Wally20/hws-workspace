@@ -1,4 +1,4 @@
-self.HWS_WORKSPACE_RELEASE = "2026-07-22-exercise-layout-2";
+self.HWS_WORKSPACE_RELEASE = "2026-07-22-exercise-layout-3";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
