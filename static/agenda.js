@@ -47,22 +47,6 @@ const SCHOOL_HOLIDAY_CACHE_PREFIX = "agenda-school-holidays-v3";
 const PUBLIC_HOLIDAY_CACHE_PREFIX = "agenda-public-holidays-v3";
 const HOLIDAY_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
-function preventAgendaZoom(event) {
-  event.preventDefault();
-}
-
-// Houd de agenda op een vaste, leesbare schaal. Normaal vegen en horizontaal
-// door de brede kalender scrollen blijven hierdoor gewoon beschikbaar.
-["gesturestart", "gesturechange", "gestureend"].forEach((eventName) => {
-  document.addEventListener(eventName, preventAgendaZoom, { passive: false });
-});
-
-document.addEventListener("wheel", (event) => {
-  if (event.ctrlKey) {
-    preventAgendaZoom(event);
-  }
-}, { passive: false });
-
 if (agendaClubOptionsByTrainingTypeNode) {
   try {
     const parsedClubOptions = JSON.parse(agendaClubOptionsByTrainingTypeNode.textContent || "{}");
@@ -579,9 +563,11 @@ function extractIsoDate(value) {
 }
 
 function getVisibleAgendaDays() {
-  return Array.from(document.querySelectorAll("[data-agenda-day]"))
-    .map((node) => node.getAttribute("data-agenda-day") || "")
-    .filter(Boolean);
+  return Array.from(new Set(
+    Array.from(document.querySelectorAll("[data-agenda-day]"))
+      .map((node) => node.getAttribute("data-agenda-day") || "")
+      .filter(Boolean),
+  ));
 }
 
 function toUtcDate(dateKey) {
@@ -717,39 +703,44 @@ function mapToCalendarDays(dayKeys, schoolHolidays, publicHolidays) {
 }
 
 function renderCalendarDay(dayKey, labels) {
-  const container = document.querySelector(`[data-agenda-day-labels="${dayKey}"]`);
-  if (!container) {
+  const containers = document.querySelectorAll(`[data-agenda-day-labels="${dayKey}"]`);
+  if (containers.length === 0) {
     return;
   }
 
-  container.replaceChildren();
+  containers.forEach((container) => {
+    container.replaceChildren();
 
-  if (!Array.isArray(labels) || labels.length === 0) {
-    container.hidden = true;
-    return;
-  }
+    if (!Array.isArray(labels) || labels.length === 0) {
+      container.hidden = true;
+      return;
+    }
 
-  labels.forEach((label) => {
-    const labelNode = document.createElement("p");
-    labelNode.className = "agenda-day-external-label";
-    labelNode.textContent = label;
-    container.appendChild(labelNode);
+    labels.forEach((label) => {
+      const labelNode = document.createElement("p");
+      labelNode.className = "agenda-day-external-label";
+      labelNode.textContent = label;
+      container.appendChild(labelNode);
+    });
+
+    container.hidden = false;
   });
-
-  container.hidden = false;
 }
 
 function getRenderedCalendarDayLabels(dayKeys) {
   return Object.fromEntries(
     dayKeys.map((dayKey) => {
-      const container = document.querySelector(`[data-agenda-day-labels="${dayKey}"]`);
-      if (!container) {
+      const containers = document.querySelectorAll(`[data-agenda-day-labels="${dayKey}"]`);
+      if (containers.length === 0) {
         return [dayKey, []];
       }
 
-      const labels = Array.from(container.querySelectorAll(".agenda-day-external-label"))
-        .map((node) => normalizeText(node.textContent))
-        .filter(Boolean);
+      const labels = Array.from(new Set(
+        Array.from(containers)
+          .flatMap((container) => Array.from(container.querySelectorAll(".agenda-day-external-label")))
+          .map((node) => normalizeText(node.textContent))
+          .filter(Boolean),
+      ));
       return [dayKey, labels];
     }),
   );

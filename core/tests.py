@@ -560,6 +560,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             "statusLabel": "Gepland",
             "statusClass": "agenda-event-status-gepland",
             "trainers": [{"id": "trainer-123", "name": "Test Trainer"}],
+            "trainerNames": "Test Trainer",
             "notes": "",
         }
         other_training = {
@@ -591,6 +592,10 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Mijn eigen training")
         self.assertContains(response, "Voetbaldag")
+        self.assertContains(response, 'class="agenda-responsive-list agenda-responsive-week-list"')
+        self.assertContains(response, "18:00 - 19:00")
+        self.assertContains(response, "Test Trainer")
+        self.assertNotContains(response, "user-scalable=no")
         self.assertNotContains(response, "Training van een collega")
         self.assertNotContains(response, "+ Nieuwe Training")
         self.assertNotContains(response, "Overzicht dagplanning")
@@ -2768,6 +2773,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             self.assertEqual(response.status_code, 200)
             content = response.content.decode("utf-8")
             self.assertIn("agenda-month-grid", content)
+            self.assertIn("agenda-responsive-list agenda-responsive-month-list", content)
             self.assertIn("Voetbaldag", content)
             self.assertIn("Meivakantie (heel Nederland)", content)
             self.assertIn("Dag van de Arbeid", content)

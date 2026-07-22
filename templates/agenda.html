@@ -1,10 +1,57 @@
 {% extends "base.html" %}
 
-{% block viewport %}width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no{% endblock %}
+{% block viewport %}width=device-width, initial-scale=1{% endblock %}
 
 {% block title %}Agenda | HWS Voetbalschool Workspace{% endblock %}
 
 {% block content %}
+  {% macro agenda_responsive_day_plan(day, can_manage) -%}
+    {% if day.planType or can_manage %}
+      <div
+        class="agenda-day-plan-dropzone agenda-responsive-day-plan{% if day.planType %} agenda-day-plan-dropzone-filled{% endif %}"
+        {% if can_manage %}data-day-plan-dropzone="{{ day.key }}"
+        data-day-plan-value="{{ day.planType }}"{% endif %}
+      >
+        <span class="agenda-responsive-day-plan-label">Dagplanning</span>
+        <span class="agenda-day-plan-value"{% if not day.planType %} aria-hidden="true"{% endif %}>{{ day.planType }}</span>
+        {% if can_manage %}<button type="button" class="agenda-day-plan-clear" data-clear-day-plan="{{ day.key }}" {% if not day.planType %}hidden{% endif %}>
+          Wis
+        </button>{% endif %}
+      </div>
+    {% endif %}
+  {%- endmacro %}
+
+  {% macro agenda_responsive_event(event) -%}
+    <article
+      class="agenda-responsive-event {{ event.trainingTypeClass }} {{ event.clubClass }} {{ event.statusClass }}"
+      role="button"
+      tabindex="0"
+      data-agenda-edit-event
+      data-event-id="{{ event.id }}"
+      data-event-title="{{ event.title }}"
+      data-event-date="{{ event.date }}"
+      data-event-time="{{ event.time }}"
+      data-event-end-time="{{ event.endTime }}"
+      data-event-location="{{ event.location }}"
+      data-event-training-type="{{ event.trainingType }}"
+      data-event-status="{{ event.status }}"
+      data-event-trainer-ids="{% for trainer in event.trainers %}{{ trainer.id }}{% if not loop.last %},{% endif %}{% endfor %}"
+      data-event-notes="{{ event.notes }}"
+      data-event-signature="{{ event.signature }}"
+    >
+      <div class="agenda-responsive-event-head">
+        <time datetime="{{ event.date }}T{{ event.time }}">{{ event.time }} - {{ event.endTime }}</time>
+        {% if event.statusLabel %}<span class="agenda-event-status-pill">{{ event.statusLabel }}</span>{% endif %}
+      </div>
+      <p class="agenda-responsive-event-title">{{ event.title }}</p>
+      {% if event.trainingTypeLabel or event.location or event.trainerNames %}<div class="agenda-responsive-event-meta">
+        {% if event.trainingTypeLabel %}<span>{{ event.trainingTypeLabel }}</span>{% endif %}
+        {% if event.location %}<span>{{ event.location }}</span>{% endif %}
+        {% if event.trainerNames %}<span>{{ event.trainerNames }}</span>{% endif %}
+      </div>{% endif %}
+    </article>
+  {%- endmacro %}
+
   <header class="page-header">
     <div class="agenda-header">
       <div>
@@ -225,6 +272,36 @@
             {% endfor %}
           </div>
         </div>
+        <div class="agenda-responsive-list agenda-responsive-month-list" data-agenda-plan-surface aria-label="Maandagenda {{ month_label }}">
+          {% for week in month_weeks %}
+            {% for day in week %}
+              {% set weekday_label = month_day_names[loop.index0] %}
+              {% if day.isCurrentMonth %}<section class="agenda-responsive-day{% if day.isToday %} agenda-responsive-day-today{% endif %}" data-agenda-day="{{ day.key }}">
+                <div class="agenda-responsive-day-head">
+                  <h3><time datetime="{{ day.key }}">{{ weekday_label }} {{ day.dayNumber }} {{ month_label }}</time></h3>
+                  {% if day.isToday %}<span class="agenda-responsive-today-label">Vandaag</span>{% endif %}
+                </div>
+                {{ agenda_responsive_day_plan(day, can_manage_agenda) }}
+                <div
+                  class="agenda-day-external-labels agenda-responsive-day-labels"
+                  data-agenda-day-labels="{{ day.key }}"
+                  {% if not agenda_external_labels.get(day.key) %}hidden{% endif %}
+                >
+                  {% for label in agenda_external_labels.get(day.key, []) %}
+                    <p class="agenda-day-external-label">{{ label }}</p>
+                  {% endfor %}
+                </div>
+                <div class="agenda-responsive-events">
+                  {% for event in month_events.get(day.key, []) %}
+                    {{ agenda_responsive_event(event) }}
+                  {% else %}
+                    <p class="agenda-responsive-empty">Geen trainingen</p>
+                  {% endfor %}
+                </div>
+              </section>{% endif %}
+            {% endfor %}
+          {% endfor %}
+        </div>
       </div>
     {% else %}
       <div class="agenda-board" data-agenda-school-region="{{ agenda_school_region }}">
@@ -288,6 +365,37 @@
               <p class="agenda-event-title">{{ event.title }}</p>
               <p class="agenda-event-status-text">{{ event.statusLabel }}</p>
             </article>
+          {% endfor %}
+        </div>
+        <div class="agenda-responsive-list agenda-responsive-week-list" data-agenda-plan-surface aria-label="Weekagenda {{ week_label }}">
+          {% for day in week_days %}
+            {% set day_index = loop.index0 %}
+            {% set day_state = namespace(event_count=0) %}
+            <section class="agenda-responsive-day{% if day.isToday %} agenda-responsive-day-today{% endif %}" data-agenda-day="{{ day.key }}">
+              <div class="agenda-responsive-day-head">
+                <h3><time datetime="{{ day.key }}">{{ day.shortLabel }} {{ day.date.year }}</time></h3>
+                {% if day.isToday %}<span class="agenda-responsive-today-label">Vandaag</span>{% endif %}
+              </div>
+              {{ agenda_responsive_day_plan(day, can_manage_agenda) }}
+              <div
+                class="agenda-day-external-labels agenda-responsive-day-labels"
+                data-agenda-day-labels="{{ day.key }}"
+                {% if not agenda_external_labels.get(day.key) %}hidden{% endif %}
+              >
+                {% for label in agenda_external_labels.get(day.key, []) %}
+                  <p class="agenda-day-external-label">{{ label }}</p>
+                {% endfor %}
+              </div>
+              <div class="agenda-responsive-events">
+                {% for event in calendar_events %}
+                  {% if event.dayIndex == day_index %}
+                    {% set day_state.event_count = day_state.event_count + 1 %}
+                    {{ agenda_responsive_event(event) }}
+                  {% endif %}
+                {% endfor %}
+                {% if day_state.event_count == 0 %}<p class="agenda-responsive-empty">Geen trainingen</p>{% endif %}
+              </div>
+            </section>
           {% endfor %}
         </div>
       </div>
