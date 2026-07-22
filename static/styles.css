@@ -9573,3 +9573,158 @@ body.sidebar-collapsed .exercise-modal {
     min-height: 130px;
   }
 }
+
+/* Mobile reading view for exercise details. */
+@media (max-width: 640px) {
+  .exercise-modal {
+    padding: 4px;
+    place-items: stretch;
+    overscroll-behavior: contain;
+  }
+
+  .exercise-modal-dialog {
+    width: 100%;
+    max-height: calc(100dvh - 8px);
+    padding: 14px 12px calc(18px + env(safe-area-inset-bottom));
+    border-radius: 16px;
+  }
+
+  .exercise-modal-header {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .exercise-modal-title-wrap {
+    grid-column: 1;
+    min-width: 0;
+  }
+
+  .exercise-modal-title-row h2 {
+    font-size: clamp(1.45rem, 7vw, 2rem);
+    line-height: 1.12;
+  }
+
+  .exercise-modal-category {
+    margin-top: 5px;
+  }
+
+  .exercise-modal-ages {
+    margin-top: 7px;
+  }
+
+  .exercise-modal-header .team-modal-close {
+    grid-column: 2;
+    grid-row: 1;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    margin-top: 0;
+    padding: 0;
+    border-radius: 10px;
+    background: #f3f3f3;
+    color: #111111;
+    font-size: 2rem;
+  }
+
+  .exercise-admin-actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding-top: 0;
+  }
+
+  .exercise-admin-actions > #editExercise,
+  .exercise-admin-edit-actions,
+  .exercise-admin-edit-actions > .exercise-icon-button {
+    width: 100%;
+  }
+
+  .exercise-admin-actions > #editExercise,
+  .exercise-admin-edit-actions {
+    grid-column: 1 / -1;
+  }
+
+  .exercise-admin-edit-actions {
+    display: grid;
+  }
+
+  .exercise-icon-button .exercise-icon-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+  }
+
+  .exercise-save-icon-button {
+    grid-template-columns: auto auto;
+    gap: 8px;
+  }
+
+  .exercise-save-icon-button svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .exercise-modal-nav {
+    justify-content: space-between;
+    margin: 2px 0 12px;
+    padding: 8px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #f8f8f8;
+  }
+
+  .exercise-nav-button {
+    width: 46px;
+    height: 46px;
+    flex: 0 0 46px;
+  }
+
+  .exercise-detail-layout,
+  .exercise-detail-column,
+  .exercise-center-column {
+    gap: 10px;
+  }
+
+  .exercise-detail-panel {
+    padding: 16px;
+    border-radius: 12px;
+    background: #ffffff;
+  }
+
+  .exercise-detail-panel h3 {
+    margin-bottom: 9px;
+    font-size: 0.9rem;
+    line-height: 1.35;
+  }
+
+  .exercise-detail-panel p {
+    color: #262626;
+    font-size: 1rem;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+  }
+
+  .exercise-field-panel,
+  .exercise-field,
+  .exercise-video-panel,
+  .exercise-field svg,
+  .exercise-field img,
+  .exercise-video-panel video,
+  .exercise-field-empty,
+  .exercise-field .exercise-field-overlay-stage {
+    min-height: clamp(220px, 68vw, 300px);
+  }
+
+  .exercise-field-panel {
+    border-radius: 12px;
+  }
+
+  .exercise-media-toggle-button {
+    min-height: 36px;
+    padding-inline: 14px;
+  }
+}
