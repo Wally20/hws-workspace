@@ -13531,6 +13531,9 @@ def build_trainer_dashboard_week_schedule(
                 "timeLabel": time_label,
                 "title": str(training.get("title") or "Training").strip() or "Training",
                 "location": str(training.get("location") or "").strip(),
+                "clubClass": get_agenda_club_class(training.get("location", "")),
+                "trainingTypeLabel": str(training.get("trainingTypeLabel") or "").strip(),
+                "trainingTypeClass": str(training.get("trainingTypeClass") or "").strip(),
                 "status": str(training.get("status") or "").strip(),
                 "statusLabel": str(training.get("statusLabel") or "Gepland").strip() or "Gepland",
             }

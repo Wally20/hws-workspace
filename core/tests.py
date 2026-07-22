@@ -642,6 +642,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 "time": "18:00",
                 "endTime": "19:30",
                 "location": "Sportpark Zuid",
+                "trainingTypeLabel": "Techniektraining",
+                "trainingTypeClass": "agenda-event-type-techniektraining",
                 "status": "gepland",
                 "statusLabel": "Gepland",
                 "trainers": [{"id": "trainer-123", "name": "Test Trainer"}],
@@ -691,6 +693,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual([item["id"] for item in schedule], ["own-today", "own-sunday"])
         self.assertEqual(schedule[0]["dateLabel"], "Vandaag")
         self.assertEqual(schedule[0]["timeLabel"], "18:00 - 19:30")
+        self.assertEqual(schedule[0]["trainingTypeClass"], "agenda-event-type-techniektraining")
         self.assertEqual(schedule[1]["dateLabel"], "Zondag 19 juli")
 
     def test_trainer_dashboard_renders_personal_week_schedule_tile(self):
@@ -711,7 +714,10 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 "time": "18:00",
                 "timeLabel": "18:00 - 19:30",
                 "title": "Techniektraining JO12",
-                "location": "Sportpark Zuid",
+                "location": "VV Diepenveen",
+                "trainingTypeLabel": "Techniektraining",
+                "trainingTypeClass": "agenda-event-type-techniektraining",
+                "clubClass": "agenda-event-club-vv-diepenveen",
                 "status": "gepland",
                 "statusLabel": "Gepland",
             }
@@ -734,7 +740,10 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         content = response.content.decode("utf-8")
         self.assertIn("Mijn afspraken deze week", content)
         self.assertIn("Techniektraining JO12", content)
-        self.assertIn("Sportpark Zuid", content)
+        self.assertIn("VV Diepenveen", content)
+        self.assertIn("agenda-event-type-techniektraining", content)
+        self.assertIn("agenda-event-club-vv-diepenveen", content)
+        self.assertIn('class="trainer-week-type">Techniektraining</span>', content)
 
     def test_orders_page_is_visible_for_all_authenticated_users(self):
         self.assertIn("orders", legacy.get_visible_pages_for_user({"id": "admin", "isAdmin": True}))

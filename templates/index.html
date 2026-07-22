@@ -21,7 +21,7 @@
       {% if trainer_week_schedule %}
         <div class="trainer-week-schedule-list">
           {% for appointment in trainer_week_schedule %}
-            <div class="trainer-week-appointment{% if appointment.status == 'geannuleerd' %} trainer-week-appointment-cancelled{% endif %}">
+            <div class="trainer-week-appointment {{ appointment.trainingTypeClass }} {{ appointment.clubClass }}{% if appointment.status == 'geannuleerd' %} trainer-week-appointment-cancelled{% endif %}">
               <div class="trainer-week-appointment-time">
                 <strong>{{ appointment.dateLabel }}</strong>
                 {% if appointment.timeLabel %}<span>{{ appointment.timeLabel }}</span>{% endif %}
@@ -30,9 +30,14 @@
                 <strong>{{ appointment.title }}</strong>
                 {% if appointment.location %}<span>{{ appointment.location }}</span>{% endif %}
               </div>
-              {% if appointment.status == 'geannuleerd' %}
-                <span class="trainer-week-status">{{ appointment.statusLabel }}</span>
-              {% endif %}
+              <div class="trainer-week-appointment-meta">
+                {% if appointment.trainingTypeLabel %}
+                  <span class="trainer-week-type">{{ appointment.trainingTypeLabel }}</span>
+                {% endif %}
+                {% if appointment.status == 'geannuleerd' %}
+                  <span class="trainer-week-status">{{ appointment.statusLabel }}</span>
+                {% endif %}
+              </div>
             </div>
           {% endfor %}
         </div>

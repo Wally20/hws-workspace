@@ -436,22 +436,59 @@ body.sidebar-collapsed .sidebar-toggle {
 
 .trainer-week-schedule-list {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .trainer-week-appointment {
   display: grid;
-  grid-template-columns: minmax(112px, 0.65fr) minmax(0, 1.35fr) auto;
+  grid-template-columns: minmax(132px, 0.7fr) minmax(0, 1.3fr) auto;
   gap: 14px;
   align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px solid #ececec;
+  padding: 14px 16px;
+  border: 2px solid var(--trainer-club-color, rgba(148, 163, 184, 0.42));
+  border-left-width: 7px;
+  border-radius: 16px;
+  background: var(--trainer-type-background, #f8fafc);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
 }
 
-.trainer-week-appointment:last-child {
-  padding-bottom: 0;
-  border-bottom: 0;
+.trainer-week-appointment.agenda-event-type-voetbaldag {
+  --trainer-type-color: #e03131;
+  --trainer-type-background: rgba(224, 49, 49, 0.1);
 }
+
+.trainer-week-appointment.agenda-event-type-summercamp {
+  --trainer-type-color: #f57c00;
+  --trainer-type-background: rgba(245, 124, 0, 0.11);
+}
+
+.trainer-week-appointment.agenda-event-type-samenwerkende-amateurclub {
+  --trainer-type-color: #1fb881;
+  --trainer-type-background: rgba(31, 184, 129, 0.11);
+}
+
+.trainer-week-appointment.agenda-event-type-techniektraining {
+  --trainer-type-color: #c99d00;
+  --trainer-type-background: rgba(245, 197, 24, 0.16);
+}
+
+.trainer-week-appointment.agenda-event-type-clinic {
+  --trainer-type-color: #7e57c2;
+  --trainer-type-background: rgba(126, 87, 194, 0.1);
+}
+
+.trainer-week-appointment[class*="agenda-event-type-"] {
+  background: var(--trainer-type-background);
+  color: var(--text);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+.trainer-week-appointment.agenda-event-club-wwna { --trainer-club-color: #15803d; }
+.trainer-week-appointment.agenda-event-club-vv-gorssel { --trainer-club-color: #facc15; }
+.trainer-week-appointment.agenda-event-club-vv-oeken { --trainer-club-color: #38bdf8; }
+.trainer-week-appointment.agenda-event-club-abs { --trainer-club-color: #111111; }
+.trainer-week-appointment.agenda-event-club-vv-diepenveen { --trainer-club-color: #facc15; }
+.trainer-week-appointment.agenda-event-club-apeldoornse-boys { --trainer-club-color: #e03131; }
 
 .trainer-week-appointment-time,
 .trainer-week-appointment-copy {
@@ -484,6 +521,30 @@ body.sidebar-collapsed .sidebar-toggle {
   font-weight: 800;
 }
 
+.trainer-week-appointment-meta {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.trainer-week-type {
+  justify-self: end;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--trainer-type-color, #64748b);
+  color: #ffffff;
+  font-size: 0.64rem;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.trainer-week-appointment.agenda-event-type-techniektraining .trainer-week-type {
+  color: #111827;
+}
+
 .trainer-week-appointment-cancelled .trainer-week-appointment-copy strong {
   color: #64748b;
   text-decoration: line-through;
@@ -493,10 +554,12 @@ body.sidebar-collapsed .sidebar-toggle {
   .trainer-week-appointment {
     grid-template-columns: 1fr;
     gap: 7px;
+    padding: 14px;
   }
 
-  .trainer-week-status {
+  .trainer-week-appointment-meta {
     justify-self: start;
+    justify-content: flex-start;
   }
 }
 
