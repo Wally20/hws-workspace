@@ -7962,7 +7962,10 @@ body.sidebar-collapsed .exercise-modal {
 }
 
 .exercise-modal-dialog {
-  width: min(1760px, calc(100% - 16px));
+  width: min(1760px, 100%);
+  max-width: 1760px;
+  margin-inline: auto;
+  justify-self: center;
   padding: 28px;
 }
 
@@ -9025,6 +9028,15 @@ body.sidebar-collapsed .exercise-modal {
   .exercise-modal {
     left: 0;
     width: 100%;
+    padding: 12px;
+    place-items: center;
+  }
+
+  .exercise-modal-dialog {
+    width: min(100%, 920px);
+    max-width: 920px;
+    margin-inline: auto;
+    overflow-x: hidden;
   }
 
   .exercise-library-header,
@@ -9039,6 +9051,16 @@ body.sidebar-collapsed .exercise-modal {
   .exercise-detail-column-right,
   .exercise-center-column {
     grid-template-rows: auto;
+  }
+
+  .exercise-detail-layout,
+  .exercise-detail-column,
+  .exercise-center-column,
+  .exercise-detail-panel,
+  .exercise-field-panel {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .exercise-detail-column:first-child .exercise-detail-panel:first-child,
@@ -9577,19 +9599,23 @@ body.sidebar-collapsed .exercise-modal {
 /* Mobile reading view for exercise details. */
 @media (max-width: 640px) {
   .exercise-modal {
-    padding: 4px;
-    place-items: stretch;
+    padding: 6px;
+    place-items: center;
     overscroll-behavior: contain;
   }
 
   .exercise-modal-dialog {
-    width: 100%;
-    max-height: calc(100dvh - 8px);
+    width: min(100%, 640px);
+    max-width: 640px;
+    max-height: calc(100dvh - 12px);
+    margin-inline: auto;
     padding: 14px 12px calc(18px + env(safe-area-inset-bottom));
     border-radius: 16px;
+    overflow-x: hidden;
   }
 
   .exercise-modal-header {
+    display: grid;
     grid-template-columns: minmax(0, 1fr) 44px;
     gap: 10px;
     margin-bottom: 10px;
