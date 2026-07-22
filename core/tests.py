@@ -51,6 +51,17 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("HWS Voetbalschool", response.content.decode("utf-8"))
         self.assertIn('name="csrf_token"', response.content.decode("utf-8"))
 
+    def test_logout_action_is_only_visible_on_personal_profile(self):
+        client = self.build_authenticated_client()
+
+        profile_response = client.get("/profiel", secure=True)
+        trainers_response = client.get("/trainers", secure=True)
+
+        self.assertEqual(profile_response.status_code, 200)
+        self.assertContains(profile_response, 'class="profile-logout-button"')
+        self.assertContains(profile_response, ">Uitloggen</button>")
+        self.assertNotContains(trainers_response, ">Uitloggen</button>")
+
     def test_materials_club_pdf_is_single_landscape_a4_page(self):
         club = {
             "name": "Testclub",

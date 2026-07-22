@@ -8,6 +8,10 @@
       <h1>Profiel</h1>
       <p class="welcome-line">Beheer je profielgegevens.</p>
     </div>
+    <form method="post" action="/logout" class="profile-logout-form">
+      <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+      <button type="submit" class="profile-logout-button">Uitloggen</button>
+    </form>
   </header>
 
   {% if form_error %}

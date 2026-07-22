@@ -211,8 +211,7 @@ body.sidebar-collapsed .brand-mark {
 }
 
 body.sidebar-collapsed .brand-copy,
-body.sidebar-collapsed .nav-item > span:not(.nav-icon),
-body.sidebar-collapsed .sidebar-footer {
+body.sidebar-collapsed .nav-item > span:not(.nav-icon) {
   display: none;
 }
 
@@ -273,28 +272,25 @@ body.sidebar-collapsed .sidebar-toggle {
   stroke-linejoin: round;
 }
 
-.sidebar-footer {
-  padding: 12px 14px 16px;
-  border-top: 1px solid var(--line);
+.profile-logout-form {
+  margin-left: auto;
 }
 
-.sidebar-logout-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 42px;
-  width: 100%;
-  border-radius: 12px;
-  background: #e03131;
-  color: #ffffff;
-  font-size: 0.88rem;
-  font-weight: 800;
-  box-shadow: 0 10px 20px rgba(224, 49, 49, 0.2);
+.profile-logout-button {
+  min-height: 36px;
+  padding: 7px 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
-.sidebar-logout-button:hover {
-  color: #ffffff;
-  background: #c92a2a;
+.profile-logout-button:hover {
+  border-color: #e03131;
+  color: #c92a2a;
+  background: #fff5f5;
 }
 
 .main-content {
@@ -6605,13 +6601,8 @@ a.spaarpot-year-row:hover {
   }
 
   body.sidebar-collapsed .brand-copy,
-  body.sidebar-collapsed .nav-item > span:not(.nav-icon),
-  body.sidebar-collapsed .sidebar-footer {
+  body.sidebar-collapsed .nav-item > span:not(.nav-icon) {
     display: initial;
-  }
-
-  body.sidebar-collapsed .sidebar-footer {
-    display: block;
   }
 
   body.sidebar-collapsed .sidebar-nav {
@@ -6693,14 +6684,6 @@ a.spaarpot-year-row:hover {
     width: 34px;
     height: 34px;
     margin: 0;
-  }
-
-  .sidebar-footer {
-    padding: 8px 10px 10px;
-  }
-
-  .sidebar-logout-button {
-    min-height: 36px;
   }
 
   .main-content {
