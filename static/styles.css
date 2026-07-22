@@ -272,23 +272,20 @@ body.sidebar-collapsed .sidebar-toggle {
   stroke-linejoin: round;
 }
 
-.profile-logout-form {
-  margin-left: auto;
+.sidebar-nav-logout-form {
+  margin-top: 4px;
 }
 
-.profile-logout-button {
-  min-height: 36px;
-  padding: 7px 13px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: #ffffff;
-  color: var(--muted);
-  font-size: 0.82rem;
-  font-weight: 700;
+.sidebar-nav-logout-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.profile-logout-button:hover {
-  border-color: #e03131;
+.sidebar-nav-logout-button:hover {
   color: #c92a2a;
   background: #fff5f5;
 }
@@ -6654,6 +6651,11 @@ a.spaarpot-year-row:hover {
     overflow-x: auto;
     align-content: initial;
     scrollbar-width: none;
+  }
+
+  .sidebar-nav-logout-form {
+    flex: 0 0 auto;
+    margin-top: 0;
   }
 
   .sidebar-nav::-webkit-scrollbar {

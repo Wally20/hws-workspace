@@ -121,6 +121,18 @@
             <span>Profiel</span>
           </a>
           {% endif %}
+          <form method="post" action="/logout" class="sidebar-nav-logout-form">
+            <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+            <button type="submit" class="nav-item sidebar-nav-logout-button">
+              <span class="nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4"></path>
+                  <path d="M14 8l4 4-4 4M9 12h9"></path>
+                </svg>
+              </span>
+              <span>Uitloggen</span>
+            </button>
+          </form>
         </nav>
 
       </aside>
