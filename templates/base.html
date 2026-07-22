@@ -19,6 +19,78 @@
   </head>
   <body>
     <div class="app-layout">
+      <aside class="sidebar" id="appSidebar">
+        <div class="brand-panel">
+          <div class="brand-mark">
+            <img src="../static/assets/hws-logo.png" alt="HWS Voetbalschool logo">
+          </div>
+          <div class="brand-copy">
+            <p class="brand-subtitle">Workspace</p>
+          </div>
+          <button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Sidebar inklappen" aria-expanded="true" aria-controls="appSidebar">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>
+          </button>
+        </div>
+
+        <nav class="sidebar-nav" aria-label="Hoofdmenu">
+          {% if 'dashboard' in visible_pages %}
+            <a class="nav-item{% if active_page == 'dashboard' %} nav-item-active{% endif %}" href="/">
+              <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-5.5h-5V21H5a1 1 0 0 1-1-1z"></path></svg></span>
+              <span>Dashboard</span>
+            </a>
+          {% endif %}
+          {% if 'agenda' in visible_pages %}
+            <a class="nav-item{% if active_page == 'agenda' %} nav-item-active{% endif %}" href="/agenda">
+              <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="15" rx="2"></rect><path d="M8 3v4M16 3v4M4 10h16M8 13h.01M12 13h.01M16 13h.01M8 17h.01M12 17h.01M16 17h.01"></path></svg></span>
+              <span>Agenda</span>
+            </a>
+          {% endif %}
+          {% if 'draaiboeken' in visible_pages %}
+            <a class="nav-item{% if active_page == 'draaiboeken' or active_page == 'voetbaldagen' or active_page == 'samenwerkende-amateurclubs' %} nav-item-active{% endif %}" href="/draaiboeken">
+              <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4.5h9l3 3V19a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1ZM15 4.5V8h3M8.5 11.5h7M8.5 15h5"></path></svg></span>
+              <span>Draaiboeken</span>
+            </a>
+          {% endif %}
+          {% if 'management' in visible_pages %}
+            <a class="nav-item{% if active_page in ['management', 'materialen', 'begroting', 'voorstellen-maker', 'overeenkomsten', 'registrations', 'orders', 'leads', 'trainers'] %} nav-item-active{% endif %}" href="/management">
+              <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM16.5 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM3.5 19a4.5 4.5 0 0 1 9 0M13 19a3.5 3.5 0 0 1 7 0"></path></svg></span>
+              <span>Management</span>
+            </a>
+          {% endif %}
+          {% if 'oefenstof' in visible_pages %}
+            <a class="nav-item{% if active_page in ['oefenstof', 'oefeningen-bibliotheek', 'trainingen', 'exercise-videos'] %} nav-item-active{% endif %}" href="/oefenstof">
+              <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M4 12h16M12 5v14"></path><circle cx="12" cy="12" r="2.5"></circle></svg></span>
+              <span>Oefenstof</span>
+            </a>
+          {% endif %}
+          {% if 'financien' in visible_pages %}
+            <a class="nav-item{% if active_page in ['financien', 'revenue', 'spaarpot', 'trainer-fees', 'automatic-invoices'] %} nav-item-active{% endif %}" href="/financien">
+              <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 19h14M7.5 16V11M12 16V7M16.5 16V9"></path></svg></span>
+              <span>Financiën</span>
+            </a>
+          {% endif %}
+          {% if 'marketing' in visible_pages %}
+            <a class="nav-item{% if active_page in ['marketing', 'social-media', 'content'] %} nav-item-active{% endif %}" href="/marketing">
+              <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M8 5v14M16 5v14M5 8h14M5 16h14"></path></svg></span>
+              <span>Marketing</span>
+            </a>
+          {% endif %}
+          {% if 'profile' in visible_pages %}
+            <a class="nav-item{% if active_page == 'profile' %} nav-item-active{% endif %}" href="/profiel">
+              <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 20a8 8 0 0 1 16 0"></path></svg></span>
+              <span>Profiel</span>
+            </a>
+          {% endif %}
+          <form method="post" action="/logout" class="sidebar-nav-logout-form">
+            <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+            <button type="submit" class="nav-item sidebar-nav-logout-button">
+              <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4M14 8l4 4-4 4M9 12h9"></path></svg></span>
+              <span>Uitloggen</span>
+            </button>
+          </form>
+        </nav>
+      </aside>
+
       <header class="workspace-topbar">
         <div class="workspace-topbar-inner">
           <a class="workspace-brand" href="/" aria-label="Naar dashboard">

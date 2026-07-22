@@ -52,20 +52,20 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("HWS Voetbalschool", response.content.decode("utf-8"))
         self.assertIn('name="csrf_token"', response.content.decode("utf-8"))
 
-    def test_desktop_and_compact_navigation_render_for_authenticated_pages(self):
+    def test_sidebar_and_compact_navigation_render_for_authenticated_pages(self):
         client = self.build_authenticated_client()
 
         profile_response = client.get("/profiel", secure=True)
         profile_content = profile_response.content.decode("utf-8")
 
         self.assertEqual(profile_response.status_code, 200)
-        self.assertContains(profile_response, 'class="workspace-desktop-navigation"')
-        self.assertContains(profile_response, 'data-desktop-nav-block')
+        self.assertContains(profile_response, 'class="sidebar"')
+        self.assertContains(profile_response, 'class="sidebar-nav-logout-form"')
         self.assertContains(profile_response, 'id="workspaceNavigation"')
         self.assertContains(profile_response, 'id="workspaceNavigationMenu"')
         self.assertContains(profile_response, 'class="workspace-nav-dropdown-link is-active"')
-        self.assertEqual(profile_content.count('action="/logout"'), 1)
-        self.assertLess(profile_content.index('<a href="/profiel">Profiel</a>'), profile_content.index('action="/logout"'))
+        self.assertEqual(profile_content.count('action="/logout"'), 2)
+        self.assertLess(profile_content.index("<span>Profiel</span>"), profile_content.index('action="/logout"'))
 
     def test_materials_club_pdf_is_single_landscape_a4_page(self):
         club = {

@@ -11045,6 +11045,69 @@ body.workspace-navigation-open {
   margin-top: 0;
 }
 
+/* Browserweergave met de oorspronkelijke inklapbare sidebar. */
+.sidebar {
+  display: none;
+}
+
+@media (min-width: 1180px) {
+  .app-layout,
+  body.sidebar-collapsed .app-layout {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+
+  body.sidebar-collapsed .app-layout {
+    grid-template-columns: 76px minmax(0, 1fr);
+  }
+
+  .sidebar {
+    display: grid;
+  }
+
+  .workspace-topbar,
+  .workspace-navigation-backdrop,
+  .workspace-navigation-menu {
+    display: none !important;
+  }
+
+  .main-content {
+    position: relative;
+    z-index: 1;
+    width: auto;
+    min-width: 0;
+    margin: 0;
+    padding: 38px 42px 44px;
+    display: grid;
+    align-content: start;
+    gap: 22px;
+  }
+
+  .nav-item-active {
+    background: #111111;
+    color: #ffffff;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
+  }
+
+  .page-header h1,
+  .hero-home-panel h1 {
+    position: static !important;
+    width: auto !important;
+    height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    clip: auto !important;
+    white-space: normal !important;
+  }
+
+  .page-header .welcome-line,
+  .hero-home-panel h1 + p {
+    margin-top: 10px;
+  }
+}
+
 @media (max-width: 700px) {
   .workspace-topbar-inner {
     width: calc(100% - 24px);
