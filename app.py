@@ -13432,11 +13432,7 @@ def require_admin_user() -> Optional[Any]:
 
 
 def get_default_post_login_path(user: Dict[str, Any]) -> str:
-    if user.get("isAdmin"):
-        return "/trainers"
-    if is_trainer_user(user):
-        return "/"
-    return "/profiel"
+    return "/"
 
 
 def is_valid_email_address(value: str) -> bool:
@@ -16545,11 +16541,7 @@ def login_page() -> str:
             login_error = GENERIC_AUTH_ERROR_MESSAGE
         else:
             rotate_authenticated_session(user["id"])
-            if not next_path or next_path == "/":
-                next_path = get_default_post_login_path(user)
-            if not is_safe_redirect_target(next_path):
-                next_path = get_default_post_login_path(user)
-            return redirect(next_path)
+            return redirect(get_default_post_login_path(user))
 
     if not next_path:
         fallback_user = existing_user or {"isAdmin": True}

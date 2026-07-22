@@ -268,9 +268,29 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             )
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response["Location"], "/trainers")
+        self.assertEqual(response["Location"], "/")
         self.assertEqual(client.session["user_id"], "trainer-123")
         self.assertIn("csrf_token", client.session)
+
+    def test_login_always_redirects_to_dashboard_instead_of_next_page(self):
+        client = Client()
+        csrf_token = self.extract_csrf_token(client.get("/login?next=/trainers", secure=True))
+        fake_user = {"id": "admin-123", "isAdmin": True}
+
+        with patch.object(legacy, "authenticate_user", return_value=fake_user):
+            response = client.post(
+                "/login",
+                {
+                    "csrf_token": csrf_token,
+                    "email": "admin@example.com",
+                    "password": "correct-password",
+                    "next": "/trainers",
+                },
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/")
 
     def test_dashboard_events_api_requires_only_legacy_session(self):
         response = self.build_authenticated_client().get("/api/dashboard-events", secure=True)
