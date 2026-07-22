@@ -294,7 +294,7 @@
     {% endif %}
   </section>
 
-  <section class="agenda-plan-summary-section" aria-label="Overzicht dagplanning">
+  {% if can_manage_agenda %}<section class="agenda-plan-summary-section" aria-label="Overzicht dagplanning">
     <div class="agenda-plan-summary-header">
       <div>
         <p class="panel-title">Overzicht dagplanning</p>
@@ -342,7 +342,7 @@
         </article>
       {% endfor %}
     </div>
-  </section>
+  </section>{% endif %}
 
   {% if can_manage_agenda %}<div id="agendaModal" class="agenda-modal" hidden>
     <div class="agenda-modal-backdrop" data-close-modal="1"></div>

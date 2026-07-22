@@ -18088,7 +18088,11 @@ def agenda_page() -> str:
 
     user = get_current_user()
     is_trainer_agenda_user = is_trainer_user(user)
-    if request.method == "POST" and is_trainer_agenda_user:
+    can_manage_agenda = bool(
+        user
+        and role_grants_admin_access(str(user.get("systemRole") or user.get("role") or ""))
+    )
+    if request.method == "POST" and not can_manage_agenda:
         return "Trainers kunnen de agenda alleen bekijken.", 403
 
     auto_mark_completed_agenda_trainings()
@@ -18413,7 +18417,7 @@ def agenda_page() -> str:
         agenda_day_plan_summary=agenda_day_plan_summary,
         agenda_external_labels=agenda_external_labels,
         agenda_school_region=AGENDA_SCHOOL_REGION,
-        can_manage_agenda=not is_trainer_agenda_user,
+        can_manage_agenda=can_manage_agenda,
         success=request.args.get("success", "").strip(),
         error=request.args.get("error", "").strip(),
     )

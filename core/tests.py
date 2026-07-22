@@ -560,6 +560,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertContains(response, "Mijn eigen training")
         self.assertNotContains(response, "Training van een collega")
         self.assertNotContains(response, "+ Nieuwe Training")
+        self.assertNotContains(response, "Overzicht dagplanning")
+        self.assertNotContains(response, 'class="agenda-plan-summary-section"')
         self.assertNotContains(response, 'id="agendaEditModal"')
         self.assertEqual(post_response.status_code, 403)
 
