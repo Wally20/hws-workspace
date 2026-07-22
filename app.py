@@ -574,6 +574,14 @@ WORKSPACE_SEARCH_PAGES = (
         "keywords": ("beheer", "admin", "team", "orders"),
     },
     {
+        "key": "begroting",
+        "title": "Begroting",
+        "path": "/begroting",
+        "section": "Management",
+        "description": "Inkomsten, trainerbudget en resultaat per seizoen begroten.",
+        "keywords": ("budget", "kosten", "inkomsten", "seizoen"),
+    },
+    {
         "key": "materialen",
         "title": "Materialen",
         "path": "/materialen",
@@ -588,6 +596,14 @@ WORKSPACE_SEARCH_PAGES = (
         "section": "Management",
         "description": "Inschrijvingen en details per product bekijken.",
         "keywords": ("orders", "inschrijvingen", "producten", "deelnemers"),
+    },
+    {
+        "key": "orders",
+        "title": "Bestellingen",
+        "path": "/bestellingen",
+        "section": "Management",
+        "description": "Bestellingen, betalingen en statussen bekijken.",
+        "keywords": ("orders", "bestellingen", "betalingen", "ecwid"),
     },
     {
         "key": "leads",
@@ -631,17 +647,25 @@ WORKSPACE_SEARCH_PAGES = (
     },
     {
         "key": "financien",
-        "title": "Financien",
+        "title": "Financiën",
         "path": "/financien",
-        "section": "Financien",
+        "section": "Financiën",
         "description": "Startpunt voor omzet, winst en spaarpot.",
         "keywords": ("geld", "omzet", "winst", "spaarpot"),
+    },
+    {
+        "key": "financien",
+        "title": "Automatische facturen",
+        "path": "/financien/automatisch-facturen",
+        "section": "Financiën",
+        "description": "Automatische conceptfacturen instellen en verwerken.",
+        "keywords": ("moneybird", "facturen", "automatisch", "clubs"),
     },
     {
         "key": "revenue",
         "title": "Omzet",
         "path": "/omzet",
-        "section": "Financien",
+        "section": "Financiën",
         "description": "Omzetoverzichten openen.",
         "keywords": ("revenue", "inkomsten", "totaal", "maand", "seizoen"),
     },
@@ -649,7 +673,7 @@ WORKSPACE_SEARCH_PAGES = (
         "key": "revenue",
         "title": "Omzet totaal",
         "path": "/omzet/totaal",
-        "section": "Financien",
+        "section": "Financiën",
         "description": "Totale omzet bekijken.",
         "keywords": ("revenue", "inkomsten", "totaal"),
     },
@@ -657,7 +681,7 @@ WORKSPACE_SEARCH_PAGES = (
         "key": "revenue",
         "title": "Omzet per maand",
         "path": "/omzet/per-maand",
-        "section": "Financien",
+        "section": "Financiën",
         "description": "Maandomzet bekijken.",
         "keywords": ("revenue", "inkomsten", "maand", "grafiek"),
     },
@@ -665,7 +689,7 @@ WORKSPACE_SEARCH_PAGES = (
         "key": "revenue",
         "title": "Winst",
         "path": "/omzet/winst",
-        "section": "Financien",
+        "section": "Financiën",
         "description": "Winstoverzicht bekijken.",
         "keywords": ("profit", "winst", "kosten"),
     },
@@ -673,7 +697,7 @@ WORKSPACE_SEARCH_PAGES = (
         "key": "revenue",
         "title": "Omzet per seizoen",
         "path": "/omzet/per-seizoen",
-        "section": "Financien",
+        "section": "Financiën",
         "description": "Seizoensomzet bekijken.",
         "keywords": ("revenue", "inkomsten", "seizoen"),
     },
@@ -681,7 +705,7 @@ WORKSPACE_SEARCH_PAGES = (
         "key": "spaarpot",
         "title": "Spaarpot",
         "path": "/spaarpot",
-        "section": "Financien",
+        "section": "Financiën",
         "description": "Spaarpot en reserveringen beheren.",
         "keywords": ("sparen", "btw", "reservering", "geld"),
     },
@@ -689,7 +713,7 @@ WORKSPACE_SEARCH_PAGES = (
         "key": "trainer-fees",
         "title": "Trainersvergoedingen",
         "path": "/trainersvergoedingen",
-        "section": "Financien",
+        "section": "Financiën",
         "description": "Trainersvergoedingen beheren.",
         "keywords": ("vergoeding", "trainers", "betaling"),
     },
@@ -789,6 +813,21 @@ def get_workspace_search_pages_for_user(user: Optional[Dict[str, Any]]) -> List[
         for page in WORKSPACE_SEARCH_PAGES
         if page["key"] in visible_pages
     ]
+
+
+def get_current_workspace_navigation_path(user: Optional[Dict[str, Any]], current_path: str) -> str:
+    """Return the most specific menu path for overview and detail pages."""
+    available_paths = [page["path"] for page in get_workspace_search_pages_for_user(user)]
+    exact_matches = [path for path in available_paths if path == current_path]
+    if exact_matches:
+        return exact_matches[0]
+
+    prefix_matches = [
+        path
+        for path in available_paths
+        if path != "/" and current_path.startswith(f"{path}/")
+    ]
+    return max(prefix_matches, key=len, default="")
 
 
 def get_asset_version() -> str:
@@ -1321,6 +1360,7 @@ def inject_navigation_permissions():
     return {
         "visible_pages": get_visible_pages_for_user(user),
         "workspace_search_pages": get_workspace_search_pages_for_user(user),
+        "current_workspace_navigation_path": get_current_workspace_navigation_path(user, request.path),
         "can_view_revenue": bool(user and user.get("isAdmin")),
     }
 

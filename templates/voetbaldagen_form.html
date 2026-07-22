@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}{{ page_context.pageTitle }} | HWS Voetbalschool Workspace{% endblock %}
+{% block title %}{{ "Nieuw draaiboek" if page_mode == "new" else playbook.title }} | HWS Voetbalschool Workspace{% endblock %}
 
 {% block content %}
   <header class="page-header football-days-header">

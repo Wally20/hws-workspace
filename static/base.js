@@ -58,6 +58,35 @@ window.HwsSidebar = {
   setCollapsed: setSidebarCollapsed,
 };
 
+const workspaceNavigation = document.querySelector("#workspaceNavigation");
+const workspaceNavigationClose = workspaceNavigation?.querySelector("[data-navigation-close]");
+
+function closeWorkspaceNavigation() {
+  if (workspaceNavigation instanceof HTMLDetailsElement) {
+    workspaceNavigation.open = false;
+  }
+}
+
+workspaceNavigationClose?.addEventListener("click", closeWorkspaceNavigation);
+
+document.addEventListener("click", (event) => {
+  if (
+    workspaceNavigation instanceof HTMLDetailsElement
+    && workspaceNavigation.open
+    && event.target instanceof Node
+    && !workspaceNavigation.contains(event.target)
+  ) {
+    closeWorkspaceNavigation();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && workspaceNavigation instanceof HTMLDetailsElement && workspaceNavigation.open) {
+    closeWorkspaceNavigation();
+    workspaceNavigation.querySelector("summary")?.focus();
+  }
+});
+
 function normalizeWorkspaceSearchText(value) {
   return String(value || "")
     .normalize("NFD")
@@ -301,8 +330,6 @@ function initWorkspacePageSearch() {
     }
   });
 }
-
-initWorkspacePageSearch();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {

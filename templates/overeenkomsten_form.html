@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Overeenkomsten | HWS Voetbalschool Workspace{% endblock %}
+{% block title %}{{ "Nieuwe overeenkomst" if page_mode == "new" else contract.clubName }} | HWS Voetbalschool Workspace{% endblock %}
 
 {% block content %}
   <header class="page-header football-days-header">
