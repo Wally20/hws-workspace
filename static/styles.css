@@ -507,6 +507,52 @@ body.sidebar-collapsed .sidebar-toggle {
   }
 }
 
+/* Keep the installed app usable on Android devices that report a wide CSS viewport. */
+@media (orientation: portrait) and (pointer: coarse) {
+  .exercise-modal,
+  body.sidebar-collapsed .exercise-modal {
+    inset: 0;
+    width: 100%;
+    padding: 6px;
+    place-items: center;
+  }
+
+  .exercise-modal-dialog {
+    width: min(100%, 920px);
+    max-width: 920px;
+    max-height: calc(100dvh - 12px);
+    margin: auto;
+    padding: 14px 12px calc(18px + env(safe-area-inset-bottom));
+    overflow-x: hidden;
+  }
+
+  .exercise-detail-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .exercise-detail-layout,
+  .exercise-detail-column,
+  .exercise-center-column,
+  .exercise-detail-panel,
+  .exercise-field-panel {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .exercise-detail-column:first-child,
+  .exercise-detail-column-right,
+  .exercise-center-column {
+    grid-template-rows: auto;
+  }
+
+  .exercise-detail-column:first-child .exercise-detail-panel,
+  .exercise-detail-column-right .exercise-detail-panel,
+  .exercise-materials-panel {
+    overflow: visible;
+  }
+}
+
 .subtle-button,
 .refresh-button {
   border: 1px solid var(--line);
