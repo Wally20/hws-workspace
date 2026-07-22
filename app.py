@@ -15487,9 +15487,7 @@ def fetch_orders_non_blocking() -> Dict[str, Any]:
         return payload
 
     start_background_refresh()
-    return get_empty_dashboard_payload(
-        "Dashboard wordt op de achtergrond bijgewerkt. De nieuwste cijfers verschijnen zo automatisch."
-    )
+    return get_empty_dashboard_payload()
 
 
 def format_cache_timestamp(timestamp: float) -> str:

@@ -481,6 +481,17 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         content = response.content.decode("utf-8")
         self.assertIn("Live Ecwid-koppeling staat nog niet aan.", content)
 
+    def test_initial_dashboard_refresh_runs_without_showing_loading_notice(self):
+        with (
+            patch.dict(legacy.orders_cache, {"payload": None, "cached_at": 0.0}, clear=True),
+            patch.object(legacy, "start_background_refresh") as mocked_refresh,
+        ):
+            payload = legacy.fetch_orders_non_blocking()
+
+        mocked_refresh.assert_called_once_with()
+        self.assertIsNone(payload["message"])
+        self.assertNotIn("Dashboard wordt op de achtergrond bijgewerkt", str(payload))
+
     def test_trainer_has_dashboard_access_and_lands_there_after_login(self):
         trainer = {"id": "trainer-123", "isAdmin": False, "systemRole": "Trainer"}
 
