@@ -178,13 +178,13 @@
                   </div>
                   <div
                     class="agenda-day-plan-dropzone agenda-day-plan-dropzone-compact{% if day.planType %} agenda-day-plan-dropzone-filled{% endif %}"
-                    data-day-plan-dropzone="{{ day.key }}"
-                    data-day-plan-value="{{ day.planType }}"
+                    {% if can_manage_agenda %}data-day-plan-dropzone="{{ day.key }}"
+                    data-day-plan-value="{{ day.planType }}"{% endif %}
                   >
                     <span class="agenda-day-plan-value"{% if not day.planType %} aria-hidden="true"{% endif %}>{{ day.planType }}</span>
-                    <button type="button" class="agenda-day-plan-clear" data-clear-day-plan="{{ day.key }}" {% if not day.planType %}hidden{% endif %}>
+                    {% if can_manage_agenda %}<button type="button" class="agenda-day-plan-clear" data-clear-day-plan="{{ day.key }}" {% if not day.planType %}hidden{% endif %}>
                       Wis
-                    </button>
+                    </button>{% endif %}
                   </div>
                   <div
                     class="agenda-day-external-labels agenda-day-external-labels-compact"
@@ -238,13 +238,13 @@
               <span class="agenda-day-label">{{ day.shortLabel }}</span>
               <div
                 class="agenda-day-plan-dropzone{% if day.planType %} agenda-day-plan-dropzone-filled{% endif %}"
-                data-day-plan-dropzone="{{ day.key }}"
-                data-day-plan-value="{{ day.planType }}"
+                {% if can_manage_agenda %}data-day-plan-dropzone="{{ day.key }}"
+                data-day-plan-value="{{ day.planType }}"{% endif %}
               >
                 <span class="agenda-day-plan-value"{% if not day.planType %} aria-hidden="true"{% endif %}>{{ day.planType }}</span>
-                <button type="button" class="agenda-day-plan-clear" data-clear-day-plan="{{ day.key }}" {% if not day.planType %}hidden{% endif %}>
+                {% if can_manage_agenda %}<button type="button" class="agenda-day-plan-clear" data-clear-day-plan="{{ day.key }}" {% if not day.planType %}hidden{% endif %}>
                   Wis
-                </button>
+                </button>{% endif %}
               </div>
               <div
                 class="agenda-day-external-labels"

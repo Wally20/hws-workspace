@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import sqlite3
@@ -551,20 +552,35 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         with (
             patch.object(legacy, "get_current_user", return_value=trainer),
             patch.object(legacy, "load_agenda_trainings", return_value=[own_training, other_training]),
+            patch.object(legacy, "load_agenda_day_plans", return_value={today.isoformat(): "Voetbaldag"}),
+            patch.object(legacy, "save_agenda_day_plans") as mocked_save_day_plans,
             patch.object(legacy, "auto_mark_completed_agenda_trainings", return_value=0),
             patch.object(legacy, "build_agenda_external_labels", return_value={}),
         ):
             response = Client().get("/agenda", secure=True)
-            post_response = Client().post("/agenda", {"action": "delete_training"}, secure=True)
+            post_response = Client().post(
+                "/agenda",
+                {
+                    "action": "save_day_plans",
+                    "day_plans": json.dumps({today.isoformat(): "Geen activiteit"}),
+                    "visible_dates": json.dumps([today.isoformat()]),
+                },
+                secure=True,
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Mijn eigen training")
+        self.assertContains(response, "Voetbaldag")
         self.assertNotContains(response, "Training van een collega")
         self.assertNotContains(response, "+ Nieuwe Training")
         self.assertNotContains(response, "Overzicht dagplanning")
         self.assertNotContains(response, 'class="agenda-plan-summary-section"')
+        self.assertNotContains(response, "data-day-plan-dropzone=")
+        self.assertNotContains(response, "data-clear-day-plan=")
+        self.assertNotContains(response, ">\n                      Wis\n")
         self.assertNotContains(response, 'id="agendaEditModal"')
         self.assertEqual(post_response.status_code, 403)
+        mocked_save_day_plans.assert_not_called()
 
     def test_trainer_dashboard_hides_upcoming_event_registrations_card(self):
         trainer = {
