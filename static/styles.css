@@ -1327,6 +1327,255 @@ body.materials-modal-open {
   margin-top: 0;
 }
 
+.api-page-header {
+  align-items: flex-start;
+}
+
+.api-page-grid,
+.api-examples-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+  margin-bottom: 22px;
+}
+
+.api-success-notice {
+  margin-bottom: 22px;
+  border-color: var(--success-line);
+  background: var(--success-soft);
+  font-weight: 700;
+}
+
+.api-connection-card,
+.api-calendar-card,
+.api-install-card,
+.api-example-card,
+.api-reference-card {
+  display: grid;
+  min-width: 0;
+  gap: 20px;
+}
+
+.api-install-card,
+.api-reference-card {
+  margin-bottom: 22px;
+}
+
+.api-card-heading,
+.api-copy-control,
+.api-rotate-form {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.api-card-heading h2,
+.api-reference-grid h3 {
+  margin: 0;
+}
+
+.api-card-heading h2 {
+  font-size: clamp(1.2rem, 2vw, 1.55rem);
+}
+
+.api-eyebrow {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.api-status-pill,
+.api-format-pill {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.api-status-pill {
+  background: var(--success-soft);
+  color: #176b37;
+}
+
+.api-format-pill {
+  background: #111111;
+  color: #ffffff;
+}
+
+.api-copy-field {
+  display: grid;
+  gap: 8px;
+}
+
+.api-copy-field label {
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.api-copy-field small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.api-copy-control input {
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #f7f7f7;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.api-meta-grid,
+.api-reference-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.api-meta-grid > div {
+  display: grid;
+  gap: 4px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface-soft);
+}
+
+.api-meta-grid span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.api-meta-grid strong {
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+}
+
+.api-copy-feedback {
+  min-height: 1.2em;
+  color: #176b37;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.api-rotate-form {
+  align-items: flex-start;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.api-rotate-form strong,
+.api-info-box strong {
+  font-size: 0.85rem;
+}
+
+.api-rotate-form p,
+.api-info-box p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.api-danger-button {
+  border-color: #efb4b4;
+  color: #a61b1b;
+  background: #fff5f5;
+}
+
+.api-info-box {
+  padding: 15px 16px;
+  border: 1px solid #d9e3f0;
+  border-radius: 14px;
+  background: #f4f8fc;
+}
+
+.api-code-block {
+  overflow: auto;
+  max-width: 100%;
+  margin: 0;
+  padding: 18px;
+  border-radius: 14px;
+  background: #151515;
+  color: #f5f5f5;
+  font: 0.78rem/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre;
+}
+
+.api-reference-grid h3 {
+  margin-bottom: 13px;
+  font-size: 0.95rem;
+}
+
+.api-definition-list {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+}
+
+.api-definition-list > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.4fr) minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--line);
+}
+
+.api-definition-list dt,
+.api-definition-list dd {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.api-definition-list dd {
+  color: var(--muted);
+}
+
+@media (max-width: 860px) {
+  .api-page-grid,
+  .api-examples-grid,
+  .api-reference-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .api-copy-control,
+  .api-rotate-form {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .api-copy-control input {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .api-card-heading {
+    align-items: flex-start;
+  }
+
+  .api-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .api-definition-list > div {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+}
+
 .content-upload-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

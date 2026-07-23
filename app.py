@@ -502,6 +502,7 @@ SECURITY_HEADERS = {
 RATE_LIMIT_RULES = (
     (re.compile(r"^/login$"), 5, 300, "login"),
     (re.compile(r"^/uitnodiging/[^/]+$"), 5, 600, "invite"),
+    (re.compile(r"^/api/v1/agenda/(?:events|calendar\.ics)$"), 120, 300, "agenda-api"),
     (re.compile(r"^/api/dashboard-events$"), 20, 300, "dashboard-events"),
     (re.compile(r"^/content(?:/\d+)?$"), 20, 300, "content"),
     (re.compile(r"^/trainers$"), 20, 300, "trainers"),
@@ -572,6 +573,14 @@ WORKSPACE_SEARCH_PAGES = (
         "section": "Management",
         "description": "Startpunt voor voorstellen, overeenkomsten, aanmeldingen en team.",
         "keywords": ("beheer", "admin", "team", "orders"),
+    },
+    {
+        "key": "api",
+        "title": "API",
+        "path": "/management/api",
+        "section": "Management",
+        "description": "Beheer de beveiligde koppeling met de HWS-agenda.",
+        "keywords": ("api", "agenda", "koppeling", "token", "ics", "integratie"),
     },
     {
         "key": "begroting",
@@ -1328,8 +1337,17 @@ app.config["MAX_CONTENT_LENGTH"] = max(
 ) * 1024 * 1024
 
 
+def is_external_agenda_api_path(path: str) -> bool:
+    return path in {"/api/v1/agenda/events", "/api/v1/agenda/calendar.ics"}
+
+
 def is_public_path(path: str) -> bool:
-    return path.startswith("/static/") or path in {"/login", "/manifest.webmanifest", "/service-worker.js"} or path.startswith("/uitnodiging/")
+    return (
+        path.startswith("/static/")
+        or path in {"/login", "/manifest.webmanifest", "/service-worker.js"}
+        or path.startswith("/uitnodiging/")
+        or is_external_agenda_api_path(path)
+    )
 
 
 def get_current_user() -> Optional[Dict[str, Any]]:
@@ -1370,6 +1388,15 @@ def require_login():
     if should_enforce_https() and not is_request_secure() and not should_skip_https_redirect():
         secure_url = request.url.replace("http://", "https://", 1)
         return redirect(secure_url, code=301)
+
+    if is_external_agenda_api_path(request.path):
+        rate_limit_rule = get_rate_limit_rule(request.path)
+        if rate_limit_rule is not None:
+            max_attempts, window_seconds, scope = rate_limit_rule
+            retry_after = apply_rate_limit(max_attempts, window_seconds, scope)
+            if retry_after is not None:
+                return rate_limit_error_response(retry_after)
+        return None
 
     session_response = handle_session_timeout()
     if session_response is not None:
@@ -3680,6 +3707,13 @@ def init_db() -> None:
                 date TEXT PRIMARY KEY,
                 plan_type TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS agenda_api_credentials (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                token_salt TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_used_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS exercises (
@@ -6380,6 +6414,363 @@ def load_all_agenda_day_plans() -> List[Dict[str, str]]:
         ]
 
     return get_cached_local_data("all_agenda_day_plans", (), loader)
+
+
+AGENDA_API_CREDENTIAL_ID = 1
+AGENDA_API_TOKEN_PREFIX = "hws_agenda_"
+AGENDA_API_UID_DOMAIN = "workspace.hwsvoetbalschool.nl"
+
+
+def get_agenda_api_signing_secret() -> str:
+    return get_secret_env("AGENDA_API_SECRET") or str(settings.SECRET_KEY)
+
+
+def derive_agenda_api_token(token_salt: str) -> str:
+    digest = hmac.new(
+        get_agenda_api_signing_secret().encode("utf-8"),
+        str(token_salt or "").encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    encoded_digest = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return f"{AGENDA_API_TOKEN_PREFIX}{encoded_digest}"
+
+
+def get_agenda_api_credential(create_if_missing: bool = True) -> Optional[Dict[str, str]]:
+    with get_db_connection() as connection:
+        if create_if_missing:
+            now = utcnow_iso()
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO agenda_api_credentials (id, token_salt, created_at, last_used_at)
+                VALUES (?, ?, ?, NULL)
+                """,
+                (AGENDA_API_CREDENTIAL_ID, secrets.token_urlsafe(32), now),
+            )
+        row = connection.execute(
+            """
+            SELECT token_salt, created_at, last_used_at
+            FROM agenda_api_credentials
+            WHERE id = ?
+            """,
+            (AGENDA_API_CREDENTIAL_ID,),
+        ).fetchone()
+
+    if row is None:
+        return None
+    token_salt = str(row["token_salt"] or "").strip()
+    if not token_salt:
+        return None
+    return {
+        "token": derive_agenda_api_token(token_salt),
+        "createdAt": str(row["created_at"] or "").strip(),
+        "lastUsedAt": str(row["last_used_at"] or "").strip(),
+    }
+
+
+def rotate_agenda_api_credential() -> Dict[str, str]:
+    now = utcnow_iso()
+    token_salt = secrets.token_urlsafe(32)
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO agenda_api_credentials (id, token_salt, created_at, last_used_at)
+            VALUES (?, ?, ?, NULL)
+            ON CONFLICT(id) DO UPDATE SET
+                token_salt = excluded.token_salt,
+                created_at = excluded.created_at,
+                last_used_at = NULL
+            """,
+            (AGENDA_API_CREDENTIAL_ID, token_salt, now),
+        )
+    return {
+        "token": derive_agenda_api_token(token_salt),
+        "createdAt": now,
+        "lastUsedAt": "",
+    }
+
+
+def mark_agenda_api_credential_used() -> None:
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            UPDATE agenda_api_credentials
+            SET last_used_at = ?
+            WHERE id = ?
+            """,
+            (utcnow_iso(), AGENDA_API_CREDENTIAL_ID),
+        )
+
+
+def get_agenda_api_allowed_origins() -> Set[str]:
+    return {
+        origin.strip().rstrip("/")
+        for origin in get_env("AGENDA_API_ALLOWED_ORIGINS").split(",")
+        if origin.strip()
+    }
+
+
+def apply_agenda_api_response_headers(response: Any) -> Any:
+    response["Cache-Control"] = "no-store"
+    response["X-Robots-Tag"] = "noindex, nofollow"
+    origin = str(request.headers.get("Origin", "") or "").strip().rstrip("/")
+    if origin and origin in get_agenda_api_allowed_origins():
+        response["Access-Control-Allow-Origin"] = origin
+        response["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        response["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+        response["Access-Control-Max-Age"] = "3600"
+        current_vary = str(response.get("Vary", "") or "").strip()
+        if "Origin" not in {item.strip() for item in current_vary.split(",") if item.strip()}:
+            response["Vary"] = f"{current_vary}, Origin".strip(", ")
+    return response
+
+
+def agenda_api_json_response(payload: Dict[str, Any], status_code: int = 200) -> Any:
+    response = jsonify(payload)
+    response.status_code = status_code
+    return apply_agenda_api_response_headers(response)
+
+
+def agenda_api_preflight_response() -> Any:
+    origin = str(request.headers.get("Origin", "") or "").strip().rstrip("/")
+    if not origin or origin not in get_agenda_api_allowed_origins():
+        return agenda_api_json_response(
+            {"error": {"code": "origin_not_allowed", "message": "Deze origin is niet toegestaan."}},
+            403,
+        )
+    response = jsonify({})
+    response.status_code = 204
+    return apply_agenda_api_response_headers(response)
+
+
+def get_agenda_api_request_token(allow_query_parameter: bool = False) -> str:
+    authorization = str(request.headers.get("Authorization", "") or "").strip()
+    scheme, separator, value = authorization.partition(" ")
+    if separator and scheme.casefold() == "bearer":
+        return value.strip()
+    if allow_query_parameter:
+        return str(request.args.get("token", "") or "").strip()
+    return ""
+
+
+def validate_agenda_api_request(allow_query_parameter: bool = False) -> Optional[Any]:
+    credential = get_agenda_api_credential()
+    request_token = get_agenda_api_request_token(allow_query_parameter=allow_query_parameter)
+    expected_token = str(credential.get("token") or "") if credential else ""
+    if not request_token or not expected_token or not hmac.compare_digest(request_token, expected_token):
+        response = agenda_api_json_response(
+            {
+                "error": {
+                    "code": "unauthorized",
+                    "message": "Een geldige HWS-agenda API-sleutel is vereist.",
+                }
+            },
+            401,
+        )
+        response["WWW-Authenticate"] = 'Bearer realm="HWS Agenda API"'
+        return response
+    mark_agenda_api_credential_used()
+    return None
+
+
+def parse_agenda_api_bool(value: Any, default: bool = False) -> bool:
+    normalized_value = str(value or "").strip().casefold()
+    if not normalized_value:
+        return default
+    if normalized_value in {"1", "true", "yes", "ja", "on"}:
+        return True
+    if normalized_value in {"0", "false", "no", "nee", "off"}:
+        return False
+    return default
+
+
+def get_agenda_api_timezone() -> ZoneInfo:
+    try:
+        return ZoneInfo(str(settings.TIME_ZONE or "Europe/Amsterdam"))
+    except (KeyError, ValueError):
+        return ZoneInfo("Europe/Amsterdam")
+
+
+def serialize_agenda_api_training(training: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    event_date = str(training.get("date") or "").strip()
+    start_time = str(training.get("time") or "").strip()
+    if parse_iso_date(event_date) is None or not start_time:
+        return None
+    end_time = str(training.get("endTime") or "").strip() or compute_default_end_time(start_time)
+    try:
+        start_local = datetime.fromisoformat(f"{event_date}T{start_time}")
+        end_local = datetime.fromisoformat(f"{event_date}T{end_time}")
+    except ValueError:
+        return None
+    if end_local <= start_local:
+        end_local = start_local + timedelta(minutes=90)
+
+    agenda_timezone = get_agenda_api_timezone()
+    start_local = start_local.replace(tzinfo=agenda_timezone)
+    end_local = end_local.replace(tzinfo=agenda_timezone)
+    event_id = str(training.get("id") or "").strip()
+    if not event_id:
+        return None
+    status = str(training.get("status") or "gepland").strip()
+    trainers = [
+        {
+            "id": str(trainer.get("id") or "").strip(),
+            "name": str(trainer.get("name") or "").strip(),
+        }
+        for trainer in training.get("trainers") or []
+        if isinstance(trainer, dict) and str(trainer.get("id") or "").strip()
+    ]
+    return {
+        "id": event_id,
+        "uid": f"agenda-{event_id}@{AGENDA_API_UID_DOMAIN}",
+        "title": str(training.get("title") or "").strip(),
+        "start": start_local.isoformat(timespec="minutes"),
+        "end": end_local.isoformat(timespec="minutes"),
+        "allDay": False,
+        "timezone": str(settings.TIME_ZONE or "Europe/Amsterdam"),
+        "location": str(training.get("location") or "").strip(),
+        "type": str(training.get("trainingType") or "").strip(),
+        "typeLabel": str(training.get("trainingTypeLabel") or "").strip(),
+        "status": status,
+        "statusLabel": str(training.get("statusLabel") or "").strip(),
+        "cancelled": status == "geannuleerd",
+        "trainers": trainers,
+        "notes": str(training.get("notes") or "").strip(),
+    }
+
+
+def serialize_agenda_api_day_plan(day_plan: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    event_date = str(day_plan.get("date") or "").strip()
+    plan_type = str(day_plan.get("planType") or "").strip()
+    parsed_date = parse_iso_date(event_date)
+    if parsed_date is None or not plan_type:
+        return None
+    return {
+        "id": f"day-plan-{event_date}",
+        "uid": f"agenda-day-plan-{event_date}@{AGENDA_API_UID_DOMAIN}",
+        "title": plan_type,
+        "start": event_date,
+        "end": (parsed_date + timedelta(days=1)).isoformat(),
+        "allDay": True,
+        "timezone": str(settings.TIME_ZONE or "Europe/Amsterdam"),
+        "location": "",
+        "type": "dagplanning",
+        "typeLabel": "Dagplanning",
+        "status": "gepland",
+        "statusLabel": "Gepland",
+        "cancelled": False,
+        "trainers": [],
+        "notes": "",
+    }
+
+
+def build_agenda_api_events(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    include_cancelled: bool = True,
+    include_day_plans: bool = False,
+) -> List[Dict[str, Any]]:
+    events = [
+        event
+        for event in (
+            serialize_agenda_api_training(training)
+            for training in load_agenda_trainings(start_date, end_date)
+        )
+        if event is not None and (include_cancelled or not event["cancelled"])
+    ]
+    if include_day_plans:
+        for day_plan in load_all_agenda_day_plans():
+            event_date = str(day_plan.get("date") or "").strip()
+            if start_date and event_date < start_date:
+                continue
+            if end_date and event_date > end_date:
+                continue
+            event = serialize_agenda_api_day_plan(day_plan)
+            if event is not None:
+                events.append(event)
+    return sorted(events, key=lambda event: (str(event["start"]), str(event["id"])))
+
+
+def escape_ical_text(value: Any) -> str:
+    return (
+        str(value or "")
+        .replace("\\", "\\\\")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+        .replace("\n", "\\n")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+    )
+
+
+def fold_ical_line(line: str) -> List[str]:
+    folded_lines: List[str] = []
+    current = ""
+    byte_limit = 75
+    for character in line:
+        candidate = f"{current}{character}"
+        if current and len(candidate.encode("utf-8")) > byte_limit:
+            folded_lines.append(current)
+            current = f" {character}"
+            byte_limit = 75
+        else:
+            current = candidate
+    folded_lines.append(current)
+    return folded_lines
+
+
+def build_agenda_icalendar(events: List[Dict[str, Any]]) -> str:
+    utc_timezone = ZoneInfo("UTC")
+    generated_at = datetime.now(tz=utc_timezone).strftime("%Y%m%dT%H%M%SZ")
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//HWS Voetbalschool//Agenda API//NL",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "X-WR-CALNAME:HWS Voetbalschool",
+        f"X-WR-TIMEZONE:{escape_ical_text(settings.TIME_ZONE)}",
+        "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
+        "X-PUBLISHED-TTL:PT1H",
+    ]
+    for event in events:
+        lines.extend(["BEGIN:VEVENT", f"UID:{escape_ical_text(event['uid'])}", f"DTSTAMP:{generated_at}"])
+        if event.get("allDay"):
+            lines.append(f"DTSTART;VALUE=DATE:{str(event['start']).replace('-', '')}")
+            lines.append(f"DTEND;VALUE=DATE:{str(event['end']).replace('-', '')}")
+        else:
+            start_utc = datetime.fromisoformat(str(event["start"])).astimezone(utc_timezone)
+            end_utc = datetime.fromisoformat(str(event["end"])).astimezone(utc_timezone)
+            lines.append(f"DTSTART:{start_utc.strftime('%Y%m%dT%H%M%SZ')}")
+            lines.append(f"DTEND:{end_utc.strftime('%Y%m%dT%H%M%SZ')}")
+        description_parts = [
+            str(event.get("typeLabel") or "").strip(),
+            str(event.get("statusLabel") or "").strip(),
+        ]
+        trainer_names = ", ".join(
+            str(trainer.get("name") or "").strip()
+            for trainer in event.get("trainers") or []
+            if isinstance(trainer, dict) and str(trainer.get("name") or "").strip()
+        )
+        if trainer_names:
+            description_parts.append(f"Trainers: {trainer_names}")
+        if event.get("notes"):
+            description_parts.append(str(event["notes"]))
+        lines.extend(
+            [
+                f"SUMMARY:{escape_ical_text(event.get('title'))}",
+                f"LOCATION:{escape_ical_text(event.get('location'))}",
+                f"DESCRIPTION:{escape_ical_text(chr(10).join(part for part in description_parts if part))}",
+                f"STATUS:{'CANCELLED' if event.get('cancelled') else 'CONFIRMED'}",
+                "TRANSP:OPAQUE",
+                "END:VEVENT",
+            ]
+        )
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(
+        folded_line
+        for line in lines
+        for folded_line in fold_ical_line(line)
+    ) + "\r\n"
 
 
 def normalize_agenda_summary_filter(value: Any) -> str:
@@ -11502,6 +11893,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "voetbaldagen",
             "samenwerkende-amateurclubs",
             "management",
+            "api",
             "materialen",
             "orders",
             "leads",
@@ -16870,6 +17262,94 @@ def management_page() -> str:
     return render_template("management.html", active_page="management")
 
 
+def get_current_request_base_url() -> str:
+    request_url = str(request.url or "").strip()
+    request_path = str(request.path or "").strip()
+    if request_url and request_path and request_path in request_url:
+        return request_url.split(request_path, 1)[0].rstrip("/")
+    scheme = "https" if is_request_secure() else "http"
+    host = str(request.headers.get("Host", "") or "").strip()
+    if not host:
+        return ""
+    return f"{scheme}://{host}"
+
+
+@app.route("/management/api", methods=["GET", "POST"])
+def api_management_page() -> str:
+    access_redirect = require_page_access("api")
+    if access_redirect is not None:
+        return access_redirect
+
+    if request.method == "POST":
+        action = str(request.form.get("action", "") or "").strip()
+        if action != "rotate":
+            return "Ongeldige API-actie.", 400
+        rotate_agenda_api_credential()
+        return redirect(
+            url_for(
+                "api_management_page",
+                success="De API-sleutel is vernieuwd. Werk de koppeling in het andere project bij.",
+            )
+        )
+
+    credential = get_agenda_api_credential() or rotate_agenda_api_credential()
+    api_token = credential["token"]
+    base_url = get_current_request_base_url()
+    events_url = f"{base_url}/api/v1/agenda/events"
+    calendar_feed_url = f"{base_url}/api/v1/agenda/calendar.ics?token={api_token}"
+    integration_environment = "\n".join(
+        [
+            f"HWS_AGENDA_API_URL={events_url}",
+            f"HWS_AGENDA_API_TOKEN={api_token}",
+            f"HWS_AGENDA_ICS_URL={calendar_feed_url}",
+        ]
+    )
+    python_example = "\n".join(
+        [
+            "import os",
+            "import requests",
+            "",
+            'response = requests.get(',
+            '    os.environ["HWS_AGENDA_API_URL"],',
+            '    headers={"Authorization": f\'Bearer {os.environ["HWS_AGENDA_API_TOKEN"]}\'},',
+            '    params={"start": "2026-01-01", "include_day_plans": "1"},',
+            "    timeout=20,",
+            ")",
+            "response.raise_for_status()",
+            'appointments = response.json()["events"]',
+        ]
+    )
+    javascript_example = "\n".join(
+        [
+            "const url = new URL(process.env.HWS_AGENDA_API_URL);",
+            'url.searchParams.set("start", "2026-01-01");',
+            "",
+            "const response = await fetch(url, {",
+            "  headers: {",
+            "    Authorization: `Bearer ${process.env.HWS_AGENDA_API_TOKEN}`,",
+            "  },",
+            "});",
+            "",
+            "if (!response.ok) throw new Error(`HWS API: ${response.status}`);",
+            "const { events } = await response.json();",
+        ]
+    )
+    return render_template(
+        "api.html",
+        active_page="api",
+        api_token=api_token,
+        events_url=events_url,
+        calendar_feed_url=calendar_feed_url,
+        integration_environment=integration_environment,
+        python_example=python_example,
+        javascript_example=javascript_example,
+        api_created_at=credential.get("createdAt", ""),
+        api_last_used_at=credential.get("lastUsedAt", ""),
+        api_allowed_origins=sorted(get_agenda_api_allowed_origins()),
+        success=request.args.get("success", "").strip(),
+    )
+
+
 @app.route("/management/begroting", methods=["GET", "POST"])
 @app.route("/begroting", methods=["GET", "POST"])
 def budget_page() -> str:
@@ -19469,6 +19949,91 @@ def api_orders():
         return jsonify({"error": "Ecwid API request mislukt"}), status_code
     except requests.RequestException:
         return jsonify({"error": "Netwerkfout bij Ecwid"}), 502
+
+
+@app.route("/api/v1/agenda/events", methods=["GET", "OPTIONS"])
+def api_agenda_events():
+    if request.method == "OPTIONS":
+        return agenda_api_preflight_response()
+    authentication_error = validate_agenda_api_request()
+    if authentication_error is not None:
+        return authentication_error
+
+    start_date = str(request.args.get("start", "") or "").strip()
+    end_date = str(request.args.get("end", "") or "").strip()
+    if start_date and parse_iso_date(start_date) is None:
+        return agenda_api_json_response(
+            {"error": {"code": "invalid_start", "message": "Gebruik voor start het formaat JJJJ-MM-DD."}},
+            400,
+        )
+    if end_date and parse_iso_date(end_date) is None:
+        return agenda_api_json_response(
+            {"error": {"code": "invalid_end", "message": "Gebruik voor end het formaat JJJJ-MM-DD."}},
+            400,
+        )
+    if start_date and end_date and start_date > end_date:
+        return agenda_api_json_response(
+            {"error": {"code": "invalid_range", "message": "De startdatum moet voor de einddatum liggen."}},
+            400,
+        )
+
+    include_cancelled = parse_agenda_api_bool(request.args.get("include_cancelled", ""), default=True)
+    include_day_plans = parse_agenda_api_bool(request.args.get("include_day_plans", ""), default=False)
+    events = build_agenda_api_events(
+        start_date=start_date or None,
+        end_date=end_date or None,
+        include_cancelled=include_cancelled,
+        include_day_plans=include_day_plans,
+    )
+    return agenda_api_json_response(
+        {
+            "apiVersion": "1",
+            "timezone": str(settings.TIME_ZONE or "Europe/Amsterdam"),
+            "generatedAt": datetime.now(tz=ZoneInfo("UTC")).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "count": len(events),
+            "filters": {
+                "start": start_date or None,
+                "end": end_date or None,
+                "includeCancelled": include_cancelled,
+                "includeDayPlans": include_day_plans,
+            },
+            "events": events,
+        }
+    )
+
+
+@app.route("/api/v1/agenda/calendar.ics", methods=["GET", "OPTIONS"])
+def api_agenda_calendar():
+    if request.method == "OPTIONS":
+        return agenda_api_preflight_response()
+    authentication_error = validate_agenda_api_request(allow_query_parameter=True)
+    if authentication_error is not None:
+        return authentication_error
+
+    include_cancelled = parse_agenda_api_bool(request.args.get("include_cancelled", ""), default=True)
+    include_day_plans = parse_agenda_api_bool(request.args.get("include_day_plans", ""), default=False)
+    events = build_agenda_api_events(
+        include_cancelled=include_cancelled,
+        include_day_plans=include_day_plans,
+    )
+    calendar_text = build_agenda_icalendar(events)
+    response_headers = {
+        "Content-Type": "text/calendar; charset=utf-8",
+        "Content-Disposition": 'inline; filename="hws-agenda.ics"',
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow",
+    }
+    origin = str(request.headers.get("Origin", "") or "").strip().rstrip("/")
+    if origin and origin in get_agenda_api_allowed_origins():
+        response_headers.update(
+            {
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Methods": "GET, OPTIONS",
+                "Access-Control-Allow-Headers": "Authorization, Content-Type",
+                "Vary": "Origin",
+            }
+        )
+    return calendar_text.encode("utf-8"), 200, response_headers
 
 
 @app.get("/api/dashboard-summary")

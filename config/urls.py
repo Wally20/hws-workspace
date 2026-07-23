@@ -11,6 +11,7 @@ urlpatterns = [
     path("logout", views.logout_page, name="logout_page"),
     path("", views.index, name="index"),
     path("management", views.management_page, name="management_page"),
+    path("management/api", views.api_management_page, name="api_management_page"),
     path("materialen", views.materialen_page, name="materialen_page"),
     path(
         "materialen/clubs/export-pdf",
@@ -115,6 +116,8 @@ urlpatterns = [
     path("content", views.content_page, name="content_page"),
     path("content/<int:album_id>", views.content_album_page, name="content_album_page"),
     path("api/orders", views.api_orders, name="api_orders"),
+    path("api/v1/agenda/events", views.api_agenda_events, name="api_agenda_events"),
+    path("api/v1/agenda/calendar.ics", views.api_agenda_calendar, name="api_agenda_calendar"),
     path("api/dashboard-summary", views.api_dashboard_summary, name="api_dashboard_summary"),
     path("api/products/search", views.api_product_search, name="api_product_search"),
     path("api/products/registration-count", views.api_product_registration_count, name="api_product_registration_count"),

@@ -47,6 +47,8 @@ class LegacyResponseHeadersMiddleware:
             response["Cache-Control"] = "public, max-age=31536000, immutable"
         elif request.path.startswith("/api/dashboard-weather"):
             response["Cache-Control"] = "private, max-age=300, must-revalidate"
+        elif request.path.startswith("/api/v1/agenda/"):
+            response["Cache-Control"] = "no-store"
         elif request.path.startswith("/api/"):
             response["Cache-Control"] = "private, max-age=60, must-revalidate"
         else:

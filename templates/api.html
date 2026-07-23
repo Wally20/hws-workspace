@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block title %}API | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header api-page-header">
+    <div>
+      <h1>API</h1>
+      <p class="welcome-line">Koppel de HWS-agenda read-only aan je andere project of persoonlijke agenda.</p>
+    </div>
+    <a class="subtle-button" href="/management">Terug naar management</a>
+  </header>
+
+  {% if success %}
+    <div class="notice api-success-notice" role="status">{{ success }}</div>
+  {% endif %}
+
+  <section class="api-page-grid">
+    <article class="summary-card api-connection-card">
+      <div class="api-card-heading">
+        <div>
+          <p class="api-eyebrow">Beveiligde JSON-koppeling</p>
+          <h2>Verbindingsgegevens</h2>
+        </div>
+        <span class="api-status-pill">Actief</span>
+      </div>
+
+      <p class="feature-list-subtitle">
+        Gebruik de URL en sleutel alleen aan de serverkant van het andere project. De koppeling kan agenda-afspraken lezen, maar niets wijzigen.
+      </p>
+
+      <div class="api-copy-field">
+        <label for="agendaApiUrl">API-URL</label>
+        <div class="api-copy-control">
+          <input id="agendaApiUrl" type="text" value="{{ events_url }}" readonly spellcheck="false">
+          <button class="subtle-button" type="button" data-copy-target="agendaApiUrl">Kopieer</button>
+        </div>
+      </div>
+
+      <div class="api-copy-field">
+        <label for="agendaApiToken">API-sleutel</label>
+        <div class="api-copy-control api-secret-control">
+          <input id="agendaApiToken" type="password" value="{{ api_token }}" readonly spellcheck="false" autocomplete="off">
+          <button class="subtle-button" type="button" data-secret-toggle="agendaApiToken" aria-pressed="false">Toon</button>
+          <button class="subtle-button subtle-button-strong" type="button" data-copy-target="agendaApiToken">Kopieer</button>
+        </div>
+        <small>Stuur mee als <code>Authorization: Bearer &lt;API-sleutel&gt;</code>.</small>
+      </div>
+
+      <div class="api-meta-grid">
+        <div>
+          <span>Sleutel aangemaakt</span>
+          <strong>{{ api_created_at|replace("T", " ") if api_created_at else "Onbekend" }}</strong>
+        </div>
+        <div>
+          <span>Laatst gebruikt</span>
+          <strong>{{ api_last_used_at|replace("T", " ") if api_last_used_at else "Nog niet gebruikt" }}</strong>
+        </div>
+      </div>
+
+      <div class="api-copy-feedback" data-copy-feedback aria-live="polite"></div>
+
+      <form method="post" action="/management/api" class="api-rotate-form" data-api-rotate-form>
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <input type="hidden" name="action" value="rotate">
+        <div>
+          <strong>Sleutel vernieuwen</strong>
+          <p>De huidige sleutel en agenda-feed stoppen daarna direct met werken.</p>
+        </div>
+        <button class="subtle-button api-danger-button" type="submit">Vernieuw sleutel</button>
+      </form>
+    </article>
+
+    <article class="summary-card api-calendar-card">
+      <div class="api-card-heading">
+        <div>
+          <p class="api-eyebrow">Agenda-abonnement</p>
+          <h2>iCalendar-feed</h2>
+        </div>
+        <span class="api-format-pill">.ics</span>
+      </div>
+      <p class="feature-list-subtitle">
+        Voeg deze geheime URL als agenda-abonnement toe in Google Calendar, Apple Agenda, Outlook of een ander platform met iCalendar-ondersteuning.
+      </p>
+      <div class="api-copy-field">
+        <label for="agendaIcsUrl">Abonnements-URL</label>
+        <div class="api-copy-control">
+          <input id="agendaIcsUrl" type="password" value="{{ calendar_feed_url }}" readonly spellcheck="false" autocomplete="off">
+          <button class="subtle-button" type="button" data-secret-toggle="agendaIcsUrl" aria-pressed="false">Toon</button>
+          <button class="subtle-button subtle-button-strong" type="button" data-copy-target="agendaIcsUrl">Kopieer</button>
+        </div>
+      </div>
+      <div class="api-info-box">
+        <strong>Automatische synchronisatie</strong>
+        <p>Wijzigingen, annuleringen en verwijderingen worden bij de volgende verversing van het agendaplatform verwerkt. Hoe vaak dat gebeurt, bepaalt het ontvangende platform.</p>
+      </div>
+    </article>
+  </section>
+
+  <section class="summary-card api-install-card">
+    <div class="api-card-heading">
+      <div>
+        <p class="api-eyebrow">Direct overnemen</p>
+        <h2>Configuratie voor het andere project</h2>
+      </div>
+      <button class="subtle-button subtle-button-strong" type="button" data-copy-target="agendaEnvironment">Kopieer alles</button>
+    </div>
+    <p class="feature-list-subtitle">Plaats deze waarden in het geheime environmentbestand van het andere project. Commit ze niet naar Git.</p>
+    <pre id="agendaEnvironment" class="api-code-block"><code>{{ integration_environment }}</code></pre>
+  </section>
+
+  <section class="api-examples-grid">
+    <article class="summary-card api-example-card">
+      <div class="api-card-heading">
+        <div>
+          <p class="api-eyebrow">Voorbeeld</p>
+          <h2>Python</h2>
+        </div>
+        <button class="subtle-button" type="button" data-copy-target="agendaPythonExample">Kopieer code</button>
+      </div>
+      <pre id="agendaPythonExample" class="api-code-block"><code>{{ python_example }}</code></pre>
+    </article>
+
+    <article class="summary-card api-example-card">
+      <div class="api-card-heading">
+        <div>
+          <p class="api-eyebrow">Voorbeeld</p>
+          <h2>JavaScript / Node.js</h2>
+        </div>
+        <button class="subtle-button" type="button" data-copy-target="agendaJavascriptExample">Kopieer code</button>
+      </div>
+      <pre id="agendaJavascriptExample" class="api-code-block"><code>{{ javascript_example }}</code></pre>
+    </article>
+  </section>
+
+  <section class="summary-card api-reference-card">
+    <div class="api-card-heading">
+      <div>
+        <p class="api-eyebrow">Referentie</p>
+        <h2>Beschikbare filters en velden</h2>
+      </div>
+      <span class="api-format-pill">v1</span>
+    </div>
+
+    <div class="api-reference-grid">
+      <div>
+        <h3>Queryparameters</h3>
+        <dl class="api-definition-list">
+          <div><dt><code>start</code></dt><dd>Vanaf datum, bijvoorbeeld <code>2026-01-01</code>.</dd></div>
+          <div><dt><code>end</code></dt><dd>Tot en met datum, bijvoorbeeld <code>2026-12-31</code>.</dd></div>
+          <div><dt><code>include_cancelled</code></dt><dd>Standaard <code>true</code>; gebruik <code>false</code> om annuleringen weg te laten.</dd></div>
+          <div><dt><code>include_day_plans</code></dt><dd>Standaard <code>false</code>; gebruik <code>true</code> voor dagplanning als hele-dag-evenement.</dd></div>
+        </dl>
+      </div>
+      <div>
+        <h3>Afspraakvelden</h3>
+        <p class="feature-list-subtitle">
+          Iedere afspraak bevat <code>id</code>, <code>uid</code>, <code>title</code>, <code>start</code>, <code>end</code>,
+          <code>timezone</code>, <code>location</code>, <code>type</code>, <code>status</code>, <code>cancelled</code>,
+          <code>trainers</code> en <code>notes</code>.
+        </p>
+        <p class="feature-list-subtitle">Zonder datumfilters worden alle opgeslagen afspraken teruggegeven. Tijden gebruiken ISO 8601 met de juiste Nederlandse zomer- of wintertijd.</p>
+      </div>
+    </div>
+
+    {% if api_allowed_origins %}
+      <div class="api-info-box">
+        <strong>Browsertoegang toegestaan voor</strong>
+        <p>{{ api_allowed_origins|join(", ") }}</p>
+      </div>
+    {% else %}
+      <div class="api-info-box">
+        <strong>Server-side gebruik aanbevolen</strong>
+        <p>Cross-origin browsertoegang staat uit. Voeg zo nodig exacte domeinen toe via <code>AGENDA_API_ALLOWED_ORIGINS</code>.</p>
+      </div>
+    {% endif %}
+  </section>
+
+  <script src="../static/api.js?v={{ asset_version }}" defer></script>
+{% endblock %}

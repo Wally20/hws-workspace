@@ -325,6 +325,170 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         mocked_save.assert_called_once()
 
+    def test_agenda_api_requires_bearer_token_without_login_redirect(self):
+        response = Client().get("/api/v1/agenda/events", secure=True)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["error"]["code"], "unauthorized")
+        self.assertNotIn("Location", response)
+
+    def test_agenda_api_returns_filtered_timezone_aware_appointments(self):
+        training_id = "api-test-training"
+        with legacy.get_db_connection() as connection:
+            connection.execute("DELETE FROM agenda_trainings WHERE id = ?", (training_id,))
+            connection.execute(
+                """
+                INSERT INTO agenda_trainings (
+                    id, title, date, time, end_time, location,
+                    training_type, status, trainers_json, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    training_id,
+                    "API wintertraining",
+                    "2099-01-15",
+                    "18:00",
+                    "19:30",
+                    "VV Gorssel",
+                    "techniektraining",
+                    "gepland",
+                    json.dumps([{"id": "trainer-api", "name": "API Trainer"}]),
+                    "Neem hesjes mee.",
+                ),
+            )
+        legacy.clear_local_data_cache()
+
+        try:
+            token = legacy.get_agenda_api_credential()["token"]
+            response = Client().get(
+                "/api/v1/agenda/events?start=2099-01-01&end=2099-01-31",
+                secure=True,
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            matching_events = [event for event in payload["events"] if event["id"] == training_id]
+            self.assertEqual(payload["timezone"], "Europe/Amsterdam")
+            self.assertEqual(len(matching_events), 1)
+            self.assertEqual(matching_events[0]["start"], "2099-01-15T18:00+01:00")
+            self.assertEqual(matching_events[0]["end"], "2099-01-15T19:30+01:00")
+            self.assertEqual(matching_events[0]["trainers"][0]["name"], "API Trainer")
+            self.assertEqual(response["Cache-Control"], "no-store")
+        finally:
+            with legacy.get_db_connection() as connection:
+                connection.execute("DELETE FROM agenda_trainings WHERE id = ?", (training_id,))
+            legacy.clear_local_data_cache()
+
+    def test_agenda_api_can_include_day_plans_as_all_day_events(self):
+        target_date = "2099-02-10"
+        with legacy.get_db_connection() as connection:
+            connection.execute("DELETE FROM agenda_day_plans WHERE date = ?", (target_date,))
+            connection.execute(
+                """
+                INSERT INTO agenda_day_plans (date, plan_type, updated_at)
+                VALUES (?, ?, ?)
+                """,
+                (target_date, "Voetbaldag", legacy.utcnow_iso()),
+            )
+        legacy.clear_local_data_cache()
+
+        try:
+            token = legacy.get_agenda_api_credential()["token"]
+            response = Client().get(
+                f"/api/v1/agenda/events?start={target_date}&end={target_date}&include_day_plans=1",
+                secure=True,
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+
+            self.assertEqual(response.status_code, 200)
+            day_plan = next(event for event in response.json()["events"] if event["id"] == f"day-plan-{target_date}")
+            self.assertTrue(day_plan["allDay"])
+            self.assertEqual(day_plan["title"], "Voetbaldag")
+            self.assertEqual(day_plan["end"], "2099-02-11")
+        finally:
+            with legacy.get_db_connection() as connection:
+                connection.execute("DELETE FROM agenda_day_plans WHERE date = ?", (target_date,))
+            legacy.clear_local_data_cache()
+
+    def test_agenda_calendar_feed_uses_stable_uid_and_utc_times(self):
+        training_id = "api-ics-training"
+        with legacy.get_db_connection() as connection:
+            connection.execute("DELETE FROM agenda_trainings WHERE id = ?", (training_id,))
+            connection.execute(
+                """
+                INSERT INTO agenda_trainings (
+                    id, title, date, time, end_time, location,
+                    training_type, status, trainers_json, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    training_id,
+                    "API zomertraining",
+                    "2099-07-15",
+                    "18:00",
+                    "19:30",
+                    "ABS",
+                    "techniektraining",
+                    "gepland",
+                    "[]",
+                    "",
+                ),
+            )
+        legacy.clear_local_data_cache()
+
+        try:
+            token = legacy.get_agenda_api_credential()["token"]
+            response = Client().get(
+                "/api/v1/agenda/calendar.ics",
+                {"token": token},
+                secure=True,
+            )
+            content = response.content.decode("utf-8")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response["Content-Type"].startswith("text/calendar"))
+            self.assertIn("BEGIN:VCALENDAR\r\n", content)
+            self.assertIn(f"UID:agenda-{training_id}@workspace.hwsvoetbalschool.nl", content)
+            self.assertIn("DTSTART:20990715T160000Z", content)
+            self.assertIn("SUMMARY:API zomertraining", content)
+        finally:
+            with legacy.get_db_connection() as connection:
+                connection.execute("DELETE FROM agenda_trainings WHERE id = ?", (training_id,))
+            legacy.clear_local_data_cache()
+
+    def test_management_api_page_exposes_copyable_configuration_and_rotation_invalidates_old_key(self):
+        client = self.build_authenticated_client()
+        page_response = client.get("/management/api", secure=True)
+        old_token = legacy.get_agenda_api_credential()["token"]
+
+        self.assertEqual(page_response.status_code, 200)
+        self.assertContains(page_response, "HWS_AGENDA_API_URL=https://testserver/api/v1/agenda/events")
+        self.assertContains(page_response, old_token)
+        self.assertContains(page_response, "Kopieer alles")
+
+        rotate_response = client.post(
+            "/management/api",
+            {"csrf_token": self.TEST_CSRF_TOKEN, "action": "rotate"},
+            secure=True,
+        )
+        new_token = legacy.get_agenda_api_credential()["token"]
+        old_key_response = Client().get(
+            "/api/v1/agenda/events",
+            secure=True,
+            HTTP_AUTHORIZATION=f"Bearer {old_token}",
+        )
+        new_key_response = Client().get(
+            "/api/v1/agenda/events",
+            secure=True,
+            HTTP_AUTHORIZATION=f"Bearer {new_token}",
+        )
+
+        self.assertEqual(rotate_response.status_code, 302)
+        self.assertNotEqual(old_token, new_token)
+        self.assertEqual(old_key_response.status_code, 401)
+        self.assertEqual(new_key_response.status_code, 200)
+
     def test_dashboard_events_can_be_saved_empty(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             original_data_dir = legacy.DATA_DIR
@@ -537,9 +701,11 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         with patch.object(legacy, "get_current_user", return_value=trainer):
             management_response = Client().get("/management", secure=True)
             marketing_response = Client().get("/marketing", secure=True)
+            api_management_response = Client().get("/management/api", secure=True)
 
         self.assertRedirects(management_response, "/", fetch_redirect_response=False)
         self.assertRedirects(marketing_response, "/", fetch_redirect_response=False)
+        self.assertRedirects(api_management_response, "/", fetch_redirect_response=False)
 
     def test_trainer_agenda_only_renders_assigned_appointments_and_is_read_only(self):
         trainer = {

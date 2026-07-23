@@ -82,6 +82,39 @@ De website is nu beveiligd met een login.
 - Als er nog geen admin-account bestaat, maakt de app automatisch een beheeraccount aan in `data/app.db`.
 - Gebruik op je server direct `DJANGO_SECRET_KEY`, `FLASK_SECRET_KEY`, `ADMIN_PASSWORD` en `ADMIN_EMAIL` in je `.env`.
 
+## Agenda-API
+
+Beheerders vinden de agenda-koppeling onder **Management → API**. Daar staan:
+
+- de read-only JSON-URL;
+- de API-sleutel en complete `.env`-configuratie voor het ontvangende project;
+- voorbeelden voor Python en JavaScript/Node.js;
+- een geheime iCalendar-URL voor Google Calendar, Apple Agenda en Outlook;
+- een actie om de sleutel direct te vernieuwen en de oude koppeling in te trekken.
+
+JSON-endpoint:
+
+```text
+GET /api/v1/agenda/events
+Authorization: Bearer <API-sleutel>
+```
+
+Optionele queryparameters zijn `start`, `end`, `include_cancelled` en `include_day_plans`. Zonder datumbereik worden alle afspraken teruggegeven.
+
+Zet in productie bij voorkeur een aparte sterke signing secret:
+
+```dotenv
+AGENDA_API_SECRET=<minimaal-32-willekeurige-tekens>
+```
+
+Als deze ontbreekt, gebruikt de koppeling `DJANGO_SECRET_KEY`. Wijziging van de gebruikte signing secret maakt bestaande API-sleutels ongeldig.
+
+Server-side gebruik heeft de voorkeur. Wanneer een browser op een ander domein de JSON-API rechtstreeks moet aanroepen, configureer dan uitsluitend de exacte toegestane origins:
+
+```dotenv
+AGENDA_API_ALLOWED_ORIGINS=https://persoonlijk.example.nl,https://beheer.example.nl
+```
+
 Voorbeeld deployment-commando's:
 
 ```bash

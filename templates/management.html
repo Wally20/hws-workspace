@@ -11,6 +11,13 @@
   </header>
 
   <section class="training-home-grid oefenstof-home-grid" aria-label="Management">
+    {% if 'api' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/management/api">
+        <span class="panel-title">API</span>
+        <span class="feature-list-subtitle">Koppel alle agenda-afspraken veilig aan een ander project of persoonlijke agenda.</span>
+      </a>
+    {% endif %}
+
     {% if 'materialen' in visible_pages %}
       <a class="summary-card training-home-tile" href="/materialen">
         <span class="panel-title">Materialen</span>
