@@ -45,6 +45,8 @@ services:
         sync: false
       - key: ECWID_SECRET_TOKEN
         sync: false
+      - key: ECWID_AUTO_RETURN_REFUNDED_ORDERS
+        value: "1"
       - key: MONEYBIRD_API_TOKEN
         sync: false
       - key: MONEYBIRD_ADMINISTRATION_ID

@@ -165,6 +165,7 @@ REGISTRATION_AUTO_EMAILS_ENABLED=1
 REGISTRATION_AUTO_EMAILS_START_DATE=2026-06-03
 REGISTRATION_EMAIL_ONLY_PAID=1
 REGISTRATION_EMAIL_SYNC_ECWID_PROCESSING=1
+ECWID_AUTO_RETURN_REFUNDED_ORDERS=1
 REGISTRATION_EMAIL_FROM_NAME=HWS Voetbalschool
 REGISTRATION_EMAIL_SUBJECT=Bevestiging inschrijving HWS Voetbalschool
 REGISTRATION_EMAIL_BCC=david.van.walstijn@gmail.com
@@ -172,3 +173,5 @@ REGISTRATION_EMAIL_REPLY_TO=info@hwsvoetbalschool.nl
 ```
 
 Laat `REGISTRATION_AUTO_EMAILS_ENABLED=0` staan zolang je alleen wilt testen zonder echte mails te versturen. Zet `REGISTRATION_AUTO_EMAILS_START_DATE` op de datum waarop automatische mails live mogen gaan, zodat oude orders niet alsnog worden gemaild.
+
+Met `ECWID_AUTO_RETURN_REFUNDED_ORDERS=1` zet de server volledig terugbetaalde Ecwid-bestellingen tijdens iedere live Ecwid-synchronisatie automatisch op afhandelstatus `RETURNED`. Gedeeltelijk terugbetaalde bestellingen worden niet aangepast.

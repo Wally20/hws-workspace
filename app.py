@@ -14724,6 +14724,18 @@ def fetch_orders_from_ecwid(run_auto_email: bool = True) -> Dict[str, Any]:
             ),
         }
 
+    automatic_return_sync = sync_refunded_orders_to_returned(all_orders)
+    if automatic_return_sync["syncedOrderIds"]:
+        app.logger.info(
+            "%s terugbetaalde Ecwid-bestelling(en) automatisch op geretourneerd gezet.",
+            len(automatic_return_sync["syncedOrderIds"]),
+        )
+    if automatic_return_sync["failedOrderIds"]:
+        app.logger.warning(
+            "%s terugbetaalde Ecwid-bestelling(en) konden niet automatisch op geretourneerd worden gezet.",
+            len(automatic_return_sync["failedOrderIds"]),
+        )
+
     normalized_orders = [normalize_order(order) for order in all_orders]
     if run_auto_email:
         auto_email_result = auto_email_new_registration_orders(normalized_orders)
@@ -14739,6 +14751,13 @@ def fetch_orders_from_ecwid(run_auto_email: bool = True) -> Dict[str, Any]:
         "summary": build_summary(normalized_orders),
         "total": total,
         "count": len(all_orders),
+        "automaticReturnSync": automatic_return_sync,
+        "message": (
+            f"{len(automatic_return_sync['failedOrderIds'])} terugbetaalde bestelling(en) konden niet "
+            "automatisch op geretourneerd worden gezet. Probeer de Ecwid-verversing opnieuw."
+            if automatic_return_sync["failedOrderIds"]
+            else None
+        ),
     }
 
 
@@ -14809,6 +14828,55 @@ def update_ecwid_order_to_returned(order_id: str) -> bool:
         return update_ecwid_order_fulfillment_status(order_id, ECWID_RETURNED_FULFILLMENT_STATUS)
     except RuntimeError as exc:
         raise RuntimeError("Ecwid-bestelling kon niet op geretourneerd worden gezet.") from exc
+
+
+def sync_refunded_orders_to_returned(orders: List[Dict[str, Any]]) -> Dict[str, Any]:
+    enabled = get_env_bool("ECWID_AUTO_RETURN_REFUNDED_ORDERS", True)
+    matched_order_ids: List[str] = []
+    synced_order_ids: List[str] = []
+    failed_order_ids: List[str] = []
+    orders_by_id: Dict[str, Dict[str, Any]] = {}
+
+    for order in orders:
+        order_id = str(order.get("id") or "").strip()
+        payment_status = str(order.get("paymentStatus") or "").strip().upper()
+        fulfillment_status = str(order.get("fulfillmentStatus") or "").strip().upper()
+        if (
+            not order_id
+            or order_id in orders_by_id
+            or payment_status != "REFUNDED"
+            or fulfillment_status == ECWID_RETURNED_FULFILLMENT_STATUS
+        ):
+            continue
+        orders_by_id[order_id] = order
+        matched_order_ids.append(order_id)
+
+    if enabled:
+        for order_id in matched_order_ids:
+            try:
+                updated = update_ecwid_order_to_returned(order_id)
+            except RuntimeError as exc:
+                app.logger.warning(
+                    "Automatisch retourneren van Ecwid-bestelling %s mislukt: %s",
+                    order_id,
+                    exc,
+                )
+                failed_order_ids.append(order_id)
+                continue
+
+            if not updated:
+                failed_order_ids.append(order_id)
+                continue
+
+            orders_by_id[order_id]["fulfillmentStatus"] = ECWID_RETURNED_FULFILLMENT_STATUS
+            synced_order_ids.append(order_id)
+
+    return {
+        "enabled": enabled,
+        "matchedOrderIds": matched_order_ids,
+        "syncedOrderIds": synced_order_ids,
+        "failedOrderIds": failed_order_ids,
+    }
 
 
 def sync_emailed_registration_orders_to_ecwid(order_ids: Optional[List[str]] = None) -> Dict[str, Any]:

@@ -1599,6 +1599,106 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             {"fulfillmentStatus": legacy.ECWID_RETURNED_FULFILLMENT_STATUS},
         )
 
+    def test_refunded_orders_are_automatically_set_to_returned(self):
+        orders = [
+            {"id": "REFUNDED-1", "paymentStatus": "REFUNDED", "fulfillmentStatus": "PROCESSING"},
+            {"id": "REFUNDED-2", "paymentStatus": "REFUNDED", "fulfillmentStatus": "RETURNED"},
+            {"id": "PARTIAL-1", "paymentStatus": "PARTIALLY_REFUNDED", "fulfillmentStatus": "PROCESSING"},
+            {"id": "PAID-1", "paymentStatus": "PAID", "fulfillmentStatus": "PROCESSING"},
+        ]
+
+        with patch.dict(os.environ, {"ECWID_AUTO_RETURN_REFUNDED_ORDERS": "1"}, clear=False), patch.object(
+            legacy,
+            "update_ecwid_order_to_returned",
+            return_value=True,
+        ) as mocked_update:
+            result = legacy.sync_refunded_orders_to_returned(orders)
+
+        mocked_update.assert_called_once_with("REFUNDED-1")
+        self.assertEqual(result["matchedOrderIds"], ["REFUNDED-1"])
+        self.assertEqual(result["syncedOrderIds"], ["REFUNDED-1"])
+        self.assertEqual(result["failedOrderIds"], [])
+        self.assertEqual(orders[0]["fulfillmentStatus"], legacy.ECWID_RETURNED_FULFILLMENT_STATUS)
+        self.assertEqual(orders[2]["fulfillmentStatus"], "PROCESSING")
+
+    def test_live_ecwid_fetch_returns_newly_refunded_order_as_returned(self):
+        get_response = Mock()
+        get_response.raise_for_status.return_value = None
+        get_response.json.return_value = {
+            "total": 1,
+            "count": 1,
+            "items": [
+                {
+                    "id": "REFUNDED-1",
+                    "orderNumber": "REFUNDED-1",
+                    "paymentStatus": "REFUNDED",
+                    "fulfillmentStatus": "PROCESSING",
+                    "items": [],
+                },
+            ],
+        }
+        put_response = Mock()
+        put_response.raise_for_status.return_value = None
+        put_response.content = b'{"updateCount": 1}'
+        put_response.json.return_value = {"updateCount": 1}
+
+        with patch.dict(
+            os.environ,
+            {
+                "ECWID_STORE_ID": "87654321",
+                "ECWID_SECRET_TOKEN": "secret_abcdefghijklmnopqrstuvwxyz123456",
+                "ECWID_AUTO_RETURN_REFUNDED_ORDERS": "1",
+            },
+            clear=False,
+        ), patch.object(legacy.requests, "get", return_value=get_response), patch.object(
+            legacy.requests,
+            "put",
+            return_value=put_response,
+        ) as mocked_put:
+            payload = legacy.fetch_orders_from_ecwid(run_auto_email=False)
+
+        mocked_put.assert_called_once()
+        self.assertEqual(
+            mocked_put.call_args.kwargs["json"],
+            {"fulfillmentStatus": legacy.ECWID_RETURNED_FULFILLMENT_STATUS},
+        )
+        self.assertEqual(payload["items"][0]["fulfillmentStatus"], legacy.ECWID_RETURNED_FULFILLMENT_STATUS)
+        self.assertEqual(payload["automaticReturnSync"]["syncedOrderIds"], ["REFUNDED-1"])
+
+    def test_failed_automatic_return_is_reported_without_changing_local_status(self):
+        orders = [
+            {"id": "REFUNDED-1", "paymentStatus": "REFUNDED", "fulfillmentStatus": "DELIVERED"},
+        ]
+
+        with patch.dict(os.environ, {"ECWID_AUTO_RETURN_REFUNDED_ORDERS": "1"}, clear=False), patch.object(
+            legacy,
+            "update_ecwid_order_to_returned",
+            side_effect=RuntimeError("Ecwid tijdelijk niet bereikbaar"),
+        ):
+            result = legacy.sync_refunded_orders_to_returned(orders)
+
+        self.assertEqual(result["matchedOrderIds"], ["REFUNDED-1"])
+        self.assertEqual(result["syncedOrderIds"], [])
+        self.assertEqual(result["failedOrderIds"], ["REFUNDED-1"])
+        self.assertEqual(orders[0]["fulfillmentStatus"], "DELIVERED")
+
+    def test_automatic_return_sync_can_be_disabled(self):
+        orders = [
+            {"id": "REFUNDED-1", "paymentStatus": "REFUNDED", "fulfillmentStatus": "PROCESSING"},
+        ]
+
+        with patch.dict(os.environ, {"ECWID_AUTO_RETURN_REFUNDED_ORDERS": "0"}, clear=False), patch.object(
+            legacy,
+            "update_ecwid_order_to_returned",
+        ) as mocked_update:
+            result = legacy.sync_refunded_orders_to_returned(orders)
+
+        mocked_update.assert_not_called()
+        self.assertFalse(result["enabled"])
+        self.assertEqual(result["matchedOrderIds"], ["REFUNDED-1"])
+        self.assertEqual(result["syncedOrderIds"], [])
+        self.assertEqual(orders[0]["fulfillmentStatus"], "PROCESSING")
+
     def test_registration_email_status_returns_error_when_ecwid_update_fails(self):
         client = self.build_authenticated_client()
 
