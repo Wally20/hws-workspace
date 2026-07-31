@@ -84,6 +84,15 @@ PPTX_SLIDE_WIDTH = 12192000
 PPTX_SLIDE_HEIGHT = 6858000
 FOOTBALL_DAYS_PDF_WIDTH = 960
 FOOTBALL_DAYS_PDF_HEIGHT = 540
+CHECKLIST_COLOR_OPTIONS = (
+    {"value": "gold", "label": "Goud", "hex": "#d6a34f"},
+    {"value": "blue", "label": "Blauw", "hex": "#3f72c7"},
+    {"value": "green", "label": "Groen", "hex": "#3f8b62"},
+    {"value": "orange", "label": "Oranje", "hex": "#dc7b32"},
+    {"value": "red", "label": "Rood", "hex": "#c65353"},
+    {"value": "purple", "label": "Paars", "hex": "#7758a6"},
+)
+CHECKLIST_COLOR_HEX = {option["value"]: option["hex"] for option in CHECKLIST_COLOR_OPTIONS}
 FOOTBALL_PLAYBOOK_CONTEXTS = {
     "voetbaldagen": {
         "playbookType": "voetbaldagen",
@@ -549,6 +558,14 @@ WORKSPACE_SEARCH_PAGES = (
         "section": "Draaiboeken",
         "description": "Maak direct een nieuw draaiboek voor een voetbaldag.",
         "keywords": ("nieuw", "maken", "draaiboek", "voetbaldag"),
+    },
+    {
+        "key": "checklists",
+        "title": "Checklists",
+        "path": "/checklists",
+        "section": "Draaiboeken",
+        "description": "Maak gekleurde checklists bij het programma van een voetbaldag.",
+        "keywords": ("checklist", "coordinator", "programma", "voetbaldag", "clipboard"),
     },
     {
         "key": "samenwerkende-amateurclubs",
@@ -3836,6 +3853,17 @@ def init_db() -> None:
                 location TEXT,
                 include_icons INTEGER NOT NULL DEFAULT 1,
                 program_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS checklist_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                playbook_id INTEGER NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                event_date TEXT,
+                location TEXT,
+                sections_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -7438,6 +7466,170 @@ def create_empty_football_days_playbook(playbook_type: str = "voetbaldagen") -> 
         }
     ]
     return playbook
+
+
+def normalize_checklist_color(value: Any) -> str:
+    normalized = str(value or "gold").strip().lower()
+    return normalized if normalized in CHECKLIST_COLOR_HEX else "gold"
+
+
+def normalize_checklist_sections(raw_sections: Any) -> List[Dict[str, Any]]:
+    sections = raw_sections if isinstance(raw_sections, list) else []
+    normalized_sections = []
+    for section_index, section in enumerate(sections[:100]):
+        if not isinstance(section, dict):
+            continue
+        activity = str(section.get("activity") or "").strip()[:180]
+        if not activity:
+            continue
+        items = []
+        raw_items = section.get("items") if isinstance(section.get("items"), list) else []
+        for item in raw_items[:30]:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text") or "").strip()[:220]
+            if not text:
+                continue
+            items.append({"text": text, "color": normalize_checklist_color(item.get("color"))})
+        normalized_sections.append(
+            {
+                "key": str(section.get("key") or f"program-{section_index + 1}").strip()[:80],
+                "startTime": str(section.get("startTime") or "").strip()[:10],
+                "endTime": str(section.get("endTime") or "").strip()[:10],
+                "activity": activity,
+                "items": items,
+            }
+        )
+    return normalized_sections
+
+
+def normalize_checklist_document(row: Optional[sqlite3.Row]) -> Optional[Dict[str, Any]]:
+    if row is None:
+        return None
+    try:
+        sections = json.loads(str(row["sections_json"] or "[]"))
+    except json.JSONDecodeError:
+        sections = []
+    return {
+        "id": int(row["id"]),
+        "playbookId": int(row["playbook_id"]),
+        "title": str(row["title"] or "Checklist voetbaldag").strip(),
+        "eventDate": str(row["event_date"] or "").strip(),
+        "location": str(row["location"] or "").strip(),
+        "sections": normalize_checklist_sections(sections),
+        "createdAt": str(row["created_at"] or "").strip(),
+        "updatedAt": str(row["updated_at"] or "").strip(),
+    }
+
+
+def load_checklist_document(playbook_id: int) -> Optional[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT id, playbook_id, title, event_date, location, sections_json, created_at, updated_at
+            FROM checklist_documents
+            WHERE playbook_id = ?
+            """,
+            (playbook_id,),
+        ).fetchone()
+    return normalize_checklist_document(row)
+
+
+def build_checklist_document_from_playbook(
+    playbook: Dict[str, Any],
+    existing_document: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    existing_sections = normalize_checklist_sections(
+        existing_document.get("sections") if isinstance(existing_document, dict) else []
+    )
+    sections_by_signature: Dict[Tuple[str, str, str], List[Tuple[int, Dict[str, Any]]]] = {}
+    for index, section in enumerate(existing_sections):
+        signature = (
+            str(section.get("startTime") or "").strip(),
+            str(section.get("endTime") or "").strip(),
+            str(section.get("activity") or "").strip().casefold(),
+        )
+        sections_by_signature.setdefault(signature, []).append((index, section))
+
+    used_existing_indexes: Set[int] = set()
+    imported_sections = []
+    program = playbook.get("program") if isinstance(playbook.get("program"), list) else []
+    for index, program_item in enumerate(program[:100]):
+        if not isinstance(program_item, dict):
+            continue
+        activity = str(program_item.get("activity") or "").strip()
+        if not activity:
+            continue
+        start_time = str(program_item.get("startTime") or "").strip()
+        end_time = str(program_item.get("endTime") or "").strip()
+        signature = (start_time, end_time, activity.casefold())
+        matched_section = None
+        for existing_index, candidate in sections_by_signature.get(signature, []):
+            if existing_index not in used_existing_indexes:
+                used_existing_indexes.add(existing_index)
+                matched_section = candidate
+                break
+        if matched_section is None and index < len(existing_sections) and index not in used_existing_indexes:
+            used_existing_indexes.add(index)
+            matched_section = existing_sections[index]
+        imported_sections.append(
+            {
+                "key": str((matched_section or {}).get("key") or f"program-{index + 1}"),
+                "startTime": start_time,
+                "endTime": end_time,
+                "activity": activity,
+                "items": copy.deepcopy((matched_section or {}).get("items") or []),
+            }
+        )
+
+    return {
+        "id": existing_document.get("id") if isinstance(existing_document, dict) else None,
+        "playbookId": int(playbook.get("id") or 0),
+        "title": str(playbook.get("title") or "Checklist voetbaldag").strip(),
+        "eventDate": str(playbook.get("eventDate") or "").strip(),
+        "location": str(playbook.get("location") or "").strip(),
+        "sections": normalize_checklist_sections(imported_sections),
+        "createdAt": str((existing_document or {}).get("createdAt") or ""),
+        "updatedAt": str((existing_document or {}).get("updatedAt") or ""),
+    }
+
+
+def save_checklist_document(document: Dict[str, Any]) -> Dict[str, Any]:
+    playbook_id = parse_non_negative_int(document.get("playbookId"))
+    if not playbook_id:
+        raise ValueError("Kies eerst een draaiboek van een voetbaldag.")
+    now = utcnow_iso()
+    title = str(document.get("title") or "Checklist voetbaldag").strip()[:180]
+    sections = normalize_checklist_sections(document.get("sections"))
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO checklist_documents (
+                playbook_id, title, event_date, location, sections_json, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(playbook_id) DO UPDATE SET
+                title = excluded.title,
+                event_date = excluded.event_date,
+                location = excluded.location,
+                sections_json = excluded.sections_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                playbook_id,
+                title,
+                str(document.get("eventDate") or "").strip()[:20],
+                str(document.get("location") or "").strip()[:180],
+                json.dumps(sections, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+    clear_local_data_cache()
+    saved_document = load_checklist_document(playbook_id)
+    if saved_document is None:
+        raise RuntimeError("De checklist kon niet worden opgeslagen.")
+    return saved_document
 
 
 def count_ecwid_product_registrations(
@@ -11916,6 +12108,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "agenda",
             "draaiboeken",
             "voetbaldagen",
+            "checklists",
             "samenwerkende-amateurclubs",
             "management",
             "planning",
@@ -11940,7 +12133,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "trainers",
             "profile",
         }
-    visible_pages = {"materialen", "orders", "leads", "draaiboeken", "voetbaldagen", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "profile"}
+    visible_pages = {"materialen", "orders", "leads", "draaiboeken", "voetbaldagen", "checklists", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "profile"}
     if is_trainer_user(user):
         visible_pages.update({"dashboard", "agenda"})
     return visible_pages
@@ -12382,6 +12575,244 @@ def create_materials_all_clubs_pdf(clubs: List[Dict[str, Any]], materials: List[
         create_materials_club_pdf(club, materials, _pdf=pdf)
     pdf.setTitle("Materialenkratten - alle clubs")
     pdf.setAuthor("HWS Voetbalschool")
+    pdf.save()
+    buffer.seek(0)
+    return buffer.read()
+
+
+def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.pdfgen import canvas
+    except ImportError as exc:
+        raise RuntimeError("De PDF-library ontbreekt. Installeer de packages uit requirements.txt.") from exc
+
+    font_root = os.path.join(os.path.dirname(__file__), "static", "assets", "fonts")
+    font_names = {
+        "regular": "ChecklistPoppins",
+        "bold": "ChecklistPoppinsBold",
+        "extra_bold": "ChecklistPoppinsExtraBold",
+    }
+    font_files = {
+        "regular": "Poppins-Regular.ttf",
+        "bold": "Poppins-Bold.ttf",
+        "extra_bold": "Poppins-ExtraBold.ttf",
+    }
+    registered_fonts = set(pdfmetrics.getRegisteredFontNames())
+    for key, font_name in font_names.items():
+        if font_name not in registered_fonts:
+            pdfmetrics.registerFont(TTFont(font_name, os.path.join(font_root, font_files[key])))
+
+    normalized_document = {
+        "title": str(document.get("title") or "Checklist voetbaldag").strip(),
+        "eventDate": str(document.get("eventDate") or "").strip(),
+        "location": str(document.get("location") or "").strip(),
+        "sections": normalize_checklist_sections(document.get("sections")),
+    }
+    sections = normalized_document["sections"]
+    page_width, page_height = landscape(A4)
+    margin = 36
+    column_gap = 24
+    column_width = (page_width - (2 * margin) - column_gap) / 2
+    content_top = page_height - 202
+    content_bottom = 48
+    content_height = content_top - content_bottom
+    column_capacity = content_height / 0.72
+
+    def section_weight(section: Dict[str, Any]) -> float:
+        return 45 + (max(1, len(section.get("items") or [])) * 18)
+
+    def can_split(candidate: List[Dict[str, Any]]) -> bool:
+        weights = [section_weight(section) for section in candidate]
+        return any(
+            sum(weights[:split_index]) <= column_capacity and sum(weights[split_index:]) <= column_capacity
+            for split_index in range(len(candidate) + 1)
+        )
+
+    def split_columns(page_sections: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        if len(page_sections) <= 1:
+            return page_sections, []
+        weights = [section_weight(section) for section in page_sections]
+        valid_splits = [
+            split_index
+            for split_index in range(1, len(page_sections))
+            if sum(weights[:split_index]) <= column_capacity and sum(weights[split_index:]) <= column_capacity
+        ]
+        candidate_splits = valid_splits or list(range(1, len(page_sections)))
+        split_index = min(
+            candidate_splits,
+            key=lambda index: abs(sum(weights[:index]) - sum(weights[index:])),
+        )
+        return page_sections[:split_index], page_sections[split_index:]
+
+    pages: List[Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]] = []
+    if not sections:
+        pages.append(([], []))
+    else:
+        pending = list(sections)
+        while pending:
+            page_sections: List[Dict[str, Any]] = []
+            while pending and can_split([*page_sections, pending[0]]):
+                page_sections.append(pending.pop(0))
+            if not page_sections:
+                page_sections.append(pending.pop(0))
+            pages.append(split_columns(page_sections))
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=(page_width, page_height))
+    pdf.setTitle(f"Checklist coördinator - {normalized_document['title']}")
+    pdf.setAuthor("HWS Voetbalschool")
+    black = colors.HexColor("#111111")
+    charcoal = colors.HexColor("#252525")
+    muted = colors.HexColor("#707070")
+    line = colors.HexColor("#dddddd")
+    soft = colors.HexColor("#f4f4f4")
+    white = colors.white
+    gold = colors.HexColor("#d6a34f")
+
+    def fit_text(text_value: Any, font_name: str, font_size: float, max_width: float) -> str:
+        text = str(text_value or "").strip()
+        if pdfmetrics.stringWidth(text, font_name, font_size) <= max_width:
+            return text
+        while len(text) > 2 and pdfmetrics.stringWidth(f"{text}…", font_name, font_size) > max_width:
+            text = text[:-1]
+        return f"{text.rstrip()}…"
+
+    def draw_column(column_sections: List[Dict[str, Any]], x: float) -> None:
+        if not column_sections:
+            pdf.setFillColor(soft)
+            pdf.roundRect(x, content_top - 66, column_width, 54, 7, fill=1, stroke=0)
+            pdf.setFillColor(muted)
+            pdf.setFont(font_names["bold"], 8.5)
+            pdf.drawCentredString(x + (column_width / 2), content_top - 39, "Geen programmaonderdelen in deze kolom")
+            return
+
+        total_weight = sum(section_weight(section) for section in column_sections)
+        scale = min(1.0, content_height / max(total_weight, 1))
+        y_top = content_top
+        for section in column_sections:
+            items = section.get("items") or []
+            section_height = section_weight(section) * scale
+            card_height = max(24, section_height - (6 * scale))
+            pdf.setFillColor(soft)
+            pdf.roundRect(x, y_top - card_height, column_width, card_height, 6, fill=1, stroke=0)
+
+            heading_size = max(6.2, 9.2 * scale)
+            time_size = max(5.8, 7.4 * scale)
+            header_y = y_top - max(15, 18 * scale)
+            time_text = " – ".join(
+                value for value in (section.get("startTime"), section.get("endTime")) if str(value or "").strip()
+            ) or "Programma"
+            time_width = min(80, max(46, pdfmetrics.stringWidth(time_text, font_names["extra_bold"], time_size) + 18))
+            pdf.setFillColor(black)
+            pdf.roundRect(x + 8, header_y - 5, time_width, max(15, 18 * scale), 4, fill=1, stroke=0)
+            pdf.setFillColor(white)
+            pdf.setFont(font_names["extra_bold"], time_size)
+            pdf.drawCentredString(x + 8 + (time_width / 2), header_y, fit_text(time_text, font_names["extra_bold"], time_size, time_width - 10))
+            pdf.setFillColor(black)
+            pdf.setFont(font_names["extra_bold"], heading_size)
+            pdf.drawString(
+                x + time_width + 17,
+                header_y,
+                fit_text(section.get("activity"), font_names["extra_bold"], heading_size, column_width - time_width - 28),
+            )
+
+            item_height = max(9.5, 18 * scale)
+            item_font_size = max(5.4, 7.5 * scale)
+            item_y = header_y - max(15, 18 * scale)
+            display_items = items or [{"text": "Nog geen checklistregels toegevoegd", "color": "gold", "empty": True}]
+            for item in display_items:
+                color_key = normalize_checklist_color(item.get("color"))
+                item_color = colors.HexColor(CHECKLIST_COLOR_HEX[color_key])
+                row_bottom = item_y - item_height + 2
+                pdf.setFillColor(item_color)
+                pdf.roundRect(x + 8, row_bottom, 3.5, max(5, item_height - 3), 1.5, fill=1, stroke=0)
+                box_size = max(6, min(9.5, item_height - 5))
+                box_y = row_bottom + ((item_height - 3 - box_size) / 2)
+                pdf.setStrokeColor(item_color if not item.get("empty") else line)
+                pdf.setLineWidth(0.9)
+                pdf.rect(x + 18, box_y, box_size, box_size, fill=0, stroke=1)
+                pdf.setFillColor(muted if item.get("empty") else charcoal)
+                pdf.setFont(font_names["regular"] if item.get("empty") else font_names["bold"], item_font_size)
+                pdf.drawString(
+                    x + 18 + box_size + 8,
+                    row_bottom + max(3.5, (item_height - item_font_size) / 2),
+                    fit_text(item.get("text"), font_names["regular"] if item.get("empty") else font_names["bold"], item_font_size, column_width - box_size - 43),
+                )
+                item_y -= item_height
+            y_top -= section_height
+
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "assets", "hws-logo.png")
+    formatted_date = format_football_days_date(normalized_document["eventDate"]) or "Datum niet ingevuld"
+    for page_index, (left_sections, right_sections) in enumerate(pages, start=1):
+        pdf.setFillColor(black)
+        pdf.rect(0, page_height - 105, page_width, 105, fill=1, stroke=0)
+        pdf.setFillColor(gold)
+        pdf.rect(0, page_height - 110, page_width, 5, fill=1, stroke=0)
+        if os.path.exists(logo_path):
+            pdf.drawImage(
+                ImageReader(logo_path),
+                page_width - 112,
+                page_height - 98,
+                78,
+                78,
+                preserveAspectRatio=True,
+                mask="auto",
+                anchor="c",
+            )
+        pdf.setFillColor(gold)
+        pdf.setFont(font_names["bold"], 8.5)
+        pdf.drawString(margin, page_height - 31, "HWS VOETBALSCHOOL")
+        pdf.setFillColor(white)
+        pdf.setFont(font_names["extra_bold"], 22)
+        pdf.drawString(margin, page_height - 69, "CHECKLIST COÖRDINATOR")
+        pdf.setFillColor(colors.HexColor("#cfcfcf"))
+        pdf.setFont(font_names["regular"], 7.5)
+        pdf.drawString(margin, page_height - 90, "Programma en controlepunten voor op het clipboard")
+
+        meta_y = page_height - 157
+        pdf.setFillColor(soft)
+        pdf.roundRect(margin, meta_y, page_width - (2 * margin), 30, 6, fill=1, stroke=0)
+        pdf.setFillColor(black)
+        pdf.setFont(font_names["extra_bold"], 8.2)
+        pdf.drawString(margin + 13, meta_y + 11, fit_text(normalized_document["title"], font_names["extra_bold"], 8.2, 385))
+        pdf.setFillColor(muted)
+        pdf.setFont(font_names["bold"], 7.2)
+        pdf.drawString(margin + 414, meta_y + 11, fit_text(formatted_date, font_names["bold"], 7.2, 115))
+        pdf.drawString(
+            margin + 544,
+            meta_y + 11,
+            fit_text(normalized_document["location"] or "Locatie niet ingevuld", font_names["bold"], 7.2, page_width - margin - (margin + 544) - 12),
+        )
+
+        pdf.setFillColor(black)
+        pdf.setFont(font_names["extra_bold"], 10.5)
+        pdf.drawString(margin, page_height - 186, "PROGRAMMA & CHECKLISTS")
+        pdf.setFillColor(muted)
+        pdf.setFont(font_names["regular"], 7)
+        pdf.drawRightString(page_width - margin, page_height - 186, "Vink ieder punt af zodra het is uitgevoerd")
+
+        draw_column(left_sections, margin)
+        draw_column(right_sections, margin + column_width + column_gap)
+
+        pdf.setStrokeColor(line)
+        pdf.setLineWidth(0.6)
+        pdf.line(margin, 33, page_width - margin, 33)
+        pdf.setFillColor(muted)
+        pdf.setFont(font_names["regular"], 6.7)
+        pdf.drawString(margin, 19, f"Bijgewerkt {date.today().strftime('%d-%m-%Y')}")
+        pdf.setFillColor(black)
+        pdf.setFont(font_names["bold"], 6.7)
+        page_label = "hwsvoetbalschool.nl"
+        if len(pages) > 1:
+            page_label = f"Pagina {page_index} / {len(pages)}  •  {page_label}"
+        pdf.drawRightString(page_width - margin, 19, page_label)
+        pdf.showPage()
+
     pdf.save()
     buffer.seek(0)
     return buffer.read()
@@ -20682,6 +21113,100 @@ def draaiboeken_page() -> str:
         return access_redirect
 
     return render_template("draaiboeken.html", active_page="draaiboeken")
+
+
+@app.route("/checklists", methods=["GET", "POST"])
+def checklists_page() -> str:
+    access_redirect = require_page_access("checklists")
+    if access_redirect is not None:
+        return access_redirect
+
+    playbooks = load_football_days_playbooks("voetbaldagen")
+    for playbook in playbooks:
+        playbook["eventDateLabel"] = format_football_days_date(playbook.get("eventDate"))
+
+    selected_playbook_id = request.form.get("playbook_id", type=int) if request.method == "POST" else request.args.get("playbook_id", type=int)
+    selected_playbook = next(
+        (playbook for playbook in playbooks if int(playbook.get("id") or 0) == int(selected_playbook_id or 0)),
+        None,
+    )
+
+    if request.method == "POST":
+        if selected_playbook is None:
+            return redirect("/checklists?error=Kies eerst een draaiboek van een voetbaldag.")
+        existing_document = load_checklist_document(int(selected_playbook["id"]))
+        action = str(request.form.get("action") or "save").strip()
+        if action == "import":
+            save_checklist_document(build_checklist_document_from_playbook(selected_playbook, existing_document))
+            return redirect(
+                f"/checklists?playbook_id={selected_playbook['id']}&success=Programma geïmporteerd; bestaande checklistregels zijn behouden."
+            )
+        if existing_document is None:
+            return redirect(
+                f"/checklists?playbook_id={selected_playbook['id']}&error=Importeer eerst het programma uit het draaiboek."
+            )
+        try:
+            submitted_sections = json.loads(str(request.form.get("checklist_data") or "[]"))
+        except json.JSONDecodeError:
+            return redirect(
+                f"/checklists?playbook_id={selected_playbook['id']}&error=De checklist kon niet worden gelezen."
+            )
+        save_checklist_document(
+            {
+                **existing_document,
+                "playbookId": selected_playbook["id"],
+                "title": selected_playbook["title"],
+                "eventDate": selected_playbook["eventDate"],
+                "location": selected_playbook["location"],
+                "sections": submitted_sections,
+            }
+        )
+        if str(request.form.get("after_save") or "").strip() == "pdf":
+            return redirect(f"/checklists/export-pdf?playbook_id={selected_playbook['id']}")
+        return redirect(f"/checklists?playbook_id={selected_playbook['id']}&success=Checklist opgeslagen.")
+
+    checklist_document = (
+        load_checklist_document(int(selected_playbook["id"]))
+        if selected_playbook is not None
+        else None
+    )
+    return render_template(
+        "checklists.html",
+        active_page="checklists",
+        playbooks=playbooks,
+        selected_playbook=selected_playbook,
+        checklist_document=checklist_document,
+        checklist_colors=list(CHECKLIST_COLOR_OPTIONS),
+        success=request.args.get("success", "").strip(),
+        error=request.args.get("error", "").strip(),
+    )
+
+
+@app.get("/checklists/export-pdf")
+def checklists_export_pdf():
+    access_redirect = require_page_access("checklists")
+    if access_redirect is not None:
+        return access_redirect
+
+    playbook_id = request.args.get("playbook_id", type=int)
+    document = load_checklist_document(int(playbook_id or 0))
+    if document is None:
+        return redirect("/checklists?error=Importeer en bewaar eerst een programma.")
+    try:
+        pdf_bytes = create_checklist_pdf(document)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    filename = f"checklist-{slugify_value(document.get('title') or 'voetbaldag')}.pdf"
+    return (
+        pdf_bytes,
+        200,
+        {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.get("/samenwerkende-amateurclubs")

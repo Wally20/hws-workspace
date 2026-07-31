@@ -27,6 +27,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             connection.execute("DELETE FROM registration_event_statuses")
             connection.execute("DELETE FROM registration_event_email_settings WHERE product_key LIKE 'id:999%'")
             connection.execute("DELETE FROM football_days_playbooks WHERE title LIKE 'Test draaiboek%'")
+            connection.execute("DELETE FROM checklist_documents WHERE title LIKE 'Test %'")
             connection.execute("DELETE FROM planning_documents WHERE title LIKE 'Test planning%'")
         super().tearDown()
 
@@ -194,6 +195,163 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         )
         self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
         self.assertEqual(pdf_response.content.count(b"/Type /Page\n"), 1)
+
+    def test_checklist_pdf_is_landscape_a4_and_uses_two_column_page(self):
+        document = {
+            "title": "Test checklist voetbaldag",
+            "eventDate": "2026-08-16",
+            "location": "VV Test",
+            "sections": [
+                {
+                    "key": f"program-{index}",
+                    "startTime": f"{9 + index:02d}:00",
+                    "endTime": f"{9 + index:02d}:30",
+                    "activity": f"Programmaonderdeel {index}",
+                    "items": [
+                        {"text": "Materialen klaarzetten", "color": "gold"},
+                        {"text": "Trainers informeren", "color": "blue"},
+                    ],
+                }
+                for index in range(1, 9)
+            ],
+        }
+
+        pdf_bytes = legacy.create_checklist_pdf(document)
+
+        self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
+        self.assertEqual(pdf_bytes.count(b"/Type /Page\n"), 1)
+        self.assertIn(b"/MediaBox [ 0 0 841.8898 595.2756 ]", pdf_bytes)
+
+    def test_reimporting_program_preserves_matching_checklist_items(self):
+        playbook = {
+            "id": 42,
+            "title": "Test draaiboek voetbaldag",
+            "eventDate": "2026-08-16",
+            "location": "VV Test",
+            "program": [
+                {"startTime": "09:00", "endTime": "09:30", "activity": "Ontvangst"},
+                {"startTime": "09:30", "endTime": "10:00", "activity": "Warming-up"},
+            ],
+        }
+        existing_document = {
+            "id": 8,
+            "sections": [
+                {
+                    "key": "program-1",
+                    "startTime": "09:00",
+                    "endTime": "09:30",
+                    "activity": "Ontvangst",
+                    "items": [{"text": "Deelnemerslijst klaarleggen", "color": "green"}],
+                },
+                {
+                    "key": "program-2",
+                    "startTime": "09:30",
+                    "endTime": "10:00",
+                    "activity": "Warming-up",
+                    "items": [{"text": "Hesjes verdelen", "color": "red"}],
+                },
+            ],
+        }
+
+        imported = legacy.build_checklist_document_from_playbook(playbook, existing_document)
+
+        self.assertEqual(imported["playbookId"], 42)
+        self.assertEqual(imported["sections"][0]["items"][0]["color"], "green")
+        self.assertEqual(imported["sections"][1]["items"][0]["text"], "Hesjes verdelen")
+
+    def test_checklists_tile_and_editor_page_render(self):
+        client = self.build_authenticated_client()
+        playbook = {
+            "id": 42,
+            "title": "Test draaiboek voetbaldag",
+            "eventDate": "2026-08-16",
+            "location": "VV Test",
+            "program": [{"startTime": "09:00", "endTime": "09:30", "activity": "Ontvangst"}],
+        }
+        document = {
+            "id": 8,
+            "playbookId": 42,
+            "title": playbook["title"],
+            "eventDate": playbook["eventDate"],
+            "location": playbook["location"],
+            "sections": [
+                {
+                    "key": "program-1",
+                    "startTime": "09:00",
+                    "endTime": "09:30",
+                    "activity": "Ontvangst",
+                    "items": [{"text": "Deelnemerslijst klaarleggen", "color": "purple"}],
+                }
+            ],
+        }
+
+        with (
+            patch.object(legacy, "require_page_access", return_value=None),
+            patch.object(legacy, "load_football_days_playbooks", return_value=[playbook]),
+            patch.object(legacy, "load_checklist_document", return_value=document),
+        ):
+            overview_response = client.get("/draaiboeken", secure=True)
+            editor_response = client.get("/checklists?playbook_id=42", secure=True)
+
+        self.assertEqual(overview_response.status_code, 200)
+        self.assertContains(overview_response, 'href="/checklists"')
+        self.assertEqual(editor_response.status_code, 200)
+        self.assertContains(editor_response, "Deelnemerslijst klaarleggen")
+        self.assertContains(editor_response, "data-checklist-editor")
+        self.assertContains(editor_response, "Opslaan & PDF")
+        self.assertContains(editor_response, "checklists.js")
+
+    def test_checklist_import_save_and_pdf_export_flow(self):
+        playbook_id = legacy.save_football_days_playbook(
+            {
+                "playbookType": "voetbaldagen",
+                "title": "Test draaiboek checklistflow",
+                "eventDate": "2026-08-16",
+                "location": "VV Test",
+                "program": [
+                    {"startTime": "09:00", "endTime": "09:30", "activity": "Ontvangst"},
+                    {"startTime": "09:30", "endTime": "10:00", "activity": "Warming-up"},
+                ],
+                "staff": [],
+            }
+        )
+        client = self.build_authenticated_client()
+
+        import_response = client.post(
+            "/checklists",
+            {
+                "csrf_token": self.TEST_CSRF_TOKEN,
+                "playbook_id": str(playbook_id),
+                "action": "import",
+            },
+            secure=True,
+        )
+        imported_document = legacy.load_checklist_document(playbook_id)
+
+        self.assertEqual(import_response.status_code, 302)
+        self.assertIsNotNone(imported_document)
+        self.assertEqual(len(imported_document["sections"]), 2)
+
+        imported_document["sections"][0]["items"] = [
+            {"text": "Deelnemerslijst klaarleggen", "color": "green"}
+        ]
+        save_response = client.post(
+            "/checklists",
+            {
+                "csrf_token": self.TEST_CSRF_TOKEN,
+                "playbook_id": str(playbook_id),
+                "action": "save",
+                "checklist_data": json.dumps(imported_document["sections"]),
+            },
+            secure=True,
+        )
+        pdf_response = client.get(f"/checklists/export-pdf?playbook_id={playbook_id}", secure=True)
+
+        self.assertEqual(save_response.status_code, 302)
+        self.assertEqual(legacy.load_checklist_document(playbook_id)["sections"][0]["items"][0]["color"], "green")
+        self.assertEqual(pdf_response.status_code, 200)
+        self.assertEqual(pdf_response["Content-Type"], "application/pdf")
+        self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
 
     def test_login_requires_valid_csrf_token(self):
         response = Client(enforce_csrf_checks=False).post(

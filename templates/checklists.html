@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}Checklists | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <main class="checklists-page">
+    <header class="page-header checklists-header">
+      <div>
+        <p class="page-kicker">Draaiboeken</p>
+        <h1>Checklists</h1>
+        <p class="welcome-line">Importeer het programma van een voetbaldag en voeg per onderdeel gekleurde controlepunten toe.</p>
+      </div>
+      <a class="subtle-button" href="/draaiboeken">Terug naar draaiboeken</a>
+    </header>
+
+    {% if success %}
+      <div class="notice checklists-notice" role="status">{{ success }}</div>
+    {% endif %}
+    {% if error %}
+      <div class="notice checklists-notice checklists-notice-error" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <section class="summary-card checklists-import-panel">
+      <div class="feature-list-head checklists-import-head">
+        <div>
+          <h2 class="panel-title">Programma importeren</h2>
+          <p class="feature-list-subtitle">Kies een opgeslagen draaiboek bij Voetbaldagen. Opnieuw importeren werkt tijden en onderdelen bij en behoudt passende checklistregels.</p>
+        </div>
+      </div>
+
+      {% if playbooks %}
+        <form class="checklists-picker" method="get" action="/checklists">
+          <label class="checklists-picker-field">
+            <span>Draaiboek voetbaldag</span>
+            <select name="playbook_id" required>
+              <option value="">Kies een draaiboek</option>
+              {% for playbook in playbooks %}
+                <option value="{{ playbook.id }}" {% if selected_playbook and selected_playbook.id == playbook.id %}selected{% endif %}>
+                  {{ playbook.title }}{% if playbook.eventDateLabel %} · {{ playbook.eventDateLabel }}{% endif %}{% if playbook.location %} · {{ playbook.location }}{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+          <button class="subtle-button subtle-button-strong" type="submit">Openen</button>
+        </form>
+      {% else %}
+        <div class="checklists-empty-state">
+          <strong>Nog geen draaiboeken gevonden</strong>
+          <p>Maak eerst bij Voetbaldagen een draaiboek met programmaonderdelen.</p>
+          <a class="subtle-button subtle-button-strong" href="/voetbaldagen/nieuw">Nieuw draaiboek</a>
+        </div>
+      {% endif %}
+
+      {% if selected_playbook %}
+        <div class="checklists-selected-program">
+          <div class="checklists-program-meta">
+            <span>Geselecteerd</span>
+            <strong>{{ selected_playbook.title }}</strong>
+            <small>
+              {{ selected_playbook.eventDateLabel or "Datum niet ingevuld" }}
+              {% if selected_playbook.location %} · {{ selected_playbook.location }}{% endif %}
+              · {{ selected_playbook.program|length }} programmaonderdelen
+            </small>
+          </div>
+          <form method="post" action="/checklists">
+            <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+            <input type="hidden" name="playbook_id" value="{{ selected_playbook.id }}">
+            <input type="hidden" name="action" value="import">
+            <button class="subtle-button" type="submit">
+              {% if checklist_document %}Programma opnieuw importeren{% else %}Programma importeren{% endif %}
+            </button>
+          </form>
+        </div>
+      {% endif %}
+    </section>
+
+    {% if selected_playbook and not checklist_document %}
+      <section class="summary-card checklists-empty-editor">
+        <span class="checklists-empty-icon" aria-hidden="true">✓</span>
+        <h2>Importeer het programma om te beginnen</h2>
+        <p>Daarna verschijnt ieder programmaonderdeel als een apart blok waarin je checklistregels en kleuren kunt toevoegen.</p>
+      </section>
+    {% endif %}
+
+    {% if checklist_document %}
+      <form class="checklists-editor" method="post" action="/checklists" data-checklist-editor>
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <input type="hidden" name="playbook_id" value="{{ checklist_document.playbookId }}">
+        <input type="hidden" name="action" value="save">
+        <input type="hidden" name="checklist_data" value="" data-checklist-data>
+
+        <div class="checklists-editor-toolbar">
+          <div>
+            <h2>Checklist per programmaonderdeel</h2>
+            <p>Gebruik kleuren om rollen, prioriteiten of momenten snel herkenbaar te maken.</p>
+          </div>
+          <div class="checklists-editor-actions">
+            <button class="subtle-button" type="submit" name="after_save" value="pdf" formtarget="_blank">Opslaan & PDF</button>
+            <button class="subtle-button subtle-button-strong" type="submit">Checklist opslaan</button>
+          </div>
+        </div>
+
+        {% if checklist_document.sections %}
+          <div class="checklists-section-list" data-checklist-sections>
+            {% for section in checklist_document.sections %}
+              <article
+                class="summary-card checklist-section"
+                data-checklist-section
+                data-section-key="{{ section.key }}"
+                data-start-time="{{ section.startTime }}"
+                data-end-time="{{ section.endTime }}"
+                data-activity="{{ section.activity }}"
+              >
+                <div class="checklist-section-head">
+                  <div class="checklist-section-title">
+                    <span class="checklist-time">
+                      {% if section.startTime or section.endTime %}
+                        {{ section.startTime or "--:--" }}{% if section.endTime %} – {{ section.endTime }}{% endif %}
+                      {% else %}
+                        Programma
+                      {% endif %}
+                    </span>
+                    <h3>{{ section.activity }}</h3>
+                  </div>
+                  <button class="subtle-button action-small" type="button" data-add-checklist-item>Checklistpunt toevoegen</button>
+                </div>
+
+                <div class="checklist-items" data-checklist-items>
+                  {% for item in section["items"] %}
+                    <div class="checklist-item" data-checklist-item style="--checklist-item-color: {{ checklist_colors|selectattr('value', 'equalto', item.color)|map(attribute='hex')|first or '#d6a34f' }}">
+                      <span class="checklist-item-marker" aria-hidden="true"></span>
+                      <input class="checklist-item-text" type="text" value="{{ item.text }}" maxlength="220" placeholder="Bijv. materialen klaarzetten" aria-label="Checklistpunt">
+                      <input type="hidden" value="{{ item.color }}" data-checklist-color>
+                      <div class="checklist-color-picker" role="group" aria-label="Kleur checklistpunt">
+                        {% for color in checklist_colors %}
+                          <button
+                            class="checklist-color-option{% if item.color == color.value %} is-selected{% endif %}"
+                            type="button"
+                            data-color-value="{{ color.value }}"
+                            data-color-hex="{{ color.hex }}"
+                            style="--color-option: {{ color.hex }}"
+                            aria-label="{{ color.label }}"
+                            title="{{ color.label }}"
+                            aria-pressed="{% if item.color == color.value %}true{% else %}false{% endif %}"
+                          ></button>
+                        {% endfor %}
+                      </div>
+                      <button class="checklist-item-remove" type="button" data-remove-checklist-item aria-label="Checklistpunt verwijderen" title="Verwijderen">×</button>
+                    </div>
+                  {% endfor %}
+                </div>
+                <p class="checklist-items-empty" data-checklist-empty {% if section["items"] %}hidden{% endif %}>Nog geen checklistpunten. Voeg het eerste punt toe.</p>
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <section class="summary-card checklists-empty-editor">
+            <h2>Dit draaiboek bevat nog geen programmaonderdelen</h2>
+            <p>Vul het programma aan bij Voetbaldagen en importeer het daarna opnieuw.</p>
+            <a class="subtle-button" href="/voetbaldagen/{{ checklist_document.playbookId }}">Draaiboek openen</a>
+          </section>
+        {% endif %}
+
+        <div class="checklists-sticky-save">
+          <span data-checklist-count>0 checklistpunten</span>
+          <div class="checklists-editor-actions">
+            <button class="subtle-button" type="submit" name="after_save" value="pdf" formtarget="_blank">Opslaan & PDF</button>
+            <button class="subtle-button subtle-button-strong" type="submit">Checklist opslaan</button>
+          </div>
+        </div>
+      </form>
+    {% endif %}
+
+    <template id="checklistItemTemplate">
+      <div class="checklist-item" data-checklist-item style="--checklist-item-color: {{ checklist_colors[0].hex }}">
+        <span class="checklist-item-marker" aria-hidden="true"></span>
+        <input class="checklist-item-text" type="text" value="" maxlength="220" placeholder="Bijv. materialen klaarzetten" aria-label="Checklistpunt">
+        <input type="hidden" value="{{ checklist_colors[0].value }}" data-checklist-color>
+        <div class="checklist-color-picker" role="group" aria-label="Kleur checklistpunt">
+          {% for color in checklist_colors %}
+            <button
+              class="checklist-color-option{% if loop.first %} is-selected{% endif %}"
+              type="button"
+              data-color-value="{{ color.value }}"
+              data-color-hex="{{ color.hex }}"
+              style="--color-option: {{ color.hex }}"
+              aria-label="{{ color.label }}"
+              title="{{ color.label }}"
+              aria-pressed="{% if loop.first %}true{% else %}false{% endif %}"
+            ></button>
+          {% endfor %}
+        </div>
+        <button class="checklist-item-remove" type="button" data-remove-checklist-item aria-label="Checklistpunt verwijderen" title="Verwijderen">×</button>
+      </div>
+    </template>
+  </main>
+
+  <script src="../static/checklists.js?v={{ asset_version }}" defer></script>
+{% endblock %}
