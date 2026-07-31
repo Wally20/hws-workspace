@@ -1268,6 +1268,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertContains(edit_response, "Planningstabel")
         self.assertContains(edit_response, "Test planning voetbaldag")
         self.assertContains(edit_response, 'id="exportPlanningPdf"')
+        self.assertContains(edit_response, 'id="exportPlanningPng"')
 
         update_response = client.post(
             f"/planning/{planning_id}",
@@ -1310,6 +1311,27 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(export_response["Content-Type"], "application/pdf")
         self.assertIn("test-planning-aangepast-2026-08-16.pdf", export_response["Content-Disposition"])
         self.assertTrue(export_response.content.startswith(b"%PDF-"))
+
+        png_response = client.post(
+            "/api/planning/export-png",
+            data=json.dumps(
+                {
+                    "title": saved_planning["title"],
+                    "planningDate": saved_planning["planningDate"],
+                    "location": saved_planning["location"],
+                    "includeIcons": True,
+                    "program": saved_planning["program"],
+                }
+            ),
+            content_type="application/json",
+            secure=True,
+            HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+        )
+
+        self.assertEqual(png_response.status_code, 200)
+        self.assertEqual(png_response["Content-Type"], "image/png")
+        self.assertIn("test-planning-aangepast-2026-08-16.png", png_response["Content-Disposition"])
+        self.assertTrue(png_response.content.startswith(b"\x89PNG\r\n\x1a\n"))
 
     def test_football_days_new_page_saves_and_redirects_to_created_playbook(self):
         response = self.build_authenticated_client().post(

@@ -144,6 +144,7 @@ urlpatterns = [
         name="api_amateur_clubs_export_pdf",
     ),
     path("api/planning/export-pdf", views.api_planning_export_pdf, name="api_planning_export_pdf"),
+    path("api/planning/export-png", views.api_planning_export_png, name="api_planning_export_png"),
     path("api/dashboard-events", views.api_dashboard_events, name="api_dashboard_events"),
     path(
         "api/registrations/email-status",

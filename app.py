@@ -17505,6 +17505,10 @@ def planning_pdf_filename(planning: Dict[str, Any]) -> str:
     return f"{safe_title}{f'-{date_suffix}' if date_suffix else ''}.pdf"
 
 
+def planning_png_filename(planning: Dict[str, Any]) -> str:
+    return f"{planning_pdf_filename(planning)[:-4]}.png"
+
+
 def create_planning_pdf(planning: Dict[str, Any]) -> bytes:
     try:
         from reportlab.lib import colors
@@ -17743,6 +17747,270 @@ def create_planning_pdf(planning: Dict[str, Any]) -> bytes:
     return buffer.read()
 
 
+def create_planning_png(planning: Dict[str, Any]) -> bytes:
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError as exc:
+        raise RuntimeError("De afbeeldingsbibliotheek ontbreekt. Installeer de packages uit requirements.txt.") from exc
+
+    scale = 2
+    page_width = FOOTBALL_DAYS_PDF_WIDTH * scale
+    page_height = FOOTBALL_DAYS_PDF_HEIGHT * scale
+    font_root = os.path.join(os.path.dirname(__file__), "static", "assets", "fonts")
+    font_files = {
+        "regular": "Poppins-Regular.ttf",
+        "bold": "Poppins-Bold.ttf",
+        "black": "Poppins-Black.ttf",
+    }
+    font_cache: Dict[Tuple[str, int], Any] = {}
+
+    def px(value: float) -> int:
+        return round(value * scale)
+
+    def get_font(weight: str, size: float) -> Any:
+        cache_key = (weight, px(size))
+        if cache_key not in font_cache:
+            try:
+                font_cache[cache_key] = ImageFont.truetype(
+                    os.path.join(font_root, font_files[weight]),
+                    px(size),
+                )
+            except (OSError, KeyError) as exc:
+                raise RuntimeError("De Poppins-fontbestanden ontbreken of kunnen niet worden geladen.") from exc
+        return font_cache[cache_key]
+
+    def text_width(draw: Any, value: Any, font: Any) -> float:
+        return float(draw.textlength(str(value or ""), font=font))
+
+    def trim_text(draw: Any, value: Any, max_width: float, font: Any) -> str:
+        text_value = str(value or "").strip()
+        if text_width(draw, text_value, font) <= max_width:
+            return text_value
+        suffix = "..."
+        while text_value and text_width(draw, f"{text_value}{suffix}", font) > max_width:
+            text_value = text_value[:-1].rstrip()
+        return f"{text_value}{suffix}" if text_value else suffix
+
+    def split_lines(draw: Any, value: Any, max_width: float, font: Any, max_lines: int = 2) -> List[str]:
+        words = str(value or "").strip().split()
+        if not words:
+            return [""]
+        lines: List[str] = []
+        current = ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if not current or text_width(draw, candidate, font) <= max_width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        lines = lines[:max_lines]
+        return [trim_text(draw, line, max_width, font) for line in lines]
+
+    def draw_centered_text(draw: Any, value: Any, center_x: float, top_y: float, font: Any, fill: Any) -> None:
+        text_value = str(value or "")
+        draw.text((px(center_x) - (text_width(draw, text_value, font) / 2), px(top_y)), text_value, font=font, fill=fill)
+
+    def draw_vertical_centered_text(draw: Any, value: Any, x: float, center_y: float, font: Any, fill: Any) -> None:
+        text_value = str(value or "")
+        bounds = draw.textbbox((0, 0), text_value, font=font)
+        text_height = bounds[3] - bounds[1]
+        draw.text((px(x), px(center_y) - (text_height / 2) - bounds[1]), text_value, font=font, fill=fill)
+
+    def draw_icon(draw: Any, icon_key: str, center_x: float, center_y: float, size: float = 17) -> None:
+        key = icon_key if icon_key in FOOTBALL_ACTIVITY_ICON_KEYS else "clock"
+        cx = px(center_x)
+        cy = px(center_y)
+        radius = px(size * 0.72)
+        line_width = max(2, px(1.5))
+        stroke = (255, 255, 255, 242)
+        draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), outline=stroke, width=line_width)
+        unit = scale * (size / 21)
+
+        def point(x_value: float, y_value: float) -> Tuple[int, int]:
+            return (round(cx + (x_value * unit)), round(cy - (y_value * unit)))
+
+        icon_width = max(2, round(1.8 * unit))
+        if key == "football":
+            icon_radius = round(7.6 * unit)
+            inner_radius = round(2.2 * unit)
+            draw.ellipse((cx - icon_radius, cy - icon_radius, cx + icon_radius, cy + icon_radius), outline=stroke, width=icon_width)
+            draw.ellipse((cx - inner_radius, cy - inner_radius, cx + inner_radius, cy + inner_radius), outline=stroke, width=icon_width)
+            for end_x, end_y in ((0, 7.3), (6.9, 2.3), (4.4, -6.1), (-4.4, -6.1), (-6.9, 2.3)):
+                draw.line((point(0, 0), point(end_x, end_y)), fill=stroke, width=icon_width)
+        elif key == "trophy":
+            draw.rounded_rectangle((*point(-7, 11), *point(7, 1)), radius=max(1, round(2 * unit)), outline=stroke, width=icon_width)
+            draw.line((point(0, 1), point(0, -8)), fill=stroke, width=icon_width)
+            draw.line((point(-8, -9), point(8, -9)), fill=stroke, width=icon_width)
+        elif key == "clipboard":
+            draw.rounded_rectangle((*point(-8, 10), *point(8, -10)), radius=max(1, round(2 * unit)), outline=stroke, width=icon_width)
+            draw.line((point(-4, 3), point(5, 3)), fill=stroke, width=icon_width)
+            draw.line((point(-4, -3), point(5, -3)), fill=stroke, width=icon_width)
+        elif key == "flame":
+            draw.line(
+                [point(0, -10), point(-7, -5), point(-6, 4), point(-1, 12), point(0, 4), point(3, 12), point(9, 3), point(7, -6), point(0, -10)],
+                fill=stroke,
+                width=icon_width,
+                joint="curve",
+            )
+        elif key == "camera":
+            draw.rounded_rectangle((*point(-11, 9), *point(11, -7)), radius=max(1, round(2 * unit)), outline=stroke, width=icon_width)
+            camera_radius = round(4.2 * unit)
+            camera_center_y = point(0, 1)[1]
+            draw.ellipse((cx - camera_radius, camera_center_y - camera_radius, cx + camera_radius, camera_center_y + camera_radius), outline=stroke, width=icon_width)
+        elif key == "medical":
+            draw.rectangle((*point(-3, 10), *point(3, -10)), outline=stroke, width=icon_width)
+            draw.rectangle((*point(-10, 3), *point(10, -3)), outline=stroke, width=icon_width)
+        elif key == "cones":
+            draw.line((point(-8, -10), point(-2, 10)), fill=stroke, width=icon_width)
+            draw.line((point(8, -10), point(2, 10)), fill=stroke, width=icon_width)
+            draw.line((point(-11, -10), point(11, -10)), fill=stroke, width=icon_width)
+            draw.line((point(-5, 1), point(5, 1)), fill=stroke, width=icon_width)
+        elif key == "utensils":
+            draw.line((point(-8, 10), point(-8, -9)), fill=stroke, width=icon_width)
+            draw.line((point(-4, 10), point(-4, -9)), fill=stroke, width=icon_width)
+            draw.line((point(7, 10), point(7, -10)), fill=stroke, width=icon_width)
+        else:
+            icon_radius = round(7.6 * unit)
+            draw.ellipse((cx - icon_radius, cy - icon_radius, cx + icon_radius, cy + icon_radius), outline=stroke, width=icon_width)
+            draw.line((point(0, 0), point(0, 6)), fill=stroke, width=icon_width)
+            draw.line((point(0, 0), point(6, -4)), fill=stroke, width=icon_width)
+
+    backgrounds = football_days_background_paths()
+    resampling = getattr(Image, "Resampling", Image).LANCZOS
+
+    def create_background(page_index: int) -> Any:
+        background_path = backgrounds[page_index % len(backgrounds)] if backgrounds else ""
+        if background_path and os.path.exists(background_path):
+            with Image.open(background_path) as source_image:
+                page = source_image.convert("RGBA").resize((page_width, page_height), resampling)
+        else:
+            page = Image.new("RGBA", (page_width, page_height), (22, 22, 22, 255))
+        shade = Image.new("RGBA", page.size, (0, 0, 0, 87))
+        return Image.alpha_composite(page, shade)
+
+    def draw_translucent_rounded_rectangle(
+        page: Any,
+        box: Tuple[int, int, int, int],
+        radius: int,
+        fill: Tuple[int, int, int, int],
+        outline: Optional[Tuple[int, int, int, int]] = None,
+        width: int = 1,
+    ) -> None:
+        overlay = Image.new("RGBA", page.size, (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        overlay_draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
+        page.alpha_composite(overlay)
+
+    program = planning.get("program") or []
+    if not program:
+        program = [{"startTime": "", "endTime": "", "activity": "Nog geen programmaonderdelen toegevoegd", "details": "", "icon": "clock"}]
+    page_rows = chunk_items(program, 8)
+    include_icons = bool(planning.get("includeIcons", True))
+    rendered_pages: List[Any] = []
+
+    for page_index, rows in enumerate(page_rows, start=1):
+        page = create_background(page_index)
+        draw = ImageDraw.Draw(page, "RGBA")
+        title = str(planning.get("title") or "Planning").strip().upper()
+        title_size = 42
+        title_font = get_font("black", title_size)
+        while title_size > 22 and text_width(draw, title, title_font) > px(850):
+            title_size -= 1
+            title_font = get_font("black", title_size)
+        title = trim_text(draw, title, px(850), title_font)
+        draw_centered_text(draw, title, FOOTBALL_DAYS_PDF_WIDTH / 2, 46, title_font, (255, 255, 255, 255))
+
+        subtitle = " | ".join(
+            part
+            for part in (format_football_days_date(planning.get("planningDate")), str(planning.get("location") or "").strip())
+            if part
+        )
+        subtitle_font = get_font("regular", 10)
+        subtitle = trim_text(draw, subtitle, px(850), subtitle_font)
+        draw_centered_text(draw, subtitle, FOOTBALL_DAYS_PDF_WIDTH / 2, 108, subtitle_font, (255, 255, 255, 220))
+
+        table_x = 55
+        table_top = 150
+        table_width = 850
+        header_height = 34
+        icon_width = 58 if include_icons else 0
+        time_width = 145
+        activity_width = 285 if include_icons else 310
+        details_width = table_width - icon_width - time_width - activity_width
+        columns = ([icon_width] if include_icons else []) + [time_width, activity_width, details_width]
+        headers = ([""] if include_icons else []) + ["Tijd", "Onderdeel", "Toelichting"]
+        draw_translucent_rounded_rectangle(
+            page,
+            (px(table_x), px(table_top), px(table_x + table_width), px(table_top + header_height)),
+            radius=px(5),
+            fill=(0, 0, 0, 194),
+        )
+        draw = ImageDraw.Draw(page, "RGBA")
+        cursor_x = table_x
+        header_font = get_font("bold", 10)
+        for column_index, header in enumerate(headers):
+            if header:
+                draw_vertical_centered_text(draw, header.upper(), cursor_x + 12, table_top + (header_height / 2), header_font, (255, 255, 255, 255))
+            cursor_x += columns[column_index]
+
+        row_height = min(42, 318 / max(1, len(rows)))
+        current_top = table_top + header_height + 6
+        for row_index, item in enumerate(rows):
+            row_bottom = current_top + row_height - 3
+            draw_translucent_rounded_rectangle(
+                page,
+                (px(table_x), px(current_top), px(table_x + table_width), px(row_bottom)),
+                radius=px(4),
+                fill=(0, 0, 0, 148 if row_index % 2 == 0 else 120),
+                outline=(255, 255, 255, 42),
+                width=max(1, px(0.7)),
+            )
+            draw = ImageDraw.Draw(page, "RGBA")
+            center_y = current_top + ((row_height - 3) / 2)
+            cursor_x = table_x
+            if include_icons:
+                draw_icon(draw, str(item.get("icon") or infer_football_activity_icon(str(item.get("activity") or ""))), cursor_x + (icon_width / 2), center_y)
+                cursor_x += icon_width
+
+            time_label = " - ".join(
+                part for part in (str(item.get("startTime") or "").strip(), str(item.get("endTime") or "").strip()) if part
+            ) or "--:--"
+            time_font = get_font("bold", 11)
+            time_label = trim_text(draw, time_label, px(time_width - 22), time_font)
+            draw_vertical_centered_text(draw, time_label, cursor_x + 12, center_y, time_font, (255, 255, 255, 255))
+            cursor_x += time_width
+
+            activity_font = get_font("bold", 10.5)
+            activity_lines = split_lines(draw, item.get("activity") or "-", px(activity_width - 22), activity_font, 2)
+            activity_start = center_y - (6.5 * (len(activity_lines) - 1))
+            for line_index, line in enumerate(activity_lines):
+                draw_vertical_centered_text(draw, line, cursor_x + 12, activity_start + (line_index * 13), activity_font, (255, 255, 255, 255))
+            cursor_x += activity_width
+
+            details_font = get_font("regular", 9.5)
+            details_lines = split_lines(draw, item.get("details") or "-", px(details_width - 22), details_font, 2)
+            details_start = center_y - (6 * (len(details_lines) - 1))
+            for line_index, line in enumerate(details_lines):
+                draw_vertical_centered_text(draw, line, cursor_x + 12, details_start + (line_index * 12), details_font, (255, 255, 255, 218))
+            current_top += row_height
+
+        footer_font = get_font("regular", 8)
+        footer = f"Planning | pagina {page_index} van {len(page_rows)}"
+        draw_centered_text(draw, footer, FOOTBALL_DAYS_PDF_WIDTH / 2, 508, footer_font, (255, 255, 255, 180))
+        rendered_pages.append(page.convert("RGB"))
+
+    output_image = Image.new("RGB", (page_width, page_height * len(rendered_pages)), (22, 22, 22))
+    for page_index, page in enumerate(rendered_pages):
+        output_image.paste(page, (0, page_index * page_height))
+    buffer = BytesIO()
+    output_image.save(buffer, format="PNG", optimize=True)
+    buffer.seek(0)
+    return buffer.read()
+
+
 @app.route("/planning", methods=["GET", "POST"])
 def planning_page() -> str:
     access_redirect = require_page_access("planning")
@@ -17804,6 +18072,28 @@ def api_planning_export_pdf():
         {
             "Content-Type": "application/pdf",
             "Content-Disposition": f'attachment; filename="{planning_pdf_filename(planning)}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.post("/api/planning/export-png")
+def api_planning_export_png():
+    access_redirect = require_page_access("planning")
+    if access_redirect is not None:
+        return access_redirect
+
+    planning = normalize_planning_export_payload(request.get_json(silent=True) or {})
+    try:
+        png_bytes = create_planning_png(planning)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+    return (
+        png_bytes,
+        200,
+        {
+            "Content-Type": "image/png",
+            "Content-Disposition": f'attachment; filename="{planning_png_filename(planning)}"',
             "Cache-Control": "no-store",
         },
     )

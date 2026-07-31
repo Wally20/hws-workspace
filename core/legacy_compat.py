@@ -90,6 +90,7 @@ ENDPOINTS = {
     "api_amateur_clubs_registration_counts": "api_amateur_clubs_registration_counts",
     "api_amateur_clubs_export_pdf": "api_amateur_clubs_export_pdf",
     "api_planning_export_pdf": "api_planning_export_pdf",
+    "api_planning_export_png": "api_planning_export_png",
     "api_dashboard_events": "api_dashboard_events",
     "api_save_dashboard_events": "api_dashboard_events",
     "api_dashboard_weather": "api_dashboard_weather",

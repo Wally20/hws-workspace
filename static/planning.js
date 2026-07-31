@@ -28,7 +28,8 @@
   const planningModal = document.getElementById("planningModal");
   const openModalButton = document.getElementById("openPlanningModal");
   const editorForm = document.getElementById("planningEditorForm");
-  const exportButton = document.getElementById("exportPlanningPdf");
+  const pdfExportButton = document.getElementById("exportPlanningPdf");
+  const pngExportButton = document.getElementById("exportPlanningPng");
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let draggedRow = null;
 
@@ -215,15 +216,15 @@
     };
   };
 
-  exportButton?.addEventListener("click", async () => {
+  const downloadPlanningExport = async (button, endpoint, fallbackFilename, progressLabel) => {
     if (!editorForm?.reportValidity()) {
       return;
     }
-    const originalText = exportButton.textContent;
-    exportButton.disabled = true;
-    exportButton.textContent = "PDF maken...";
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = progressLabel;
     try {
-      const response = await fetch("/api/planning/export-pdf", {
+      const response = await fetch(endpoint, {
         method: "POST",
         credentials: "same-origin",
         headers: {
@@ -234,12 +235,12 @@
       });
       if (!response.ok) {
         const errorPayload = await response.json().catch(() => ({}));
-        throw new Error(errorPayload.error || "De PDF kon niet worden gemaakt.");
+        throw new Error(errorPayload.error || "De export kon niet worden gemaakt.");
       }
       const blob = await response.blob();
       const disposition = response.headers.get("Content-Disposition") || "";
       const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
-      const filename = filenameMatch?.[1] || "planning.pdf";
+      const filename = filenameMatch?.[1] || fallbackFilename;
       const downloadUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = downloadUrl;
@@ -249,10 +250,18 @@
       link.remove();
       URL.revokeObjectURL(downloadUrl);
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "De PDF kon niet worden gemaakt.");
+      window.alert(error instanceof Error ? error.message : "De export kon niet worden gemaakt.");
     } finally {
-      exportButton.disabled = false;
-      exportButton.textContent = originalText;
+      button.disabled = false;
+      button.textContent = originalText;
     }
+  };
+
+  pdfExportButton?.addEventListener("click", () => {
+    downloadPlanningExport(pdfExportButton, "/api/planning/export-pdf", "planning.pdf", "PDF maken...");
+  });
+
+  pngExportButton?.addEventListener("click", () => {
+    downloadPlanningExport(pngExportButton, "/api/planning/export-png", "planning.png", "PNG maken...");
   });
 })();
