@@ -5,11 +5,13 @@ import sqlite3
 import tempfile
 import time
 from datetime import date, datetime
+from io import BytesIO
 from importlib import import_module
 from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.test import Client, SimpleTestCase
+from PIL import Image
 
 import app as legacy
 
@@ -1332,6 +1334,31 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(png_response["Content-Type"], "image/png")
         self.assertIn("test-planning-aangepast-2026-08-16.png", png_response["Content-Disposition"])
         self.assertTrue(png_response.content.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_planning_png_keeps_title_clear_of_logo(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            background_path = os.path.join(temporary_directory, "background.png")
+            Image.new("RGB", (1920, 1080), (0, 0, 0)).save(background_path)
+            with patch.object(legacy, "football_days_background_paths", return_value=[background_path]):
+                png_bytes = legacy.create_planning_png(
+                    {
+                        "title": "Heenreis - SC Terschelling Summercamp 2026",
+                        "planningDate": "2026-07-31",
+                        "location": "Terschelling",
+                        "includeIcons": True,
+                        "program": [{"startTime": "08:00", "activity": "Vertrek"}],
+                    }
+                )
+
+        with Image.open(BytesIO(png_bytes)) as exported_image:
+            self.assertEqual(exported_image.size, (1920, 1080))
+            logo_pixels = list(exported_image.crop((50, 35, 170, 180)).getdata())
+            gap_pixels = list(exported_image.crop((174, 35, 196, 180)).getdata())
+            title_pixels = list(exported_image.crop((198, 35, 1830, 180)).getdata())
+
+        self.assertTrue(any(max(pixel) > 240 for pixel in logo_pixels))
+        self.assertFalse(any(max(pixel) > 20 for pixel in gap_pixels))
+        self.assertTrue(any(max(pixel) > 240 for pixel in title_pixels))
 
     def test_football_days_new_page_saves_and_redirects_to_created_playbook(self):
         response = self.build_authenticated_client().post(

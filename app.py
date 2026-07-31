@@ -17880,6 +17880,19 @@ def create_planning_png(planning: Dict[str, Any]) -> bytes:
 
     backgrounds = football_days_background_paths()
     resampling = getattr(Image, "Resampling", Image).LANCZOS
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "assets", "hws-logo.png")
+    logo_image = None
+    if os.path.exists(logo_path):
+        with Image.open(logo_path) as source_logo:
+            logo_image = source_logo.convert("RGBA")
+        logo_bounds = logo_image.getchannel("A").getbbox()
+        if logo_bounds:
+            logo_image = logo_image.crop(logo_bounds)
+            logo_height = px(68)
+            logo_width = round(logo_image.width * (logo_height / logo_image.height))
+            logo_image = logo_image.resize((logo_width, logo_height), resampling)
+        else:
+            logo_image = None
 
     def create_background(page_index: int) -> Any:
         background_path = backgrounds[page_index % len(backgrounds)] if backgrounds else ""
@@ -17913,15 +17926,22 @@ def create_planning_png(planning: Dict[str, Any]) -> bytes:
 
     for page_index, rows in enumerate(page_rows, start=1):
         page = create_background(page_index)
+        if logo_image is not None:
+            # The background artwork already contains a subdued logo. Redrawing the
+            # source logo after the dark overlay keeps it crisp in the PNG export.
+            page.alpha_composite(logo_image, (px(28), px(20)))
         draw = ImageDraw.Draw(page, "RGBA")
         title = str(planning.get("title") or "Planning").strip().upper()
         title_size = 42
         title_font = get_font("black", title_size)
-        while title_size > 22 and text_width(draw, title, title_font) > px(850):
+        title_left = 99
+        title_right = 915
+        title_max_width = px(title_right - title_left)
+        while title_size > 22 and text_width(draw, title, title_font) > title_max_width:
             title_size -= 1
             title_font = get_font("black", title_size)
-        title = trim_text(draw, title, px(850), title_font)
-        draw_centered_text(draw, title, FOOTBALL_DAYS_PDF_WIDTH / 2, 46, title_font, (255, 255, 255, 255))
+        title = trim_text(draw, title, title_max_width, title_font)
+        draw_vertical_centered_text(draw, title, title_left, 54, title_font, (255, 255, 255, 255))
 
         subtitle = " | ".join(
             part
