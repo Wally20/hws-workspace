@@ -27,6 +27,8 @@
   const rowTemplate = document.getElementById("planningRowTemplate");
   const dayTemplate = document.getElementById("planningDayTemplate");
   const taskRowTemplate = document.getElementById("planningTaskRowTemplate");
+  const bulletSlideTemplate = document.getElementById("planningBulletSlideTemplate");
+  const bulletRowTemplate = document.getElementById("planningBulletRowTemplate");
   const planningModal = document.getElementById("planningModal");
   const openModalButton = document.getElementById("openPlanningModal");
   const editorForm = document.getElementById("planningEditorForm");
@@ -36,6 +38,7 @@
   const taskRowsContainer = editorForm?.querySelector("[data-planning-task-rows]");
   const taskEnabledInput = editorForm?.querySelector("[data-planning-task-enabled]");
   const taskPositionSelect = editorForm?.querySelector("[data-planning-task-position]");
+  const bulletSlidesContainer = editorForm?.querySelector("[data-planning-bullet-slides]");
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let draggedRow = null;
 
@@ -187,12 +190,13 @@
     return row;
   };
 
-  const refreshTaskPositionOptions = (dayCount) => {
-    if (!taskPositionSelect) {
+  const replacePositionOptions = (select, dayCount, requestedPosition) => {
+    if (!select) {
       return;
     }
-    const currentPosition = Math.max(0, Math.min(dayCount, Number.parseInt(taskPositionSelect.value || "1", 10) || 0));
-    taskPositionSelect.replaceChildren();
+    const parsedPosition = Number.parseInt(String(requestedPosition ?? select.value), 10);
+    const currentPosition = Math.max(0, Math.min(dayCount, Number.isNaN(parsedPosition) ? dayCount : parsedPosition));
+    select.replaceChildren();
     for (let position = 0; position <= dayCount; position += 1) {
       const option = document.createElement("option");
       option.value = String(position);
@@ -204,8 +208,77 @@
         option.textContent = `Na dag ${dayCount}`;
       }
       option.selected = position === currentPosition;
-      taskPositionSelect.append(option);
+      select.append(option);
     }
+  };
+
+  const refreshTaskPositionOptions = (dayCount) => {
+    replacePositionOptions(taskPositionSelect, dayCount, taskPositionSelect?.value || "1");
+  };
+
+  const refreshBulletRemoveButtons = (slide) => {
+    const rows = [...slide.querySelectorAll("[data-planning-bullet-row]")];
+    rows.forEach((row) => {
+      const removeButton = row.querySelector("[data-remove-planning-bullet]");
+      if (removeButton) {
+        removeButton.hidden = rows.length <= 1;
+      }
+    });
+    const addButton = slide.querySelector("[data-add-planning-bullet]");
+    if (addButton) {
+      addButton.disabled = rows.length >= 30;
+    }
+  };
+
+  const appendBulletRow = (slide, value = "") => {
+    const row = bulletRowTemplate?.content.firstElementChild?.cloneNode(true);
+    const list = slide?.querySelector("[data-planning-bullet-list]");
+    if (!row || !list || list.querySelectorAll("[data-planning-bullet-row]").length >= 30) {
+      return null;
+    }
+    row.querySelector("[data-planning-bullet-text]").value = value;
+    list.append(row);
+    refreshBulletRemoveButtons(slide);
+    return row;
+  };
+
+  const refreshBulletSlides = (dayCount) => {
+    const slides = [...(bulletSlidesContainer?.querySelectorAll("[data-planning-bullet-slide]") || [])];
+    slides.forEach((slide, index) => {
+      const label = slide.querySelector("[data-planning-bullet-slide-label]");
+      if (label) {
+        label.textContent = `Slide ${index + 1}`;
+      }
+      const positionSelect = slide.querySelector("[data-planning-bullet-position]");
+      replacePositionOptions(positionSelect, dayCount, positionSelect?.value);
+      refreshBulletRemoveButtons(slide);
+    });
+    const addButton = editorForm?.querySelector("[data-add-planning-bullet-slide]");
+    if (addButton) {
+      addButton.disabled = slides.length >= 20;
+    }
+  };
+
+  const appendBulletSlide = (values = {}) => {
+    const slide = bulletSlideTemplate?.content.firstElementChild?.cloneNode(true);
+    if (!slide || !bulletSlidesContainer || bulletSlidesContainer.querySelectorAll("[data-planning-bullet-slide]").length >= 20) {
+      return null;
+    }
+    const titleInput = slide.querySelector("[data-planning-bullet-title]");
+    if (titleInput) {
+      titleInput.value = values.title || "Nieuwe slide";
+    }
+    bulletSlidesContainer.append(slide);
+    const dayCount = editorForm?.querySelectorAll("[data-planning-day]").length || 1;
+    replacePositionOptions(
+      slide.querySelector("[data-planning-bullet-position]"),
+      dayCount,
+      values.insertAfterDay ?? dayCount,
+    );
+    const bullets = Array.isArray(values.bullets) && values.bullets.length ? values.bullets : [""];
+    bullets.slice(0, 30).forEach((bullet) => appendBulletRow(slide, bullet));
+    refreshBulletSlides(dayCount);
+    return slide;
   };
 
   const refreshDays = () => {
@@ -226,6 +299,7 @@
       addDayButton.disabled = days.length >= 31;
     }
     refreshTaskPositionOptions(days.length);
+    refreshBulletSlides(days.length);
   };
 
   const nextDayDate = () => {
@@ -243,6 +317,39 @@
   };
 
   document.addEventListener("click", (event) => {
+    const addBulletSlideButton = event.target.closest("[data-add-planning-bullet-slide]");
+    if (addBulletSlideButton) {
+      const slide = appendBulletSlide();
+      slide?.querySelector("[data-planning-bullet-title]")?.select();
+      return;
+    }
+
+    const removeBulletSlideButton = event.target.closest("[data-remove-planning-bullet-slide]");
+    if (removeBulletSlideButton) {
+      removeBulletSlideButton.closest("[data-planning-bullet-slide]")?.remove();
+      const dayCount = editorForm?.querySelectorAll("[data-planning-day]").length || 1;
+      refreshBulletSlides(dayCount);
+      return;
+    }
+
+    const addBulletButton = event.target.closest("[data-add-planning-bullet]");
+    if (addBulletButton) {
+      const slide = addBulletButton.closest("[data-planning-bullet-slide]");
+      const row = appendBulletRow(slide);
+      row?.querySelector("[data-planning-bullet-text]")?.focus();
+      return;
+    }
+
+    const removeBulletButton = event.target.closest("[data-remove-planning-bullet]");
+    if (removeBulletButton) {
+      const slide = removeBulletButton.closest("[data-planning-bullet-slide]");
+      if (slide?.querySelectorAll("[data-planning-bullet-row]").length > 1) {
+        removeBulletButton.closest("[data-planning-bullet-row]")?.remove();
+        refreshBulletRemoveButtons(slide);
+      }
+      return;
+    }
+
     const addTaskButton = event.target.closest("[data-add-planning-task]");
     if (addTaskButton) {
       const row = appendTaskRow();
@@ -387,6 +494,15 @@
       .filter((member) => member.name || member.role || member.task),
   });
 
+  const collectBulletSlides = () =>
+    [...(bulletSlidesContainer?.querySelectorAll("[data-planning-bullet-slide]") || [])].map((slide) => ({
+      title: String(slide.querySelector("[data-planning-bullet-title]")?.value || "Nieuwe slide").trim(),
+      insertAfterDay: Number.parseInt(slide.querySelector("[data-planning-bullet-position]")?.value || "1", 10) || 0,
+      bullets: [...slide.querySelectorAll("[data-planning-bullet-row]")]
+        .map((row) => String(row.querySelector("[data-planning-bullet-text]")?.value || "").trim())
+        .filter(Boolean),
+    }));
+
   const collectPlanning = () => {
     const days = collectDays();
     return {
@@ -397,6 +513,7 @@
       program: days[0]?.program || [],
       days,
       taskAssignment: collectTaskAssignment(),
+      bulletSlides: collectBulletSlides(),
     };
   };
 
@@ -408,6 +525,10 @@
     const taskAssignmentField = editorForm.querySelector("[data-planning-task-assignment-json]");
     if (taskAssignmentField) {
       taskAssignmentField.value = JSON.stringify(collectTaskAssignment());
+    }
+    const bulletSlidesField = editorForm.querySelector("[data-planning-bullet-slides-json]");
+    if (bulletSlidesField) {
+      bulletSlidesField.value = JSON.stringify(collectBulletSlides());
     }
   });
 

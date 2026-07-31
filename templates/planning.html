@@ -176,6 +176,7 @@
       <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
       <input type="hidden" name="days_json" value="" data-planning-days-json>
       <input type="hidden" name="task_assignment_json" value="" data-planning-task-assignment-json>
+      <input type="hidden" name="bullet_slides_json" value="" data-planning-bullet-slides-json>
       <section class="summary-card old-function-tile planning-editor-meta">
         <div class="planning-meta-grid planning-meta-grid-compact">
           <label class="field">
@@ -191,6 +192,55 @@
               <span class="planning-switch-label">Tonen</span>
             </label>
           </div>
+        </div>
+      </section>
+
+      <section class="summary-card old-function-tile planning-bullet-panel" data-planning-bullet-section>
+        <div class="feature-list-head planning-bullet-titlebar">
+          <div>
+            <p class="panel-title">Bulletpointslides</p>
+            <p class="feature-list-subtitle">Voeg losse slides toe met een eigen titel en opsomming, en bepaal waar ze in de export komen.</p>
+          </div>
+          <button type="button" class="subtle-button action-small" data-add-planning-bullet-slide>+ Slide toevoegen</button>
+        </div>
+        <div class="planning-bullet-slides" data-planning-bullet-slides>
+          {% for slide in planning.bulletSlides %}
+            <article class="planning-bullet-slide" data-planning-bullet-slide>
+              <header class="planning-bullet-slide-header">
+                <p class="planning-bullet-slide-label" data-planning-bullet-slide-label>Slide {{ loop.index }}</p>
+                <button type="button" class="subtle-button action-small planning-bullet-slide-remove" data-remove-planning-bullet-slide>Slide verwijderen</button>
+              </header>
+              <div class="planning-bullet-controls">
+                <label class="field">
+                  <span>Titel van de slide</span>
+                  <input type="text" value="{{ slide.title }}" maxlength="160" placeholder="Bijv. Belangrijke afspraken" data-planning-bullet-title required>
+                </label>
+                <label class="field">
+                  <span>Plaats in de export</span>
+                  <select data-planning-bullet-position>
+                    <option value="0" {% if slide.insertAfterDay == 0 %}selected{% endif %}>Voor dag 1</option>
+                    {% for day in planning.days %}
+                      <option value="{{ loop.index }}" {% if slide.insertAfterDay == loop.index %}selected{% endif %}>
+                        {% if loop.last %}Na dag {{ loop.index }}{% else %}Tussen dag {{ loop.index }} en dag {{ loop.index + 1 }}{% endif %}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </label>
+              </div>
+              <div class="planning-bullet-list" data-planning-bullet-list>
+                {% for bullet in slide.bullets %}
+                  <div class="planning-bullet-row" data-planning-bullet-row>
+                    <span class="planning-bullet-dot" aria-hidden="true"></span>
+                    <textarea rows="2" maxlength="500" placeholder="Vul een bulletpoint in" aria-label="Bulletpoint" data-planning-bullet-text>{{ bullet }}</textarea>
+                    <button type="button" class="subtle-button action-small planning-bullet-remove" data-remove-planning-bullet aria-label="Verwijder bulletpoint">Wis</button>
+                  </div>
+                {% endfor %}
+              </div>
+              <div class="planning-bullet-actions">
+                <button type="button" class="subtle-button action-small" data-add-planning-bullet>+ Bulletpoint</button>
+              </div>
+            </article>
+          {% endfor %}
         </div>
       </section>
 
@@ -347,6 +397,37 @@
       <input type="text" maxlength="160" placeholder="Trainer, EHBO, coördinator" aria-label="Rol medewerker" data-planning-task-role>
       <textarea rows="2" maxlength="500" placeholder="Bijvoorbeeld: veld 2 uitzetten" aria-label="Taak medewerker" data-planning-task-text></textarea>
       <button type="button" class="subtle-button action-small planning-task-remove" data-remove-planning-task aria-label="Verwijder medewerker">Wis</button>
+    </div>
+  </template>
+
+  <template id="planningBulletSlideTemplate">
+    <article class="planning-bullet-slide" data-planning-bullet-slide>
+      <header class="planning-bullet-slide-header">
+        <p class="planning-bullet-slide-label" data-planning-bullet-slide-label>Nieuwe slide</p>
+        <button type="button" class="subtle-button action-small planning-bullet-slide-remove" data-remove-planning-bullet-slide>Slide verwijderen</button>
+      </header>
+      <div class="planning-bullet-controls">
+        <label class="field">
+          <span>Titel van de slide</span>
+          <input type="text" value="Nieuwe slide" maxlength="160" placeholder="Bijv. Belangrijke afspraken" data-planning-bullet-title required>
+        </label>
+        <label class="field">
+          <span>Plaats in de export</span>
+          <select data-planning-bullet-position></select>
+        </label>
+      </div>
+      <div class="planning-bullet-list" data-planning-bullet-list></div>
+      <div class="planning-bullet-actions">
+        <button type="button" class="subtle-button action-small" data-add-planning-bullet>+ Bulletpoint</button>
+      </div>
+    </article>
+  </template>
+
+  <template id="planningBulletRowTemplate">
+    <div class="planning-bullet-row" data-planning-bullet-row>
+      <span class="planning-bullet-dot" aria-hidden="true"></span>
+      <textarea rows="2" maxlength="500" placeholder="Vul een bulletpoint in" aria-label="Bulletpoint" data-planning-bullet-text></textarea>
+      <button type="button" class="subtle-button action-small planning-bullet-remove" data-remove-planning-bullet aria-label="Verwijder bulletpoint">Wis</button>
     </div>
   </template>
 {% endblock %}

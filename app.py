@@ -17449,6 +17449,37 @@ def normalize_planning_task_assignment(value: Any, day_count: int = 1) -> Dict[s
     }
 
 
+def normalize_planning_bullet_slides(value: Any, day_count: int = 1) -> List[Dict[str, Any]]:
+    normalized_slides: List[Dict[str, Any]] = []
+    if not isinstance(value, list):
+        return normalized_slides
+
+    normalized_day_count = max(1, min(31, int(day_count or 1)))
+    for item in value[:20]:
+        if not isinstance(item, dict):
+            continue
+        title = normalize_planning_title(item.get("title"), "Nieuwe slide")
+        bullets: List[str] = []
+        submitted_bullets = item.get("bullets")
+        if isinstance(submitted_bullets, list):
+            for bullet in submitted_bullets[:30]:
+                text = re.sub(r"\s+", " ", str(bullet or "")).strip()[:500]
+                if text:
+                    bullets.append(text)
+        try:
+            insert_after_day = int(item.get("insertAfterDay", normalized_day_count))
+        except (TypeError, ValueError):
+            insert_after_day = normalized_day_count
+        normalized_slides.append(
+            {
+                "title": title,
+                "insertAfterDay": max(0, min(normalized_day_count, insert_after_day)),
+                "bullets": bullets,
+            }
+        )
+    return normalized_slides
+
+
 def build_planning_export_sheets(planning: Dict[str, Any]) -> List[Dict[str, Any]]:
     days = normalize_planning_days(
         planning.get("days"),
@@ -17457,14 +17488,29 @@ def build_planning_export_sheets(planning: Dict[str, Any]) -> List[Dict[str, Any
         planning.get("title"),
     )
     assignment = normalize_planning_task_assignment(planning.get("taskAssignment"), len(days))
+    bullet_slides = normalize_planning_bullet_slides(planning.get("bulletSlides"), len(days))
     assignment_sheet = {
         "type": "taskAssignment",
         "title": "Taakverdeling",
         "rows": assignment["rows"] or [{"name": "Nog in te vullen", "role": "", "task": ""}],
     }
+    positioned_bullet_sheets: Dict[int, List[Dict[str, Any]]] = {}
+    for slide in bullet_slides:
+        positioned_bullet_sheets.setdefault(slide["insertAfterDay"], []).append(
+            {
+                "type": "bulletPoints",
+                "title": slide["title"],
+                "rows": slide["bullets"] or ["Nog in te vullen"],
+            }
+        )
+
+    def append_extra_sheets(position: int) -> None:
+        if assignment["enabled"] and assignment["insertAfterDay"] == position:
+            sheets.append(assignment_sheet)
+        sheets.extend(positioned_bullet_sheets.get(position, []))
+
     sheets: List[Dict[str, Any]] = []
-    if assignment["enabled"] and assignment["insertAfterDay"] == 0:
-        sheets.append(assignment_sheet)
+    append_extra_sheets(0)
     for day_index, day in enumerate(days, start=1):
         program = day["program"] or [
             {
@@ -17484,8 +17530,7 @@ def build_planning_export_sheets(planning: Dict[str, Any]) -> List[Dict[str, Any
                 "rows": program,
             }
         )
-        if assignment["enabled"] and assignment["insertAfterDay"] == day_index:
-            sheets.append(assignment_sheet)
+        append_extra_sheets(day_index)
     return sheets
 
 
@@ -17501,6 +17546,7 @@ def normalize_planning_document(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
             "program": blank_program,
             "days": [{"title": "Nieuwe planning", "date": "", "program": blank_program}],
             "taskAssignment": normalize_planning_task_assignment(None),
+            "bulletSlides": [],
             "programCount": 0,
             "createdAt": "",
             "updatedAt": "",
@@ -17511,9 +17557,11 @@ def normalize_planning_document(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
         stored_program = []
     stored_days = stored_program.get("days") if isinstance(stored_program, dict) else None
     stored_task_assignment = stored_program.get("taskAssignment") if isinstance(stored_program, dict) else None
+    stored_bullet_slides = stored_program.get("bulletSlides") if isinstance(stored_program, dict) else None
     legacy_program = stored_program if isinstance(stored_program, list) else []
     days = normalize_planning_days(stored_days, row["planning_date"], legacy_program, row["title"])
     task_assignment = normalize_planning_task_assignment(stored_task_assignment, len(days))
+    bullet_slides = normalize_planning_bullet_slides(stored_bullet_slides, len(days))
     first_day = days[0]
     return {
         "id": int(row["id"]),
@@ -17524,6 +17572,7 @@ def normalize_planning_document(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
         "program": first_day["program"],
         "days": days,
         "taskAssignment": task_assignment,
+        "bulletSlides": bullet_slides,
         "programCount": sum(len(day["program"]) for day in days),
         "createdAt": str(row["created_at"] or "").strip(),
         "updatedAt": str(row["updated_at"] or "").strip(),
@@ -17586,6 +17635,13 @@ def build_planning_document_from_form() -> Dict[str, Any]:
             submitted_task_assignment = json.loads(task_assignment_json)
         except json.JSONDecodeError:
             submitted_task_assignment = None
+    submitted_bullet_slides: Any = None
+    bullet_slides_json = str(request.form.get("bullet_slides_json", "") or "").strip()
+    if bullet_slides_json:
+        try:
+            submitted_bullet_slides = json.loads(bullet_slides_json)
+        except json.JSONDecodeError:
+            submitted_bullet_slides = None
     title = normalize_planning_title(request.form.get("title"), "Nieuwe planning")
     days = normalize_planning_days(
         submitted_days,
@@ -17594,6 +17650,7 @@ def build_planning_document_from_form() -> Dict[str, Any]:
         title,
     )
     task_assignment = normalize_planning_task_assignment(submitted_task_assignment, len(days))
+    bullet_slides = normalize_planning_bullet_slides(submitted_bullet_slides, len(days))
     return {
         "title": title,
         "planningDate": days[0]["date"],
@@ -17602,6 +17659,7 @@ def build_planning_document_from_form() -> Dict[str, Any]:
         "program": days[0]["program"],
         "days": days,
         "taskAssignment": task_assignment,
+        "bulletSlides": bullet_slides,
     }
 
 
@@ -17615,12 +17673,16 @@ def save_planning_document(planning: Dict[str, Any], planning_id: Optional[int] 
         title,
     )
     task_assignment = normalize_planning_task_assignment(planning.get("taskAssignment"), len(days))
+    bullet_slides = normalize_planning_bullet_slides(planning.get("bulletSlides"), len(days))
     payload = (
         title,
         days[0]["date"],
         str(planning.get("location") or "").strip()[:160],
         1 if planning.get("includeIcons", True) else 0,
-        json.dumps({"days": days, "taskAssignment": task_assignment}, ensure_ascii=False),
+        json.dumps(
+            {"days": days, "taskAssignment": task_assignment, "bulletSlides": bullet_slides},
+            ensure_ascii=False,
+        ),
     )
     with get_db_connection() as connection:
         if planning_id is not None:
@@ -17654,6 +17716,7 @@ def normalize_planning_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]
         title,
     )
     task_assignment = normalize_planning_task_assignment(payload.get("taskAssignment"), len(days))
+    bullet_slides = normalize_planning_bullet_slides(payload.get("bulletSlides"), len(days))
     return {
         "title": title,
         "planningDate": days[0]["date"],
@@ -17662,6 +17725,7 @@ def normalize_planning_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]
         "program": days[0]["program"],
         "days": days,
         "taskAssignment": task_assignment,
+        "bulletSlides": bullet_slides,
     }
 
 
@@ -17823,6 +17887,75 @@ def create_planning_pdf(planning: Dict[str, Any]) -> bytes:
     for page_index, sheet in enumerate(sheets, start=1):
         rows = sheet["rows"]
         draw_background(page_index)
+        if sheet.get("type") == "bulletPoints":
+            draw_sheet_title(sheet["title"], 99, 454, 816, 42)
+            planning_label = normalize_planning_title(planning.get("title"))
+            pdf.setFont(bold_font, 12)
+            pdf.setFillColor(pdf_white)
+            pdf.drawCentredString(
+                FOOTBALL_DAYS_PDF_WIDTH / 2,
+                425,
+                trim_text(planning_label, 850, bold_font, 12),
+            )
+            location_label = str(planning.get("location") or "").strip()
+            if location_label:
+                pdf.setFont(regular_font, 8.5)
+                pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.9))
+                pdf.drawCentredString(
+                    FOOTBALL_DAYS_PDF_WIDTH / 2,
+                    408,
+                    trim_text(location_label, 850, regular_font, 8.5),
+                )
+
+            list_x = 82
+            list_top = 386
+            list_width = 796
+            available_height = list_top - 24
+            row_height = min(52, available_height / max(1, len(rows)))
+            row_scale = min(1.0, max(0.38, row_height / 52))
+            row_gap = min(7, max(1, row_height * 0.12))
+            bullet_radius = max(2.5, 5 * row_scale)
+            font_size = max(5, 13 * row_scale)
+            max_lines = 2 if row_height >= 34 else 1
+            current_top = list_top
+            for row_index, bullet in enumerate(rows):
+                pdf.saveState()
+                pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.58 if row_index % 2 == 0 else 0.47))
+                pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.16))
+                pdf.roundRect(
+                    list_x,
+                    current_top - row_height + row_gap,
+                    list_width,
+                    row_height - row_gap,
+                    min(7, row_height / 4),
+                    fill=1,
+                    stroke=1,
+                )
+                pdf.setFillColor(colors.HexColor("#D6A34F"))
+                pdf.circle(
+                    list_x + 23,
+                    current_top - (row_height / 2) + (row_gap / 2),
+                    bullet_radius,
+                    fill=1,
+                    stroke=0,
+                )
+                pdf.restoreState()
+
+                text_x = list_x + 43
+                line_width = list_width - 59
+                lines = split_lines(bullet, line_width, bold_font, font_size, max_lines)
+                leading = font_size * 1.28
+                center_y = current_top - (row_height / 2) + (row_gap / 2)
+                text_y = center_y + ((leading / 2) * (len(lines) - 1)) - (font_size * 0.34)
+                pdf.setFont(bold_font, font_size)
+                pdf.setFillColor(pdf_white)
+                for line in lines:
+                    pdf.drawString(text_x, text_y, line)
+                    text_y -= leading
+                current_top -= row_height
+            pdf.showPage()
+            continue
+
         if sheet.get("type") == "taskAssignment":
             draw_sheet_title(sheet["title"], 99, 454, 816, 42)
             planning_label = normalize_planning_title(planning.get("title"))
@@ -18186,6 +18319,67 @@ def create_planning_png(planning: Dict[str, Any]) -> bytes:
         title = trim_text(draw, title, title_max_width, title_font)
         draw_vertical_centered_text(draw, title, title_left, 54, title_font, (255, 255, 255, 255))
 
+        if sheet.get("type") == "bulletPoints":
+            planning_label = normalize_planning_title(planning.get("title"))
+            planning_font = get_font("bold", 12)
+            planning_label = trim_text(draw, planning_label, px(850), planning_font)
+            draw_centered_text(draw, planning_label, FOOTBALL_DAYS_PDF_WIDTH / 2, 101, planning_font, (255, 255, 255, 255))
+            location_label = str(planning.get("location") or "").strip()
+            if location_label:
+                location_font = get_font("regular", 8.5)
+                location_label = trim_text(draw, location_label, px(850), location_font)
+                draw_centered_text(draw, location_label, FOOTBALL_DAYS_PDF_WIDTH / 2, 126, location_font, (255, 255, 255, 230))
+
+            list_x = 82
+            list_top = 150
+            list_width = 796
+            available_height = 522 - list_top
+            row_height = min(52, available_height / max(1, len(rows)))
+            row_scale = min(1.0, max(0.38, row_height / 52))
+            row_gap = min(7, max(1, row_height * 0.12))
+            bullet_radius = max(2.5, 5 * row_scale)
+            font_size = max(5, 13 * row_scale)
+            max_lines = 2 if row_height >= 34 else 1
+            current_top = list_top
+            for row_index, bullet in enumerate(rows):
+                row_bottom = current_top + row_height - row_gap
+                draw_translucent_rounded_rectangle(
+                    page,
+                    (px(list_x), px(current_top), px(list_x + list_width), px(row_bottom)),
+                    radius=px(min(7, row_height / 4)),
+                    fill=(0, 0, 0, 148 if row_index % 2 == 0 else 120),
+                    outline=(255, 255, 255, 42),
+                    width=max(1, px(0.7)),
+                )
+                draw = ImageDraw.Draw(page, "RGBA")
+                center_y = current_top + ((row_height - row_gap) / 2)
+                center_x = list_x + 23
+                draw.ellipse(
+                    (
+                        px(center_x - bullet_radius),
+                        px(center_y - bullet_radius),
+                        px(center_x + bullet_radius),
+                        px(center_y + bullet_radius),
+                    ),
+                    fill=(214, 163, 79, 255),
+                )
+                bullet_font = get_font("bold", font_size)
+                lines = split_lines(draw, bullet, px(list_width - 59), bullet_font, max_lines)
+                leading = font_size * 1.28
+                start_y = center_y - ((leading / 2) * (len(lines) - 1))
+                for line_index, line in enumerate(lines):
+                    draw_vertical_centered_text(
+                        draw,
+                        line,
+                        list_x + 43,
+                        start_y + (line_index * leading),
+                        bullet_font,
+                        (255, 255, 255, 255),
+                    )
+                current_top += row_height
+            rendered_pages.append(page.convert("RGB"))
+            continue
+
         if sheet.get("type") == "taskAssignment":
             planning_label = normalize_planning_title(planning.get("title"))
             planning_font = get_font("bold", 12)
@@ -18410,6 +18604,9 @@ def planning_edit_page(planning_id: int) -> str:
             day["program"] = [{"startTime": "", "endTime": "", "activity": "", "details": "", "icon": "clock"}]
     if not planning["taskAssignment"]["rows"]:
         planning["taskAssignment"]["rows"] = [{"name": "", "role": "", "task": ""}]
+    for slide in planning["bulletSlides"]:
+        if not slide["bullets"]:
+            slide["bullets"] = [""]
     planning["program"] = planning["days"][0]["program"]
     return render_template(
         "planning.html",

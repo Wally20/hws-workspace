@@ -213,6 +213,7 @@
 }
 
 .planning-editor-meta,
+.planning-bullet-panel,
 .planning-task-panel,
 .planning-program-panel {
   padding: 22px 26px;
@@ -300,6 +301,7 @@
 }
 
 .planning-program-panel,
+.planning-bullet-panel,
 .planning-task-panel,
 .planning-program-section {
   display: grid;
@@ -311,6 +313,7 @@
 }
 
 .planning-program-titlebar .feature-list-subtitle,
+.planning-bullet-titlebar .feature-list-subtitle,
 .planning-task-titlebar .feature-list-subtitle,
 .planning-program-section .feature-list-subtitle {
   display: block;
@@ -319,6 +322,88 @@
 
 .planning-task-titlebar {
   align-items: flex-start;
+}
+
+.planning-bullet-titlebar {
+  align-items: flex-start;
+}
+
+.planning-bullet-slides {
+  display: grid;
+  gap: 14px;
+}
+
+.planning-bullet-slide {
+  display: grid;
+  gap: 13px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #f8f8f8;
+}
+
+.planning-bullet-slide-header,
+.planning-bullet-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.planning-bullet-slide-label {
+  margin: 0;
+  color: #111111;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.planning-bullet-slide-remove,
+.planning-bullet-remove {
+  color: #8c1d1d;
+}
+
+.planning-bullet-controls {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(260px, 0.45fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.planning-bullet-list {
+  display: grid;
+  gap: 8px;
+}
+
+.planning-bullet-row {
+  display: grid;
+  grid-template-columns: 18px minmax(280px, 1fr) 52px;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+}
+
+.planning-bullet-row textarea {
+  min-width: 0;
+  min-height: 54px;
+  resize: vertical;
+  border-radius: 11px;
+  background: #ffffff;
+}
+
+.planning-bullet-dot {
+  width: 10px;
+  height: 10px;
+  justify-self: center;
+  border-radius: 50%;
+  background: #d6a34f;
+  box-shadow: 0 0 0 4px rgba(214, 163, 79, 0.18);
+}
+
+.planning-bullet-actions {
+  justify-content: flex-end;
 }
 
 .planning-task-controls {
@@ -685,6 +770,28 @@ body.planning-modal-open {
     grid-template-columns: 1fr;
   }
 
+  .planning-bullet-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .planning-bullet-slide-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .planning-bullet-slide {
+    padding: 14px;
+  }
+
+  .planning-bullet-row {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .planning-bullet-remove {
+    grid-column: 2;
+    justify-self: end;
+  }
+
   .planning-editable-title textarea {
     margin-left: -7px;
     margin-right: -7px;
@@ -712,6 +819,7 @@ body.planning-modal-open {
   }
 
   .planning-editor-meta,
+  .planning-bullet-panel,
   .planning-task-panel,
   .planning-program-panel,
   .planning-modal-body,
@@ -755,6 +863,8 @@ body.planning-modal-open {
   .planning-editor-save,
   .planning-row-remove,
   .planning-task-remove,
+  .planning-bullet-slide-remove,
+  .planning-bullet-remove,
   .planning-drag-handle {
     display: none !important;
   }
