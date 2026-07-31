@@ -175,6 +175,7 @@
     <form method="post" action="/planning/{{ planning.id }}" class="planning-editor" id="planningEditorForm">
       <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
       <input type="hidden" name="days_json" value="" data-planning-days-json>
+      <input type="hidden" name="task_assignment_json" value="" data-planning-task-assignment-json>
       <section class="summary-card old-function-tile planning-editor-meta">
         <div class="planning-meta-grid planning-meta-grid-compact">
           <label class="field">
@@ -189,6 +190,52 @@
               <span class="planning-switch-track" aria-hidden="true"></span>
               <span class="planning-switch-label">Tonen</span>
             </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="summary-card old-function-tile planning-task-panel" data-planning-task-assignment>
+        <div class="feature-list-head planning-task-titlebar">
+          <div>
+            <p class="panel-title">Taakverdeling</p>
+            <p class="feature-list-subtitle">Voeg een aparte slide toe met dezelfde verdeling van naam, rol en taak als in een draaiboek.</p>
+          </div>
+          <button type="button" class="subtle-button action-small" data-add-planning-task>+ Medewerker</button>
+        </div>
+        <div class="planning-task-controls">
+          <div class="field planning-task-toggle-field">
+            <span>Taakverdelingsslide</span>
+            <label class="planning-switch">
+              <input type="checkbox" data-planning-task-enabled {% if planning.taskAssignment.enabled %}checked{% endif %}>
+              <span class="planning-switch-track" aria-hidden="true"></span>
+              <span class="planning-switch-label">Tonen</span>
+            </label>
+          </div>
+          <label class="field">
+            <span>Plaats in de export</span>
+            <select data-planning-task-position>
+              <option value="0" {% if planning.taskAssignment.insertAfterDay == 0 %}selected{% endif %}>Voor dag 1</option>
+              {% for day in planning.days %}
+                <option value="{{ loop.index }}" {% if planning.taskAssignment.insertAfterDay == loop.index %}selected{% endif %}>
+                  {% if loop.last %}Na dag {{ loop.index }}{% else %}Tussen dag {{ loop.index }} en dag {{ loop.index + 1 }}{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="planning-task-table">
+          <div class="planning-task-head" aria-hidden="true">
+            <span>Naam</span><span>Rol</span><span>Taak</span><span></span>
+          </div>
+          <div class="planning-task-rows" data-planning-task-rows>
+            {% for member in planning.taskAssignment.rows %}
+              <div class="planning-task-row" data-planning-task-row>
+                <input type="text" value="{{ member.name }}" maxlength="160" placeholder="Naam" aria-label="Naam medewerker" data-planning-task-name>
+                <input type="text" value="{{ member.role }}" maxlength="160" placeholder="Trainer, EHBO, coördinator" aria-label="Rol medewerker" data-planning-task-role>
+                <textarea rows="2" maxlength="500" placeholder="Bijvoorbeeld: veld 2 uitzetten" aria-label="Taak medewerker" data-planning-task-text>{{ member.task }}</textarea>
+                <button type="button" class="subtle-button action-small planning-task-remove" data-remove-planning-task aria-label="Verwijder medewerker">Wis</button>
+              </div>
+            {% endfor %}
           </div>
         </div>
       </section>
@@ -292,6 +339,15 @@
       </div>
       <div class="planning-program-list" data-planning-rows></div>
     </article>
+  </template>
+
+  <template id="planningTaskRowTemplate">
+    <div class="planning-task-row" data-planning-task-row>
+      <input type="text" maxlength="160" placeholder="Naam" aria-label="Naam medewerker" data-planning-task-name>
+      <input type="text" maxlength="160" placeholder="Trainer, EHBO, coördinator" aria-label="Rol medewerker" data-planning-task-role>
+      <textarea rows="2" maxlength="500" placeholder="Bijvoorbeeld: veld 2 uitzetten" aria-label="Taak medewerker" data-planning-task-text></textarea>
+      <button type="button" class="subtle-button action-small planning-task-remove" data-remove-planning-task aria-label="Verwijder medewerker">Wis</button>
+    </div>
   </template>
 {% endblock %}
 

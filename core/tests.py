@@ -1272,6 +1272,9 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertContains(edit_response, 'data-add-planning-day')
         self.assertContains(edit_response, 'data-planning-day-title')
         self.assertContains(edit_response, 'data-planning-days-json')
+        self.assertContains(edit_response, 'data-planning-task-assignment-json')
+        self.assertContains(edit_response, 'data-planning-task-position')
+        self.assertContains(edit_response, "Taakverdeling")
         self.assertContains(edit_response, 'id="exportPlanningPdf"')
         self.assertContains(edit_response, 'id="exportPlanningPng"')
 
@@ -1302,6 +1305,14 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 ],
             },
         ]
+        task_assignment = {
+            "enabled": True,
+            "insertAfterDay": 1,
+            "rows": [
+                {"name": "Trainer Eén", "role": "Hoofdtrainer", "task": "Veld 1 uitzetten"},
+                {"name": "Trainer Twee", "role": "EHBO", "task": "Materialen controleren"},
+            ],
+        }
         update_response = client.post(
             f"/planning/{planning_id}",
             {
@@ -1310,6 +1321,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 "location": "Veld 2",
                 "include_icons": "0",
                 "days_json": json.dumps(updated_days),
+                "task_assignment_json": json.dumps(task_assignment),
             },
             secure=True,
         )
@@ -1323,6 +1335,29 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(saved_planning["days"][1]["title"], "Trainingsdag op Terschelling")
         self.assertEqual(saved_planning["days"][1]["date"], "2026-08-17")
         self.assertEqual(saved_planning["days"][1]["program"][0]["activity"], "Prijsuitreiking")
+        self.assertTrue(saved_planning["taskAssignment"]["enabled"])
+        self.assertEqual(saved_planning["taskAssignment"]["insertAfterDay"], 1)
+        self.assertEqual(saved_planning["taskAssignment"]["rows"][0]["task"], "Veld 1 uitzetten")
+        self.assertEqual(
+            [sheet["type"] for sheet in legacy.build_planning_export_sheets(saved_planning)],
+            ["day", "taskAssignment", "day"],
+        )
+        before_first_day = {
+            **saved_planning,
+            "taskAssignment": {**saved_planning["taskAssignment"], "insertAfterDay": 0},
+        }
+        after_last_day = {
+            **saved_planning,
+            "taskAssignment": {**saved_planning["taskAssignment"], "insertAfterDay": 2},
+        }
+        self.assertEqual(
+            [sheet["type"] for sheet in legacy.build_planning_export_sheets(before_first_day)],
+            ["taskAssignment", "day", "day"],
+        )
+        self.assertEqual(
+            [sheet["type"] for sheet in legacy.build_planning_export_sheets(after_last_day)],
+            ["day", "day", "taskAssignment"],
+        )
 
         export_response = client.post(
             "/api/planning/export-pdf",
@@ -1334,6 +1369,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                     "includeIcons": False,
                     "program": saved_planning["program"],
                     "days": saved_planning["days"],
+                    "taskAssignment": saved_planning["taskAssignment"],
                 }
             ),
             content_type="application/json",
@@ -1345,7 +1381,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(export_response["Content-Type"], "application/pdf")
         self.assertIn("test-planning-aangepast-2026-08-16.pdf", export_response["Content-Disposition"])
         self.assertTrue(export_response.content.startswith(b"%PDF-"))
-        self.assertEqual(export_response.content.count(b"/Type /Page\n"), 2)
+        self.assertEqual(export_response.content.count(b"/Type /Page\n"), 3)
 
         png_response = client.post(
             "/api/planning/export-png",
@@ -1357,6 +1393,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                     "includeIcons": True,
                     "program": saved_planning["program"],
                     "days": saved_planning["days"],
+                    "taskAssignment": saved_planning["taskAssignment"],
                 }
             ),
             content_type="application/json",
@@ -1369,7 +1406,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("test-planning-aangepast-2026-08-16.png", png_response["Content-Disposition"])
         self.assertTrue(png_response.content.startswith(b"\x89PNG\r\n\x1a\n"))
         with Image.open(BytesIO(png_response.content)) as png_image:
-            self.assertEqual(png_image.size, (1920, 2160))
+            self.assertEqual(png_image.size, (1920, 3240))
 
     def test_planning_png_keeps_title_clear_of_logo(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

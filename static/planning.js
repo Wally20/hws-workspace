@@ -26,12 +26,16 @@
 
   const rowTemplate = document.getElementById("planningRowTemplate");
   const dayTemplate = document.getElementById("planningDayTemplate");
+  const taskRowTemplate = document.getElementById("planningTaskRowTemplate");
   const planningModal = document.getElementById("planningModal");
   const openModalButton = document.getElementById("openPlanningModal");
   const editorForm = document.getElementById("planningEditorForm");
   const titleEditor = document.querySelector('textarea[name="title"][form="planningEditorForm"]');
   const pdfExportButton = document.getElementById("exportPlanningPdf");
   const pngExportButton = document.getElementById("exportPlanningPng");
+  const taskRowsContainer = editorForm?.querySelector("[data-planning-task-rows]");
+  const taskEnabledInput = editorForm?.querySelector("[data-planning-task-enabled]");
+  const taskPositionSelect = editorForm?.querySelector("[data-planning-task-position]");
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let draggedRow = null;
 
@@ -160,6 +164,50 @@
 
   document.querySelectorAll("[data-planning-rows]").forEach(bindRowsContainer);
 
+  const refreshTaskRemoveButtons = () => {
+    const rows = [...(taskRowsContainer?.querySelectorAll("[data-planning-task-row]") || [])];
+    rows.forEach((row) => {
+      const removeButton = row.querySelector("[data-remove-planning-task]");
+      if (removeButton) {
+        removeButton.hidden = rows.length <= 1;
+      }
+    });
+  };
+
+  const appendTaskRow = (values = {}) => {
+    const row = taskRowTemplate?.content.firstElementChild?.cloneNode(true);
+    if (!row || !taskRowsContainer) {
+      return null;
+    }
+    row.querySelector("[data-planning-task-name]").value = values.name || "";
+    row.querySelector("[data-planning-task-role]").value = values.role || "";
+    row.querySelector("[data-planning-task-text]").value = values.task || "";
+    taskRowsContainer.append(row);
+    refreshTaskRemoveButtons();
+    return row;
+  };
+
+  const refreshTaskPositionOptions = (dayCount) => {
+    if (!taskPositionSelect) {
+      return;
+    }
+    const currentPosition = Math.max(0, Math.min(dayCount, Number.parseInt(taskPositionSelect.value || "1", 10) || 0));
+    taskPositionSelect.replaceChildren();
+    for (let position = 0; position <= dayCount; position += 1) {
+      const option = document.createElement("option");
+      option.value = String(position);
+      if (position === 0) {
+        option.textContent = "Voor dag 1";
+      } else if (position < dayCount) {
+        option.textContent = `Tussen dag ${position} en dag ${position + 1}`;
+      } else {
+        option.textContent = `Na dag ${dayCount}`;
+      }
+      option.selected = position === currentPosition;
+      taskPositionSelect.append(option);
+    }
+  };
+
   const refreshDays = () => {
     const daysContainer = editorForm?.querySelector("[data-planning-days]");
     const days = [...(daysContainer?.querySelectorAll("[data-planning-day]") || [])];
@@ -177,6 +225,7 @@
     if (addDayButton) {
       addDayButton.disabled = days.length >= 31;
     }
+    refreshTaskPositionOptions(days.length);
   };
 
   const nextDayDate = () => {
@@ -194,6 +243,26 @@
   };
 
   document.addEventListener("click", (event) => {
+    const addTaskButton = event.target.closest("[data-add-planning-task]");
+    if (addTaskButton) {
+      const row = appendTaskRow();
+      if (taskEnabledInput) {
+        taskEnabledInput.checked = true;
+        taskEnabledInput.dispatchEvent(new Event("change"));
+      }
+      row?.querySelector("[data-planning-task-name]")?.focus();
+      return;
+    }
+
+    const removeTaskButton = event.target.closest("[data-remove-planning-task]");
+    if (removeTaskButton) {
+      if (taskRowsContainer?.querySelectorAll("[data-planning-task-row]").length > 1) {
+        removeTaskButton.closest("[data-planning-task-row]")?.remove();
+        refreshTaskRemoveButtons();
+      }
+      return;
+    }
+
     const addRowButton = event.target.closest("[data-add-planning-row]");
     if (addRowButton) {
       const scope = addRowButton.closest("[data-planning-day], .planning-program-section, form") || document;
@@ -239,6 +308,7 @@
   });
 
   refreshDays();
+  refreshTaskRemoveButtons();
 
   document.querySelectorAll('.planning-switch input[type="checkbox"]').forEach((checkbox) => {
     const updateLabel = () => {
@@ -305,6 +375,18 @@
       program: collectRows(day.querySelector("[data-planning-rows]")),
     }));
 
+  const collectTaskAssignment = () => ({
+    enabled: Boolean(taskEnabledInput?.checked),
+    insertAfterDay: Number.parseInt(taskPositionSelect?.value || "1", 10) || 0,
+    rows: [...(taskRowsContainer?.querySelectorAll("[data-planning-task-row]") || [])]
+      .map((row) => ({
+        name: String(row.querySelector("[data-planning-task-name]")?.value || "").trim(),
+        role: String(row.querySelector("[data-planning-task-role]")?.value || "").trim(),
+        task: String(row.querySelector("[data-planning-task-text]")?.value || "").trim(),
+      }))
+      .filter((member) => member.name || member.role || member.task),
+  });
+
   const collectPlanning = () => {
     const days = collectDays();
     return {
@@ -314,6 +396,7 @@
       includeIcons: Boolean(editorForm.querySelector('input[name="include_icons"][value="1"]')?.checked),
       program: days[0]?.program || [],
       days,
+      taskAssignment: collectTaskAssignment(),
     };
   };
 
@@ -321,6 +404,10 @@
     const daysField = editorForm.querySelector("[data-planning-days-json]");
     if (daysField) {
       daysField.value = JSON.stringify(collectDays());
+    }
+    const taskAssignmentField = editorForm.querySelector("[data-planning-task-assignment-json]");
+    if (taskAssignmentField) {
+      taskAssignmentField.value = JSON.stringify(collectTaskAssignment());
     }
   });
 

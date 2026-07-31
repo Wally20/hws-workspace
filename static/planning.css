@@ -213,6 +213,7 @@
 }
 
 .planning-editor-meta,
+.planning-task-panel,
 .planning-program-panel {
   padding: 22px 26px;
 }
@@ -299,6 +300,7 @@
 }
 
 .planning-program-panel,
+.planning-task-panel,
 .planning-program-section {
   display: grid;
   gap: 13px;
@@ -309,9 +311,67 @@
 }
 
 .planning-program-titlebar .feature-list-subtitle,
+.planning-task-titlebar .feature-list-subtitle,
 .planning-program-section .feature-list-subtitle {
   display: block;
   margin-top: 4px;
+}
+
+.planning-task-titlebar {
+  align-items: flex-start;
+}
+
+.planning-task-controls {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.45fr) minmax(300px, 1fr);
+  gap: 14px;
+  align-items: end;
+}
+
+.planning-task-toggle-field {
+  justify-content: end;
+}
+
+.planning-task-table,
+.planning-task-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.planning-task-head,
+.planning-task-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(190px, 0.8fr) minmax(320px, 1.4fr) 52px;
+  gap: 8px;
+  align-items: center;
+}
+
+.planning-task-head {
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.planning-task-row {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+}
+
+.planning-task-row input,
+.planning-task-row textarea {
+  min-width: 0;
+  min-height: 44px;
+  border-radius: 11px;
+  background: #ffffff;
+}
+
+.planning-task-remove {
+  color: #8c1d1d;
 }
 
 .planning-days {
@@ -579,8 +639,15 @@ body.planning-modal-open {
     padding-bottom: 3px;
   }
 
+  .planning-task-table {
+    overflow-x: auto;
+    padding-bottom: 3px;
+  }
+
   .planning-program-head,
-  .planning-program-row {
+  .planning-program-row,
+  .planning-task-head,
+  .planning-task-row {
     min-width: 930px;
   }
 }
@@ -614,6 +681,10 @@ body.planning-modal-open {
     grid-template-columns: 1fr;
   }
 
+  .planning-task-controls {
+    grid-template-columns: 1fr;
+  }
+
   .planning-editable-title textarea {
     margin-left: -7px;
     margin-right: -7px;
@@ -641,6 +712,7 @@ body.planning-modal-open {
   }
 
   .planning-editor-meta,
+  .planning-task-panel,
   .planning-program-panel,
   .planning-modal-body,
   .planning-modal-head,
@@ -682,6 +754,7 @@ body.planning-modal-open {
   .planning-add-button,
   .planning-editor-save,
   .planning-row-remove,
+  .planning-task-remove,
   .planning-drag-handle {
     display: none !important;
   }

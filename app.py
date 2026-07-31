@@ -17416,6 +17416,79 @@ def normalize_planning_days(
     return normalized_days
 
 
+def normalize_planning_task_assignment(value: Any, day_count: int = 1) -> Dict[str, Any]:
+    assignment = value if isinstance(value, dict) else {}
+    raw_enabled = assignment.get("enabled", False)
+    enabled = (
+        str(raw_enabled).strip().lower() in {"1", "true", "yes", "on"}
+        if isinstance(raw_enabled, str)
+        else bool(raw_enabled)
+    )
+    rows: List[Dict[str, str]] = []
+    submitted_rows = assignment.get("rows")
+    if isinstance(submitted_rows, list):
+        for item in submitted_rows[:50]:
+            if not isinstance(item, dict):
+                continue
+            name = re.sub(r"\s+", " ", str(item.get("name") or "")).strip()[:160]
+            role = re.sub(r"\s+", " ", str(item.get("role") or "")).strip()[:160]
+            task = re.sub(r"\s+", " ", str(item.get("task") or item.get("setupTask") or "")).strip()[:500]
+            if name or role or task:
+                rows.append({"name": name, "role": role, "task": task})
+
+    normalized_day_count = max(1, min(31, int(day_count or 1)))
+    try:
+        insert_after_day = int(assignment.get("insertAfterDay", 1))
+    except (TypeError, ValueError):
+        insert_after_day = 1
+    insert_after_day = max(0, min(normalized_day_count, insert_after_day))
+    return {
+        "enabled": enabled,
+        "insertAfterDay": insert_after_day,
+        "rows": rows,
+    }
+
+
+def build_planning_export_sheets(planning: Dict[str, Any]) -> List[Dict[str, Any]]:
+    days = normalize_planning_days(
+        planning.get("days"),
+        planning.get("planningDate"),
+        planning.get("program"),
+        planning.get("title"),
+    )
+    assignment = normalize_planning_task_assignment(planning.get("taskAssignment"), len(days))
+    assignment_sheet = {
+        "type": "taskAssignment",
+        "title": "Taakverdeling",
+        "rows": assignment["rows"] or [{"name": "Nog in te vullen", "role": "", "task": ""}],
+    }
+    sheets: List[Dict[str, Any]] = []
+    if assignment["enabled"] and assignment["insertAfterDay"] == 0:
+        sheets.append(assignment_sheet)
+    for day_index, day in enumerate(days, start=1):
+        program = day["program"] or [
+            {
+                "startTime": "",
+                "endTime": "",
+                "activity": "Nog geen programmaonderdelen toegevoegd",
+                "details": "",
+                "icon": "clock",
+            }
+        ]
+        sheets.append(
+            {
+                "type": "day",
+                "dayIndex": day_index,
+                "title": day["title"],
+                "date": day["date"],
+                "rows": program,
+            }
+        )
+        if assignment["enabled"] and assignment["insertAfterDay"] == day_index:
+            sheets.append(assignment_sheet)
+    return sheets
+
+
 def normalize_planning_document(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
     if row is None:
         blank_program = [{"startTime": "", "endTime": "", "activity": "", "details": "", "icon": "clock"}]
@@ -17427,6 +17500,7 @@ def normalize_planning_document(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
             "includeIcons": True,
             "program": blank_program,
             "days": [{"title": "Nieuwe planning", "date": "", "program": blank_program}],
+            "taskAssignment": normalize_planning_task_assignment(None),
             "programCount": 0,
             "createdAt": "",
             "updatedAt": "",
@@ -17436,8 +17510,10 @@ def normalize_planning_document(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
     except (TypeError, json.JSONDecodeError):
         stored_program = []
     stored_days = stored_program.get("days") if isinstance(stored_program, dict) else None
+    stored_task_assignment = stored_program.get("taskAssignment") if isinstance(stored_program, dict) else None
     legacy_program = stored_program if isinstance(stored_program, list) else []
     days = normalize_planning_days(stored_days, row["planning_date"], legacy_program, row["title"])
+    task_assignment = normalize_planning_task_assignment(stored_task_assignment, len(days))
     first_day = days[0]
     return {
         "id": int(row["id"]),
@@ -17447,6 +17523,7 @@ def normalize_planning_document(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
         "includeIcons": bool(row["include_icons"]),
         "program": first_day["program"],
         "days": days,
+        "taskAssignment": task_assignment,
         "programCount": sum(len(day["program"]) for day in days),
         "createdAt": str(row["created_at"] or "").strip(),
         "updatedAt": str(row["updated_at"] or "").strip(),
@@ -17502,6 +17579,13 @@ def build_planning_document_from_form() -> Dict[str, Any]:
             submitted_days = json.loads(days_json)
         except json.JSONDecodeError:
             submitted_days = None
+    submitted_task_assignment: Any = None
+    task_assignment_json = str(request.form.get("task_assignment_json", "") or "").strip()
+    if task_assignment_json:
+        try:
+            submitted_task_assignment = json.loads(task_assignment_json)
+        except json.JSONDecodeError:
+            submitted_task_assignment = None
     title = normalize_planning_title(request.form.get("title"), "Nieuwe planning")
     days = normalize_planning_days(
         submitted_days,
@@ -17509,6 +17593,7 @@ def build_planning_document_from_form() -> Dict[str, Any]:
         legacy_program,
         title,
     )
+    task_assignment = normalize_planning_task_assignment(submitted_task_assignment, len(days))
     return {
         "title": title,
         "planningDate": days[0]["date"],
@@ -17516,6 +17601,7 @@ def build_planning_document_from_form() -> Dict[str, Any]:
         "includeIcons": "1" in request.form.getlist("include_icons"),
         "program": days[0]["program"],
         "days": days,
+        "taskAssignment": task_assignment,
     }
 
 
@@ -17528,12 +17614,13 @@ def save_planning_document(planning: Dict[str, Any], planning_id: Optional[int] 
         planning.get("program"),
         title,
     )
+    task_assignment = normalize_planning_task_assignment(planning.get("taskAssignment"), len(days))
     payload = (
         title,
         days[0]["date"],
         str(planning.get("location") or "").strip()[:160],
         1 if planning.get("includeIcons", True) else 0,
-        json.dumps({"days": days}, ensure_ascii=False),
+        json.dumps({"days": days, "taskAssignment": task_assignment}, ensure_ascii=False),
     )
     with get_db_connection() as connection:
         if planning_id is not None:
@@ -17566,6 +17653,7 @@ def normalize_planning_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]
         payload.get("program"),
         title,
     )
+    task_assignment = normalize_planning_task_assignment(payload.get("taskAssignment"), len(days))
     return {
         "title": title,
         "planningDate": days[0]["date"],
@@ -17573,6 +17661,7 @@ def normalize_planning_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]
         "includeIcons": bool(payload.get("includeIcons", True)),
         "program": days[0]["program"],
         "days": days,
+        "taskAssignment": task_assignment,
     }
 
 
@@ -17728,36 +17817,95 @@ def create_planning_pdf(planning: Dict[str, Any]) -> bytes:
         pdf.setFont(black_font, font_size)
         pdf.drawString(x, y, title_text)
 
-    days = normalize_planning_days(
-        planning.get("days"),
-        planning.get("planningDate"),
-        planning.get("program"),
-        planning.get("title"),
-    )
-    sheets: List[Dict[str, Any]] = []
-    for day_index, day in enumerate(days, start=1):
-        program = day["program"] or [
-            {
-                "startTime": "",
-                "endTime": "",
-                "activity": "Nog geen programmaonderdelen toegevoegd",
-                "details": "",
-                "icon": "clock",
-            }
-        ]
-        sheets.append(
-            {
-                "dayIndex": day_index,
-                "title": day["title"],
-                "date": day["date"],
-                "rows": program,
-            }
-        )
+    sheets = build_planning_export_sheets(planning)
 
     include_icons = bool(planning.get("includeIcons", True))
     for page_index, sheet in enumerate(sheets, start=1):
         rows = sheet["rows"]
         draw_background(page_index)
+        if sheet.get("type") == "taskAssignment":
+            draw_sheet_title(sheet["title"], 99, 454, 816, 42)
+            planning_label = normalize_planning_title(planning.get("title"))
+            pdf.setFont(bold_font, 12)
+            pdf.setFillColor(pdf_white)
+            pdf.drawCentredString(
+                FOOTBALL_DAYS_PDF_WIDTH / 2,
+                425,
+                trim_text(planning_label, 850, bold_font, 12),
+            )
+            location_label = str(planning.get("location") or "").strip()
+            if location_label:
+                pdf.setFont(regular_font, 8.5)
+                pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.9))
+                pdf.drawCentredString(
+                    FOOTBALL_DAYS_PDF_WIDTH / 2,
+                    408,
+                    trim_text(location_label, 850, regular_font, 8.5),
+                )
+
+            table_x = 55
+            table_top = 382
+            table_width = 850
+            header_height = 28
+            columns = [230, 200, 420]
+            headers = ["Naam", "Rol", "Taak"]
+            pdf.saveState()
+            pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.76))
+            pdf.roundRect(table_x, table_top - header_height, table_width, header_height, 5, fill=1, stroke=0)
+            cursor_x = table_x
+            pdf.setFillColor(pdf_white)
+            pdf.setFont(bold_font, 9)
+            for column_index, header in enumerate(headers):
+                pdf.drawString(cursor_x + 10, table_top - 19, header.upper())
+                cursor_x += columns[column_index]
+            pdf.restoreState()
+
+            available_row_height = table_top - header_height - 24
+            row_height = min(38, available_row_height / max(1, len(rows)))
+            row_scale = min(1.0, max(0.24, row_height / 38))
+            row_gap = min(3, max(0.5, row_height * 0.08))
+            horizontal_padding = max(4, 10 * row_scale)
+            max_lines = 2 if row_height >= 28 else 1
+            name_font_size = max(2.6, 10 * row_scale)
+            body_font_size = max(2.5, 9 * row_scale)
+            current_top = table_top - header_height - 4
+            for row_index, member in enumerate(rows):
+                pdf.saveState()
+                pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.58 if row_index % 2 == 0 else 0.47))
+                pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.16))
+                pdf.roundRect(
+                    table_x,
+                    current_top - row_height + row_gap,
+                    table_width,
+                    row_height - row_gap,
+                    min(4, row_height / 4),
+                    fill=1,
+                    stroke=1,
+                )
+                pdf.restoreState()
+                values = [
+                    str(member.get("name") or "-").strip() or "-",
+                    str(member.get("role") or "-").strip() or "-",
+                    str(member.get("task") or "-").strip() or "-",
+                ]
+                cursor_x = table_x
+                for column_index, value in enumerate(values):
+                    font = bold_font if column_index == 0 else regular_font
+                    font_size = name_font_size if column_index == 0 else body_font_size
+                    line_width = columns[column_index] - (horizontal_padding * 2)
+                    lines = split_lines(value, line_width, font, font_size, max_lines)
+                    leading = font_size * 1.18
+                    text_y = current_top - (row_height / 2) + ((leading / 2) if len(lines) > 1 else -(font_size * 0.34))
+                    pdf.setFont(font, font_size)
+                    pdf.setFillColor(pdf_white if column_index == 0 else colors.Color(1, 1, 1, alpha=0.84))
+                    for line in lines:
+                        pdf.drawString(cursor_x + horizontal_padding, text_y, line)
+                        text_y -= leading
+                    cursor_x += columns[column_index]
+                current_top -= row_height
+            pdf.showPage()
+            continue
+
         draw_sheet_title(sheet["title"], 99, 454, 816, 42)
         date_label = format_football_days_date(sheet["date"])
         pdf.setFont(bold_font, 14)
@@ -18013,31 +18161,7 @@ def create_planning_png(planning: Dict[str, Any]) -> bytes:
         overlay_draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
         page.alpha_composite(overlay)
 
-    days = normalize_planning_days(
-        planning.get("days"),
-        planning.get("planningDate"),
-        planning.get("program"),
-        planning.get("title"),
-    )
-    sheets: List[Dict[str, Any]] = []
-    for day_index, day in enumerate(days, start=1):
-        program = day["program"] or [
-            {
-                "startTime": "",
-                "endTime": "",
-                "activity": "Nog geen programmaonderdelen toegevoegd",
-                "details": "",
-                "icon": "clock",
-            }
-        ]
-        sheets.append(
-            {
-                "dayIndex": day_index,
-                "title": day["title"],
-                "date": day["date"],
-                "rows": program,
-            }
-        )
+    sheets = build_planning_export_sheets(planning)
 
     include_icons = bool(planning.get("includeIcons", True))
     rendered_pages: List[Any] = []
@@ -18061,6 +18185,97 @@ def create_planning_png(planning: Dict[str, Any]) -> bytes:
             title_font = get_font("black", title_size)
         title = trim_text(draw, title, title_max_width, title_font)
         draw_vertical_centered_text(draw, title, title_left, 54, title_font, (255, 255, 255, 255))
+
+        if sheet.get("type") == "taskAssignment":
+            planning_label = normalize_planning_title(planning.get("title"))
+            planning_font = get_font("bold", 12)
+            planning_label = trim_text(draw, planning_label, px(850), planning_font)
+            draw_centered_text(draw, planning_label, FOOTBALL_DAYS_PDF_WIDTH / 2, 101, planning_font, (255, 255, 255, 255))
+            location_label = str(planning.get("location") or "").strip()
+            if location_label:
+                location_font = get_font("regular", 8.5)
+                location_label = trim_text(draw, location_label, px(850), location_font)
+                draw_centered_text(draw, location_label, FOOTBALL_DAYS_PDF_WIDTH / 2, 126, location_font, (255, 255, 255, 230))
+
+            table_x = 55
+            table_top = 150
+            table_width = 850
+            header_height = 28
+            columns = [230, 200, 420]
+            headers = ["Naam", "Rol", "Taak"]
+            draw_translucent_rounded_rectangle(
+                page,
+                (px(table_x), px(table_top), px(table_x + table_width), px(table_top + header_height)),
+                radius=px(5),
+                fill=(0, 0, 0, 194),
+            )
+            draw = ImageDraw.Draw(page, "RGBA")
+            cursor_x = table_x
+            header_font = get_font("bold", 9)
+            for column_index, header in enumerate(headers):
+                draw_vertical_centered_text(
+                    draw,
+                    header.upper(),
+                    cursor_x + 10,
+                    table_top + (header_height / 2),
+                    header_font,
+                    (255, 255, 255, 255),
+                )
+                cursor_x += columns[column_index]
+
+            available_row_height = 522 - table_top - header_height - 4
+            row_height = min(38, available_row_height / max(1, len(rows)))
+            row_scale = min(1.0, max(0.24, row_height / 38))
+            row_gap = min(3, max(0.5, row_height * 0.08))
+            horizontal_padding = max(4, 10 * row_scale)
+            max_lines = 2 if row_height >= 28 else 1
+            name_font_size = max(2.6, 10 * row_scale)
+            body_font_size = max(2.5, 9 * row_scale)
+            current_top = table_top + header_height + 4
+            for row_index, member in enumerate(rows):
+                row_bottom = current_top + row_height - row_gap
+                draw_translucent_rounded_rectangle(
+                    page,
+                    (px(table_x), px(current_top), px(table_x + table_width), px(row_bottom)),
+                    radius=px(min(4, row_height / 4)),
+                    fill=(0, 0, 0, 148 if row_index % 2 == 0 else 120),
+                    outline=(255, 255, 255, 42),
+                    width=max(1, px(0.7)),
+                )
+                draw = ImageDraw.Draw(page, "RGBA")
+                center_y = current_top + ((row_height - row_gap) / 2)
+                values = [
+                    str(member.get("name") or "-").strip() or "-",
+                    str(member.get("role") or "-").strip() or "-",
+                    str(member.get("task") or "-").strip() or "-",
+                ]
+                cursor_x = table_x
+                for column_index, value in enumerate(values):
+                    font_size = name_font_size if column_index == 0 else body_font_size
+                    font = get_font("bold" if column_index == 0 else "regular", font_size)
+                    lines = split_lines(
+                        draw,
+                        value,
+                        px(columns[column_index] - (horizontal_padding * 2)),
+                        font,
+                        max_lines,
+                    )
+                    leading = font_size * 1.18
+                    start_y = center_y - ((leading / 2) * (len(lines) - 1))
+                    fill = (255, 255, 255, 255) if column_index == 0 else (255, 255, 255, 218)
+                    for line_index, line in enumerate(lines):
+                        draw_vertical_centered_text(
+                            draw,
+                            line,
+                            cursor_x + horizontal_padding,
+                            start_y + (line_index * leading),
+                            font,
+                            fill,
+                        )
+                    cursor_x += columns[column_index]
+                current_top += row_height
+            rendered_pages.append(page.convert("RGB"))
+            continue
 
         date_label = format_football_days_date(sheet["date"])
         date_font = get_font("bold", 14)
@@ -18193,6 +18408,8 @@ def planning_edit_page(planning_id: int) -> str:
     for day in planning["days"]:
         if not day["program"]:
             day["program"] = [{"startTime": "", "endTime": "", "activity": "", "details": "", "icon": "clock"}]
+    if not planning["taskAssignment"]["rows"]:
+        planning["taskAssignment"]["rows"] = [{"name": "", "role": "", "task": ""}]
     planning["program"] = planning["days"][0]["program"]
     return render_template(
         "planning.html",
