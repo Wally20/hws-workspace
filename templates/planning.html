@@ -40,7 +40,9 @@
                   {% if item.location %} · {{ item.location }}{% endif %}
                 </p>
               </div>
-              <span class="pill">{{ item.program|length }} regels</span>
+              <span class="pill">
+                {{ item.days|length }} {{ "dag" if item.days|length == 1 else "dagen" }} · {{ item.programCount }} regels
+              </span>
             </div>
             <div class="compact-stat-list">
               <div class="compact-stat-row">
@@ -143,8 +145,20 @@
     <header class="page-header planning-header">
       <div>
         <p class="planning-eyebrow">Planning bewerken</p>
-        <h1>{{ planning.title }}</h1>
-        <p class="welcome-line">Pas de tabel aan, sla de wijzigingen op en exporteer opnieuw wanneer je wilt.</p>
+        <h1 class="planning-editable-title">
+          <label>
+            <span class="sr-only">Titel planning</span>
+            <textarea
+              name="title"
+              maxlength="160"
+              required
+              rows="2"
+              form="planningEditorForm"
+              aria-label="Titel planning"
+            >{{ planning.title }}</textarea>
+          </label>
+        </h1>
+        <p class="welcome-line">Pas de titel en dagbladen aan, sla de wijzigingen op en exporteer opnieuw wanneer je wilt.</p>
       </div>
       <div class="planning-header-actions">
         <a href="/planning" class="subtle-button">Overzicht</a>
@@ -160,16 +174,9 @@
 
     <form method="post" action="/planning/{{ planning.id }}" class="planning-editor" id="planningEditorForm">
       <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+      <input type="hidden" name="days_json" value="" data-planning-days-json>
       <section class="summary-card old-function-tile planning-editor-meta">
-        <div class="planning-meta-grid">
-          <label class="field">
-            <span>Titel planning</span>
-            <input type="text" name="title" value="{{ planning.title }}" maxlength="160" required>
-          </label>
-          <label class="field">
-            <span>Datum</span>
-            <input type="date" name="planning_date" value="{{ planning.planningDate }}">
-          </label>
+        <div class="planning-meta-grid planning-meta-grid-compact">
           <label class="field">
             <span>Locatie</span>
             <input type="text" name="location" value="{{ planning.location }}" maxlength="160" placeholder="Club, sportpark of ruimte">
@@ -189,27 +196,46 @@
       <section class="summary-card old-function-tile planning-program-panel">
         <div class="feature-list-head planning-program-titlebar">
           <div>
-            <p class="panel-title">Planningstabel</p>
-            <p class="feature-list-subtitle">Sleep regels in de gewenste volgorde. Pictogrammen worden automatisch gekozen op basis van het onderdeel.</p>
+            <p class="panel-title">Dagbladen</p>
+            <p class="feature-list-subtitle">Iedere dag krijgt een eigen blad in de PDF- en PNG-export, met de datum direct onder de titel.</p>
           </div>
-          <button type="button" class="subtle-button action-small" data-add-planning-row>+ Regel toevoegen</button>
+          <button type="button" class="subtle-button action-small" data-add-planning-day>+ Dag toevoegen</button>
         </div>
-        <div class="planning-program-head" aria-hidden="true">
-          <span></span><span>Icoon</span><span>Van</span><span>Tot</span><span>Onderdeel</span><span>Toelichting</span><span></span>
-        </div>
-        <div class="planning-program-list" data-planning-rows>
-          {% for row in planning.program %}
-            <div class="planning-program-row" data-planning-row>
-              <button type="button" class="planning-drag-handle" data-planning-drag draggable="true" aria-label="Sleep regel">
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
-              </button>
-              <span class="planning-activity-icon" data-planning-icon data-icon="{{ row.icon }}" aria-hidden="true"></span>
-              <input type="time" name="program_start" value="{{ row.startTime }}" aria-label="Begintijd">
-              <input type="time" name="program_end" value="{{ row.endTime }}" aria-label="Eindtijd">
-              <input type="text" name="program_activity" value="{{ row.activity }}" maxlength="240" placeholder="Bijv. ontvangst deelnemers" aria-label="Onderdeel" data-planning-activity>
-              <input type="text" name="program_details" value="{{ row.details }}" maxlength="500" placeholder="Optionele toelichting" aria-label="Toelichting">
-              <button type="button" class="subtle-button action-small planning-row-remove" data-remove-planning-row aria-label="Verwijder regel">Wis</button>
-            </div>
+        <div class="planning-days" data-planning-days>
+          {% for day in planning.days %}
+            <article class="planning-day" data-planning-day>
+              <header class="planning-day-header">
+                <div>
+                  <p class="planning-day-label" data-planning-day-label>Dag {{ loop.index }}</p>
+                  <label class="field planning-day-date">
+                    <span>Datum van dit dagblad</span>
+                    <input type="date" value="{{ day.date }}" data-planning-day-date required>
+                  </label>
+                </div>
+                <div class="planning-day-actions">
+                  <button type="button" class="subtle-button action-small" data-add-planning-row>+ Regel toevoegen</button>
+                  <button type="button" class="subtle-button action-small planning-day-remove" data-remove-planning-day>Dag verwijderen</button>
+                </div>
+              </header>
+              <div class="planning-program-head" aria-hidden="true">
+                <span></span><span>Icoon</span><span>Van</span><span>Tot</span><span>Onderdeel</span><span>Toelichting</span><span></span>
+              </div>
+              <div class="planning-program-list" data-planning-rows>
+                {% for row in day.program %}
+                  <div class="planning-program-row" data-planning-row>
+                    <button type="button" class="planning-drag-handle" data-planning-drag draggable="true" aria-label="Sleep regel">
+                      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
+                    </button>
+                    <span class="planning-activity-icon" data-planning-icon data-icon="{{ row.icon }}" aria-hidden="true"></span>
+                    <input type="time" value="{{ row.startTime }}" aria-label="Begintijd" data-program-start>
+                    <input type="time" value="{{ row.endTime }}" aria-label="Eindtijd" data-program-end>
+                    <input type="text" value="{{ row.activity }}" maxlength="240" placeholder="Bijv. ontvangst deelnemers" aria-label="Onderdeel" data-planning-activity>
+                    <input type="text" value="{{ row.details }}" maxlength="500" placeholder="Optionele toelichting" aria-label="Toelichting" data-program-details>
+                    <button type="button" class="subtle-button action-small planning-row-remove" data-remove-planning-row aria-label="Verwijder regel">Wis</button>
+                  </div>
+                {% endfor %}
+              </div>
+            </article>
           {% endfor %}
         </div>
         <div class="planning-editor-save">
@@ -232,6 +258,28 @@
       <input type="text" name="program_details" maxlength="500" placeholder="Optionele toelichting" aria-label="Toelichting">
       <button type="button" class="subtle-button action-small planning-row-remove" data-remove-planning-row aria-label="Verwijder regel">Wis</button>
     </div>
+  </template>
+
+  <template id="planningDayTemplate">
+    <article class="planning-day" data-planning-day>
+      <header class="planning-day-header">
+        <div>
+          <p class="planning-day-label" data-planning-day-label>Nieuwe dag</p>
+          <label class="field planning-day-date">
+            <span>Datum van dit dagblad</span>
+            <input type="date" data-planning-day-date required>
+          </label>
+        </div>
+        <div class="planning-day-actions">
+          <button type="button" class="subtle-button action-small" data-add-planning-row>+ Regel toevoegen</button>
+          <button type="button" class="subtle-button action-small planning-day-remove" data-remove-planning-day>Dag verwijderen</button>
+        </div>
+      </header>
+      <div class="planning-program-head" aria-hidden="true">
+        <span></span><span>Icoon</span><span>Van</span><span>Tot</span><span>Onderdeel</span><span>Toelichting</span><span></span>
+      </div>
+      <div class="planning-program-list" data-planning-rows></div>
+    </article>
   </template>
 {% endblock %}
 

@@ -17377,29 +17377,73 @@ def normalize_planning_program(program: Any) -> List[Dict[str, str]]:
     return normalized_rows
 
 
+def normalize_planning_date(value: Any) -> str:
+    date_value = str(value or "").strip()[:10]
+    return date_value if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_value) else ""
+
+
+def normalize_planning_title(value: Any, fallback: str = "Planning") -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()[:160] or fallback
+
+
+def normalize_planning_days(
+    days: Any,
+    fallback_date: Any = "",
+    fallback_program: Any = None,
+) -> List[Dict[str, Any]]:
+    normalized_days: List[Dict[str, Any]] = []
+    if isinstance(days, list):
+        for day in days[:31]:
+            if not isinstance(day, dict):
+                continue
+            normalized_days.append(
+                {
+                    "date": normalize_planning_date(day.get("date") or day.get("planningDate")),
+                    "program": normalize_planning_program(day.get("program")),
+                }
+            )
+    if not normalized_days:
+        normalized_days.append(
+            {
+                "date": normalize_planning_date(fallback_date),
+                "program": normalize_planning_program(fallback_program),
+            }
+        )
+    return normalized_days
+
+
 def normalize_planning_document(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
     if row is None:
+        blank_program = [{"startTime": "", "endTime": "", "activity": "", "details": "", "icon": "clock"}]
         return {
             "id": 0,
             "title": "Nieuwe planning",
             "planningDate": "",
             "location": "",
             "includeIcons": True,
-            "program": [{"startTime": "", "endTime": "", "activity": "", "details": "", "icon": "clock"}],
+            "program": blank_program,
+            "days": [{"date": "", "program": blank_program}],
+            "programCount": 0,
             "createdAt": "",
             "updatedAt": "",
         }
     try:
-        program = json.loads(str(row["program_json"] or "[]"))
+        stored_program = json.loads(str(row["program_json"] or "[]"))
     except (TypeError, json.JSONDecodeError):
-        program = []
+        stored_program = []
+    stored_days = stored_program.get("days") if isinstance(stored_program, dict) else None
+    legacy_program = stored_program if isinstance(stored_program, list) else []
+    days = normalize_planning_days(stored_days, row["planning_date"], legacy_program)
+    first_day = days[0]
     return {
         "id": int(row["id"]),
-        "title": str(row["title"] or "Planning").strip(),
-        "planningDate": str(row["planning_date"] or "").strip(),
+        "title": normalize_planning_title(row["title"]),
+        "planningDate": first_day["date"],
         "location": str(row["location"] or "").strip(),
         "includeIcons": bool(row["include_icons"]),
-        "program": normalize_planning_program(program),
+        "program": first_day["program"],
+        "days": days,
+        "programCount": sum(len(day["program"]) for day in days),
         "createdAt": str(row["created_at"] or "").strip(),
         "updatedAt": str(row["updated_at"] or "").strip(),
     }
@@ -17436,7 +17480,7 @@ def build_planning_document_from_form() -> Dict[str, Any]:
     activities = request.form.getlist("program_activity")
     details = request.form.getlist("program_details")
     row_count = min(100, max(len(starts), len(ends), len(activities), len(details)))
-    program = normalize_planning_program(
+    legacy_program = normalize_planning_program(
         [
             {
                 "startTime": starts[index] if index < len(starts) else "",
@@ -17447,23 +17491,41 @@ def build_planning_document_from_form() -> Dict[str, Any]:
             for index in range(row_count)
         ]
     )
+    submitted_days: Any = None
+    days_json = str(request.form.get("days_json", "") or "").strip()
+    if days_json:
+        try:
+            submitted_days = json.loads(days_json)
+        except json.JSONDecodeError:
+            submitted_days = None
+    days = normalize_planning_days(
+        submitted_days,
+        request.form.get("planning_date", ""),
+        legacy_program,
+    )
     return {
-        "title": str(request.form.get("title", "") or "").strip()[:160] or "Nieuwe planning",
-        "planningDate": str(request.form.get("planning_date", "") or "").strip()[:10],
+        "title": normalize_planning_title(request.form.get("title"), "Nieuwe planning"),
+        "planningDate": days[0]["date"],
         "location": str(request.form.get("location", "") or "").strip()[:160],
-        "includeIcons": str(request.form.get("include_icons", "0") or "0") == "1",
-        "program": program,
+        "includeIcons": "1" in request.form.getlist("include_icons"),
+        "program": days[0]["program"],
+        "days": days,
     }
 
 
 def save_planning_document(planning: Dict[str, Any], planning_id: Optional[int] = None) -> int:
     now = utcnow_iso()
+    days = normalize_planning_days(
+        planning.get("days"),
+        planning.get("planningDate"),
+        planning.get("program"),
+    )
     payload = (
-        str(planning.get("title") or "Nieuwe planning").strip()[:160] or "Nieuwe planning",
-        str(planning.get("planningDate") or "").strip()[:10],
+        normalize_planning_title(planning.get("title"), "Nieuwe planning"),
+        days[0]["date"],
         str(planning.get("location") or "").strip()[:160],
         1 if planning.get("includeIcons", True) else 0,
-        json.dumps(normalize_planning_program(planning.get("program")), ensure_ascii=False),
+        json.dumps({"days": days}, ensure_ascii=False),
     )
     with get_db_connection() as connection:
         if planning_id is not None:
@@ -17489,12 +17551,18 @@ def save_planning_document(planning: Dict[str, Any], planning_id: Optional[int] 
 
 
 def normalize_planning_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    days = normalize_planning_days(
+        payload.get("days"),
+        payload.get("planningDate"),
+        payload.get("program"),
+    )
     return {
-        "title": str(payload.get("title") or "Planning").strip()[:160] or "Planning",
-        "planningDate": str(payload.get("planningDate") or "").strip()[:10],
+        "title": normalize_planning_title(payload.get("title")),
+        "planningDate": days[0]["date"],
         "location": str(payload.get("location") or "").strip()[:160],
         "includeIcons": bool(payload.get("includeIcons", True)),
-        "program": normalize_planning_program(payload.get("program")),
+        "program": days[0]["program"],
+        "days": days,
     }
 
 
@@ -17640,7 +17708,7 @@ def create_planning_pdf(planning: Dict[str, Any]) -> bytes:
             pdf.line(0, 0, 6, -4)
         pdf.restoreState()
 
-    def draw_centered_title(title: Any, y: float, max_width: float, max_size: float = 48) -> None:
+    def draw_sheet_title(title: Any, x: float, y: float, max_width: float, max_size: float = 48) -> None:
         title_text = str(title or "PLANNING").strip().upper()
         font_size = max_size
         while font_size > 22 and stringWidth(title_text, black_font, font_size) > max_width:
@@ -17648,33 +17716,45 @@ def create_planning_pdf(planning: Dict[str, Any]) -> bytes:
         title_text = trim_text(title_text, max_width, black_font, font_size)
         pdf.setFillColor(pdf_white)
         pdf.setFont(black_font, font_size)
-        pdf.drawCentredString(FOOTBALL_DAYS_PDF_WIDTH / 2, y, title_text)
+        pdf.drawString(x, y, title_text)
 
-    draw_background(0, 0.26)
-    logo_path = os.path.join(os.path.dirname(__file__), "static", "assets", "hws-logo.png")
-    if os.path.exists(logo_path):
-        pdf.drawImage(ImageReader(logo_path), 410, 322, 140, 140, preserveAspectRatio=True, mask="auto")
-    draw_centered_title(planning.get("title"), 220, 820, 50)
-    meta_parts = [format_football_days_date(planning.get("planningDate"))]
-    if planning.get("location"):
-        meta_parts.append(str(planning["location"]))
-    meta = " | ".join(part for part in meta_parts if part)
-    pdf.setFillColor(pdf_white)
-    pdf.setFont(bold_font, 16)
-    pdf.drawCentredString(FOOTBALL_DAYS_PDF_WIDTH / 2, 174, trim_text(meta, 820, bold_font, 16))
-    pdf.showPage()
+    days = normalize_planning_days(
+        planning.get("days"),
+        planning.get("planningDate"),
+        planning.get("program"),
+    )
+    sheets: List[Dict[str, Any]] = []
+    for day_index, day in enumerate(days, start=1):
+        program = day["program"] or [
+            {
+                "startTime": "",
+                "endTime": "",
+                "activity": "Nog geen programmaonderdelen toegevoegd",
+                "details": "",
+                "icon": "clock",
+            }
+        ]
+        day_pages = chunk_items(program, 8)
+        for day_page_index, rows in enumerate(day_pages, start=1):
+            sheets.append(
+                {
+                    "dayIndex": day_index,
+                    "dayCount": len(days),
+                    "dayPageIndex": day_page_index,
+                    "dayPageCount": len(day_pages),
+                    "date": day["date"],
+                    "rows": rows,
+                }
+            )
 
-    program = planning.get("program") or []
-    if not program:
-        program = [{"startTime": "", "endTime": "", "activity": "Nog geen programmaonderdelen toegevoegd", "details": "", "icon": "clock"}]
-    page_rows = chunk_items(program, 8)
     include_icons = bool(planning.get("includeIcons", True))
-    for page_index, rows in enumerate(page_rows, start=1):
+    for page_index, sheet in enumerate(sheets, start=1):
+        rows = sheet["rows"]
         draw_background(page_index)
-        draw_centered_title(planning.get("title"), 454, 850, 42)
+        draw_sheet_title(planning.get("title"), 99, 454, 816, 42)
         subtitle = " | ".join(
             part
-            for part in (format_football_days_date(planning.get("planningDate")), str(planning.get("location") or "").strip())
+            for part in (format_football_days_date(sheet["date"]), str(planning.get("location") or "").strip())
             if part
         )
         pdf.setFont(regular_font, 10)
@@ -17739,7 +17819,10 @@ def create_planning_pdf(planning: Dict[str, Any]) -> bytes:
 
         pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.7))
         pdf.setFont(regular_font, 8)
-        pdf.drawCentredString(FOOTBALL_DAYS_PDF_WIDTH / 2, 22, f"Planning | pagina {page_index} van {len(page_rows)}")
+        footer = f"Dag {sheet['dayIndex']} van {sheet['dayCount']}"
+        if sheet["dayPageCount"] > 1:
+            footer += f" | blad {sheet['dayPageIndex']} van {sheet['dayPageCount']}"
+        pdf.drawCentredString(FOOTBALL_DAYS_PDF_WIDTH / 2, 22, footer)
         pdf.showPage()
 
     pdf.save()
@@ -17917,14 +18000,40 @@ def create_planning_png(planning: Dict[str, Any]) -> bytes:
         overlay_draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
         page.alpha_composite(overlay)
 
-    program = planning.get("program") or []
-    if not program:
-        program = [{"startTime": "", "endTime": "", "activity": "Nog geen programmaonderdelen toegevoegd", "details": "", "icon": "clock"}]
-    page_rows = chunk_items(program, 8)
+    days = normalize_planning_days(
+        planning.get("days"),
+        planning.get("planningDate"),
+        planning.get("program"),
+    )
+    sheets: List[Dict[str, Any]] = []
+    for day_index, day in enumerate(days, start=1):
+        program = day["program"] or [
+            {
+                "startTime": "",
+                "endTime": "",
+                "activity": "Nog geen programmaonderdelen toegevoegd",
+                "details": "",
+                "icon": "clock",
+            }
+        ]
+        day_pages = chunk_items(program, 8)
+        for day_page_index, rows in enumerate(day_pages, start=1):
+            sheets.append(
+                {
+                    "dayIndex": day_index,
+                    "dayCount": len(days),
+                    "dayPageIndex": day_page_index,
+                    "dayPageCount": len(day_pages),
+                    "date": day["date"],
+                    "rows": rows,
+                }
+            )
+
     include_icons = bool(planning.get("includeIcons", True))
     rendered_pages: List[Any] = []
 
-    for page_index, rows in enumerate(page_rows, start=1):
+    for page_index, sheet in enumerate(sheets, start=1):
+        rows = sheet["rows"]
         page = create_background(page_index)
         if logo_image is not None:
             # The background artwork already contains a subdued logo. Redrawing the
@@ -17945,7 +18054,7 @@ def create_planning_png(planning: Dict[str, Any]) -> bytes:
 
         subtitle = " | ".join(
             part
-            for part in (format_football_days_date(planning.get("planningDate")), str(planning.get("location") or "").strip())
+            for part in (format_football_days_date(sheet["date"]), str(planning.get("location") or "").strip())
             if part
         )
         subtitle_font = get_font("regular", 10)
@@ -18018,7 +18127,9 @@ def create_planning_png(planning: Dict[str, Any]) -> bytes:
             current_top += row_height
 
         footer_font = get_font("regular", 8)
-        footer = f"Planning | pagina {page_index} van {len(page_rows)}"
+        footer = f"Dag {sheet['dayIndex']} van {sheet['dayCount']}"
+        if sheet["dayPageCount"] > 1:
+            footer += f" | blad {sheet['dayPageIndex']} van {sheet['dayPageCount']}"
         draw_centered_text(draw, footer, FOOTBALL_DAYS_PDF_WIDTH / 2, 508, footer_font, (255, 255, 255, 180))
         rendered_pages.append(page.convert("RGB"))
 
@@ -18063,8 +18174,10 @@ def planning_edit_page(planning_id: int) -> str:
     if request.method == "POST":
         save_planning_document(build_planning_document_from_form(), planning_id)
         return redirect(f"/planning/{planning_id}?success=Planning opgeslagen.")
-    if not planning["program"]:
-        planning["program"] = [{"startTime": "", "endTime": "", "activity": "", "details": "", "icon": "clock"}]
+    for day in planning["days"]:
+        if not day["program"]:
+            day["program"] = [{"startTime": "", "endTime": "", "activity": "", "details": "", "icon": "clock"}]
+    planning["program"] = planning["days"][0]["program"]
     return render_template(
         "planning.html",
         active_page="planning",

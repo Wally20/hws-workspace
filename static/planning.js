@@ -25,13 +25,26 @@
   ];
 
   const rowTemplate = document.getElementById("planningRowTemplate");
+  const dayTemplate = document.getElementById("planningDayTemplate");
   const planningModal = document.getElementById("planningModal");
   const openModalButton = document.getElementById("openPlanningModal");
   const editorForm = document.getElementById("planningEditorForm");
+  const titleEditor = document.querySelector('textarea[name="title"][form="planningEditorForm"]');
   const pdfExportButton = document.getElementById("exportPlanningPdf");
   const pngExportButton = document.getElementById("exportPlanningPng");
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let draggedRow = null;
+
+  const resizeTitleEditor = () => {
+    if (!titleEditor) {
+      return;
+    }
+    titleEditor.style.height = "auto";
+    titleEditor.style.height = `${titleEditor.scrollHeight}px`;
+  };
+
+  titleEditor?.addEventListener("input", resizeTitleEditor);
+  resizeTitleEditor();
 
   const inferIcon = (activity) => {
     const match = iconRules.find(([pattern]) => pattern.test(String(activity || "")));
@@ -69,10 +82,10 @@
     if (!row) {
       return null;
     }
-    row.querySelector('input[name="program_start"]').value = values.startTime || "";
-    row.querySelector('input[name="program_end"]').value = values.endTime || "";
-    row.querySelector('input[name="program_activity"]').value = values.activity || "";
-    row.querySelector('input[name="program_details"]').value = values.details || "";
+    row.querySelector('[data-program-start], input[name="program_start"]').value = values.startTime || "";
+    row.querySelector('[data-program-end], input[name="program_end"]').value = values.endTime || "";
+    row.querySelector('[data-planning-activity], input[name="program_activity"]').value = values.activity || "";
+    row.querySelector('[data-program-details], input[name="program_details"]').value = values.details || "";
     container.append(row);
     bindRow(row);
     refreshRemoveButtons(container);
@@ -86,7 +99,11 @@
     draggedRow = null;
   };
 
-  document.querySelectorAll("[data-planning-rows]").forEach((container) => {
+  const bindRowsContainer = (container) => {
+    if (!container || container.dataset.planningRowsBound === "1") {
+      return;
+    }
+    container.dataset.planningRowsBound = "1";
     container.querySelectorAll("[data-planning-row]").forEach(bindRow);
     refreshRemoveButtons(container);
 
@@ -118,7 +135,7 @@
     });
 
     container.addEventListener("dragover", (event) => {
-      if (!draggedRow) {
+      if (!draggedRow || draggedRow.parentElement !== container) {
         return;
       }
       event.preventDefault();
@@ -139,16 +156,85 @@
     });
 
     container.addEventListener("dragend", () => resetDragState(container));
-  });
+  };
 
-  document.querySelectorAll("[data-add-planning-row]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const scope = button.closest("form") || document;
+  document.querySelectorAll("[data-planning-rows]").forEach(bindRowsContainer);
+
+  const refreshDays = () => {
+    const daysContainer = editorForm?.querySelector("[data-planning-days]");
+    const days = [...(daysContainer?.querySelectorAll("[data-planning-day]") || [])];
+    days.forEach((day, index) => {
+      const label = day.querySelector("[data-planning-day-label]");
+      const removeButton = day.querySelector("[data-remove-planning-day]");
+      if (label) {
+        label.textContent = `Dag ${index + 1}`;
+      }
+      if (removeButton) {
+        removeButton.hidden = days.length <= 1;
+      }
+    });
+    const addDayButton = editorForm?.querySelector("[data-add-planning-day]");
+    if (addDayButton) {
+      addDayButton.disabled = days.length >= 31;
+    }
+  };
+
+  const nextDayDate = () => {
+    const dates = [...(editorForm?.querySelectorAll("[data-planning-day-date]") || [])]
+      .map((input) => input.value)
+      .filter(Boolean);
+    const lastDate = dates.at(-1);
+    if (!lastDate) {
+      const now = new Date();
+      return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    }
+    const nextDate = new Date(`${lastDate}T12:00:00Z`);
+    nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+    return nextDate.toISOString().slice(0, 10);
+  };
+
+  document.addEventListener("click", (event) => {
+    const addRowButton = event.target.closest("[data-add-planning-row]");
+    if (addRowButton) {
+      const scope = addRowButton.closest("[data-planning-day], .planning-program-section, form") || document;
       const container = scope.querySelector("[data-planning-rows]");
       const row = container ? appendRow(container) : null;
-      row?.querySelector('input[name="program_start"]')?.focus();
-    });
+      row?.querySelector('[data-program-start], input[name="program_start"]')?.focus();
+      return;
+    }
+
+    const removeDayButton = event.target.closest("[data-remove-planning-day]");
+    if (removeDayButton) {
+      const daysContainer = removeDayButton.closest("[data-planning-days]");
+      if (daysContainer?.querySelectorAll("[data-planning-day]").length > 1) {
+        removeDayButton.closest("[data-planning-day]")?.remove();
+        refreshDays();
+      }
+      return;
+    }
+
+    const addDayButton = event.target.closest("[data-add-planning-day]");
+    if (!addDayButton || !dayTemplate || !editorForm) {
+      return;
+    }
+    const daysContainer = editorForm.querySelector("[data-planning-days]");
+    const day = dayTemplate.content.firstElementChild?.cloneNode(true);
+    if (!daysContainer || !day || daysContainer.querySelectorAll("[data-planning-day]").length >= 31) {
+      return;
+    }
+    const dateInput = day.querySelector("[data-planning-day-date]");
+    if (dateInput) {
+      dateInput.value = nextDayDate();
+    }
+    daysContainer.append(day);
+    const rowsContainer = day.querySelector("[data-planning-rows]");
+    bindRowsContainer(rowsContainer);
+    const row = appendRow(rowsContainer);
+    refreshDays();
+    row?.querySelector('[data-program-start], input[name="program_start"]')?.focus();
   });
+
+  refreshDays();
 
   document.querySelectorAll('.planning-switch input[type="checkbox"]').forEach((checkbox) => {
     const updateLabel = () => {
@@ -194,27 +280,44 @@
 
   planningModal?.addEventListener("close", () => document.body.classList.remove("planning-modal-open"));
 
-  const collectPlanning = () => {
-    const rows = [...editorForm.querySelectorAll("[data-planning-row]")]
+  const collectRows = (container) =>
+    [...container.querySelectorAll("[data-planning-row]")]
       .map((row) => {
-        const activity = String(row.querySelector('input[name="program_activity"]')?.value || "").trim();
+        const activity = String(row.querySelector('[data-planning-activity], input[name="program_activity"]')?.value || "").trim();
         return {
-          startTime: String(row.querySelector('input[name="program_start"]')?.value || "").trim(),
-          endTime: String(row.querySelector('input[name="program_end"]')?.value || "").trim(),
+          startTime: String(row.querySelector('[data-program-start], input[name="program_start"]')?.value || "").trim(),
+          endTime: String(row.querySelector('[data-program-end], input[name="program_end"]')?.value || "").trim(),
           activity,
-          details: String(row.querySelector('input[name="program_details"]')?.value || "").trim(),
+          details: String(row.querySelector('[data-program-details], input[name="program_details"]')?.value || "").trim(),
           icon: inferIcon(activity),
         };
       })
       .filter((row) => row.startTime || row.endTime || row.activity || row.details);
+
+  const collectDays = () =>
+    [...editorForm.querySelectorAll("[data-planning-day]")].map((day) => ({
+      date: String(day.querySelector("[data-planning-day-date]")?.value || "").trim(),
+      program: collectRows(day.querySelector("[data-planning-rows]")),
+    }));
+
+  const collectPlanning = () => {
+    const days = collectDays();
     return {
-      title: String(editorForm.querySelector('input[name="title"]')?.value || "Planning").trim(),
-      planningDate: String(editorForm.querySelector('input[name="planning_date"]')?.value || "").trim(),
+      title: String(editorForm.elements.namedItem("title")?.value || "Planning").trim(),
+      planningDate: days[0]?.date || "",
       location: String(editorForm.querySelector('input[name="location"]')?.value || "").trim(),
       includeIcons: Boolean(editorForm.querySelector('input[name="include_icons"][value="1"]')?.checked),
-      program: rows,
+      program: days[0]?.program || [],
+      days,
     };
   };
+
+  editorForm?.addEventListener("submit", () => {
+    const daysField = editorForm.querySelector("[data-planning-days-json]");
+    if (daysField) {
+      daysField.value = JSON.stringify(collectDays());
+    }
+  });
 
   const downloadPlanningExport = async (button, endpoint, fallbackFilename, progressLabel) => {
     if (!editorForm?.reportValidity()) {

@@ -1267,23 +1267,45 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         edit_response = client.get(f"/planning/{planning_id}", secure=True)
         self.assertEqual(edit_response.status_code, 200)
-        self.assertContains(edit_response, "Planningstabel")
+        self.assertContains(edit_response, "Dagbladen")
         self.assertContains(edit_response, "Test planning voetbaldag")
+        self.assertContains(edit_response, 'data-add-planning-day')
+        self.assertContains(edit_response, 'data-planning-days-json')
         self.assertContains(edit_response, 'id="exportPlanningPdf"')
         self.assertContains(edit_response, 'id="exportPlanningPng"')
 
+        updated_days = [
+            {
+                "date": "2026-08-16",
+                "program": [
+                    {
+                        "startTime": "11:00",
+                        "endTime": "12:00",
+                        "activity": "Finale",
+                        "details": "Hoofdveld",
+                    }
+                ],
+            },
+            {
+                "date": "2026-08-17",
+                "program": [
+                    {
+                        "startTime": "09:00",
+                        "endTime": "10:00",
+                        "activity": "Prijsuitreiking",
+                        "details": "Kantine",
+                    }
+                ],
+            },
+        ]
         update_response = client.post(
             f"/planning/{planning_id}",
             {
                 "csrf_token": self.TEST_CSRF_TOKEN,
                 "title": "Test planning aangepast",
-                "planning_date": "2026-08-16",
                 "location": "Veld 2",
                 "include_icons": "0",
-                "program_start": ["11:00"],
-                "program_end": ["12:00"],
-                "program_activity": ["Finale"],
-                "program_details": ["Hoofdveld"],
+                "days_json": json.dumps(updated_days),
             },
             secure=True,
         )
@@ -1292,6 +1314,9 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(saved_planning["title"], "Test planning aangepast")
         self.assertFalse(saved_planning["includeIcons"])
         self.assertEqual(saved_planning["program"][0]["activity"], "Finale")
+        self.assertEqual(len(saved_planning["days"]), 2)
+        self.assertEqual(saved_planning["days"][1]["date"], "2026-08-17")
+        self.assertEqual(saved_planning["days"][1]["program"][0]["activity"], "Prijsuitreiking")
 
         export_response = client.post(
             "/api/planning/export-pdf",
@@ -1302,6 +1327,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                     "location": saved_planning["location"],
                     "includeIcons": False,
                     "program": saved_planning["program"],
+                    "days": saved_planning["days"],
                 }
             ),
             content_type="application/json",
@@ -1313,6 +1339,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(export_response["Content-Type"], "application/pdf")
         self.assertIn("test-planning-aangepast-2026-08-16.pdf", export_response["Content-Disposition"])
         self.assertTrue(export_response.content.startswith(b"%PDF-"))
+        self.assertEqual(export_response.content.count(b"/Type /Page\n"), 2)
 
         png_response = client.post(
             "/api/planning/export-png",
@@ -1323,6 +1350,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                     "location": saved_planning["location"],
                     "includeIcons": True,
                     "program": saved_planning["program"],
+                    "days": saved_planning["days"],
                 }
             ),
             content_type="application/json",
@@ -1334,6 +1362,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(png_response["Content-Type"], "image/png")
         self.assertIn("test-planning-aangepast-2026-08-16.png", png_response["Content-Disposition"])
         self.assertTrue(png_response.content.startswith(b"\x89PNG\r\n\x1a\n"))
+        with Image.open(BytesIO(png_response.content)) as png_image:
+            self.assertEqual(png_image.size, (1920, 2160))
 
     def test_planning_png_keeps_title_clear_of_logo(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
