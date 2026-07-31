@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+
+{% block title %}{{ planning.title if page_mode == "edit" else "Planning" }} | HWS Voetbalschool Workspace{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="/static/planning.css?v={{ asset_version }}">
+{% endblock %}
+
+{% block content %}
+  {% if page_mode == "overview" %}
+    <header class="page-header planning-header">
+      <div>
+        <h1>Planning</h1>
+        <p class="welcome-line">Maak, bewaar en exporteer programma's als planningstabel in de stijl van de draaiboeken.</p>
+      </div>
+      <button
+        type="button"
+        class="planning-add-button"
+        id="openPlanningModal"
+        aria-label="Nieuwe planning maken"
+        title="Nieuwe planning maken"
+      >
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      </button>
+    </header>
+
+    {% if success %}
+      <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+    {% endif %}
+
+    <section class="football-playbook-grid planning-tile-grid" aria-label="Opgeslagen planningen">
+      {% for item in plannings %}
+        <article class="summary-card old-function-tile football-playbook-tile planning-tile">
+          <a href="/planning/{{ item.id }}" class="football-playbook-link planning-tile-link">
+            <div class="feature-record-head">
+              <div>
+                <h2>{{ item.title }}</h2>
+                <p class="feature-record-meta">
+                  {{ item.planningDate if item.planningDate else "Geen datum" }}
+                  {% if item.location %} · {{ item.location }}{% endif %}
+                </p>
+              </div>
+              <span class="pill">{{ item.program|length }} regels</span>
+            </div>
+            <div class="compact-stat-list">
+              <div class="compact-stat-row">
+                <span>PDF-pictogrammen</span>
+                <span class="compact-stat-value">{{ "Aan" if item.includeIcons else "Uit" }}</span>
+              </div>
+              <div class="compact-stat-row">
+                <span>Laatst aangepast</span>
+                <span class="compact-stat-value">{{ item.updatedAt[:10] if item.updatedAt else "-" }}</span>
+              </div>
+            </div>
+            <span class="planning-tile-open">Open en pas aan <span aria-hidden="true">→</span></span>
+          </a>
+        </article>
+      {% else %}
+        <article class="summary-card old-function-tile planning-empty-state">
+          <div class="planning-empty-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M6 4.5h9l3 3V20H6V4.5Z"></path><path d="M15 4.5V8h3M9 12h6M9 16h6"></path></svg>
+          </div>
+          <div>
+            <h2>Nog geen planningen</h2>
+            <p>Gebruik het plus-icoon om je eerste planning snel op te zetten.</p>
+          </div>
+        </article>
+      {% endfor %}
+    </section>
+
+    <dialog class="planning-modal" id="planningModal" aria-labelledby="planningModalTitle">
+      <form method="post" action="/planning" class="planning-modal-dialog" id="planningQuickForm">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <header class="planning-modal-head">
+          <div>
+            <p class="planning-eyebrow">Snel maken</p>
+            <h2 id="planningModalTitle">Nieuwe planning</h2>
+          </div>
+          <button type="button" class="planning-modal-close" data-close-planning-modal aria-label="Sluiten">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+          </button>
+        </header>
+
+        <div class="planning-modal-body">
+          <div class="planning-meta-grid planning-quick-meta">
+            <label class="field">
+              <span>Titel planning</span>
+              <input type="text" name="title" value="Nieuwe planning" maxlength="160" required>
+            </label>
+            <label class="field">
+              <span>Datum</span>
+              <input type="date" name="planning_date">
+            </label>
+            <label class="field">
+              <span>Locatie</span>
+              <input type="text" name="location" maxlength="160" placeholder="Club, sportpark of ruimte">
+            </label>
+            <div class="field planning-icon-choice">
+              <span>Pictogrammen in PDF</span>
+              <input type="hidden" name="include_icons" value="0">
+              <label class="planning-switch">
+                <input type="checkbox" name="include_icons" value="1" checked>
+                <span class="planning-switch-track" aria-hidden="true"></span>
+                <span class="planning-switch-label">Tonen</span>
+              </label>
+            </div>
+          </div>
+
+          <section class="planning-program-section">
+            <div class="feature-list-head">
+              <div>
+                <p class="panel-title">Programma</p>
+                <p class="feature-list-subtitle">Vul direct de eerste onderdelen van de planning in.</p>
+              </div>
+              <button type="button" class="subtle-button action-small" data-add-planning-row>+ Regel</button>
+            </div>
+            <div class="planning-program-head" aria-hidden="true">
+              <span></span><span></span><span>Van</span><span>Tot</span><span>Onderdeel</span><span>Toelichting</span><span></span>
+            </div>
+            <div class="planning-program-list" data-planning-rows>
+              <div class="planning-program-row" data-planning-row>
+                <button type="button" class="planning-drag-handle" data-planning-drag draggable="true" aria-label="Sleep regel">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
+                </button>
+                <span class="planning-activity-icon" data-planning-icon aria-hidden="true"></span>
+                <input type="time" name="program_start" aria-label="Begintijd">
+                <input type="time" name="program_end" aria-label="Eindtijd">
+                <input type="text" name="program_activity" maxlength="240" placeholder="Bijv. ontvangst deelnemers" aria-label="Onderdeel" data-planning-activity>
+                <input type="text" name="program_details" maxlength="500" placeholder="Optionele toelichting" aria-label="Toelichting">
+                <button type="button" class="subtle-button action-small planning-row-remove" data-remove-planning-row aria-label="Verwijder regel">Wis</button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <footer class="planning-modal-actions">
+          <button type="button" class="subtle-button" data-close-planning-modal>Annuleren</button>
+          <button type="submit" class="refresh-button">Planning maken</button>
+        </footer>
+      </form>
+    </dialog>
+  {% else %}
+    <header class="page-header planning-header">
+      <div>
+        <p class="planning-eyebrow">Planning bewerken</p>
+        <h1>{{ planning.title }}</h1>
+        <p class="welcome-line">Pas de tabel aan, sla de wijzigingen op en exporteer opnieuw wanneer je wilt.</p>
+      </div>
+      <div class="planning-header-actions">
+        <a href="/planning" class="subtle-button">Overzicht</a>
+        <button type="submit" form="planningEditorForm" class="subtle-button subtle-button-strong">Opslaan</button>
+        <button type="button" class="refresh-button" id="exportPlanningPdf">Export PDF</button>
+      </div>
+    </header>
+
+    {% if success %}
+      <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
+    {% endif %}
+
+    <form method="post" action="/planning/{{ planning.id }}" class="planning-editor" id="planningEditorForm">
+      <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+      <section class="summary-card old-function-tile planning-editor-meta">
+        <div class="planning-meta-grid">
+          <label class="field">
+            <span>Titel planning</span>
+            <input type="text" name="title" value="{{ planning.title }}" maxlength="160" required>
+          </label>
+          <label class="field">
+            <span>Datum</span>
+            <input type="date" name="planning_date" value="{{ planning.planningDate }}">
+          </label>
+          <label class="field">
+            <span>Locatie</span>
+            <input type="text" name="location" value="{{ planning.location }}" maxlength="160" placeholder="Club, sportpark of ruimte">
+          </label>
+          <div class="field planning-icon-choice">
+            <span>Pictogrammen in PDF</span>
+            <input type="hidden" name="include_icons" value="0">
+            <label class="planning-switch">
+              <input type="checkbox" name="include_icons" value="1" {% if planning.includeIcons %}checked{% endif %}>
+              <span class="planning-switch-track" aria-hidden="true"></span>
+              <span class="planning-switch-label">Tonen</span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="summary-card old-function-tile planning-program-panel">
+        <div class="feature-list-head planning-program-titlebar">
+          <div>
+            <p class="panel-title">Planningstabel</p>
+            <p class="feature-list-subtitle">Sleep regels in de gewenste volgorde. Pictogrammen worden automatisch gekozen op basis van het onderdeel.</p>
+          </div>
+          <button type="button" class="subtle-button action-small" data-add-planning-row>+ Regel toevoegen</button>
+        </div>
+        <div class="planning-program-head" aria-hidden="true">
+          <span></span><span>Icoon</span><span>Van</span><span>Tot</span><span>Onderdeel</span><span>Toelichting</span><span></span>
+        </div>
+        <div class="planning-program-list" data-planning-rows>
+          {% for row in planning.program %}
+            <div class="planning-program-row" data-planning-row>
+              <button type="button" class="planning-drag-handle" data-planning-drag draggable="true" aria-label="Sleep regel">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
+              </button>
+              <span class="planning-activity-icon" data-planning-icon data-icon="{{ row.icon }}" aria-hidden="true"></span>
+              <input type="time" name="program_start" value="{{ row.startTime }}" aria-label="Begintijd">
+              <input type="time" name="program_end" value="{{ row.endTime }}" aria-label="Eindtijd">
+              <input type="text" name="program_activity" value="{{ row.activity }}" maxlength="240" placeholder="Bijv. ontvangst deelnemers" aria-label="Onderdeel" data-planning-activity>
+              <input type="text" name="program_details" value="{{ row.details }}" maxlength="500" placeholder="Optionele toelichting" aria-label="Toelichting">
+              <button type="button" class="subtle-button action-small planning-row-remove" data-remove-planning-row aria-label="Verwijder regel">Wis</button>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="planning-editor-save">
+          <span class="planning-save-hint">Wijzigingen worden definitief bewaard zodra je opslaat.</span>
+          <button type="submit" class="subtle-button subtle-button-strong">Planning opslaan</button>
+        </div>
+      </section>
+    </form>
+  {% endif %}
+
+  <template id="planningRowTemplate">
+    <div class="planning-program-row" data-planning-row>
+      <button type="button" class="planning-drag-handle" data-planning-drag draggable="true" aria-label="Sleep regel">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
+      </button>
+      <span class="planning-activity-icon" data-planning-icon aria-hidden="true"></span>
+      <input type="time" name="program_start" aria-label="Begintijd">
+      <input type="time" name="program_end" aria-label="Eindtijd">
+      <input type="text" name="program_activity" maxlength="240" placeholder="Bijv. ontvangst deelnemers" aria-label="Onderdeel" data-planning-activity>
+      <input type="text" name="program_details" maxlength="500" placeholder="Optionele toelichting" aria-label="Toelichting">
+      <button type="button" class="subtle-button action-small planning-row-remove" data-remove-planning-row aria-label="Verwijder regel">Wis</button>
+    </div>
+  </template>
+{% endblock %}
+
+{% block scripts %}
+  <script nonce="{{ csp_nonce }}" src="/static/planning.js?v={{ asset_version }}" defer></script>
+{% endblock %}

@@ -25,6 +25,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             connection.execute("DELETE FROM registration_event_statuses")
             connection.execute("DELETE FROM registration_event_email_settings WHERE product_key LIKE 'id:999%'")
             connection.execute("DELETE FROM football_days_playbooks WHERE title LIKE 'Test draaiboek%'")
+            connection.execute("DELETE FROM planning_documents WHERE title LIKE 'Test planning%'")
         super().tearDown()
 
     def extract_csrf_token(self, response) -> str:
@@ -687,6 +688,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("dashboard", legacy.get_visible_pages_for_user(trainer))
         self.assertIn("agenda", legacy.get_visible_pages_for_user(trainer))
         self.assertNotIn("management", legacy.get_visible_pages_for_user(trainer))
+        self.assertNotIn("planning", legacy.get_visible_pages_for_user(trainer))
         self.assertNotIn("marketing", legacy.get_visible_pages_for_user(trainer))
         self.assertEqual(legacy.get_default_post_login_path(trainer), "/")
 
@@ -700,10 +702,12 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         with patch.object(legacy, "get_current_user", return_value=trainer):
             management_response = Client().get("/management", secure=True)
+            planning_response = Client().get("/planning", secure=True)
             marketing_response = Client().get("/marketing", secure=True)
             api_management_response = Client().get("/management/api", secure=True)
 
         self.assertRedirects(management_response, "/", fetch_redirect_response=False)
+        self.assertRedirects(planning_response, "/", fetch_redirect_response=False)
         self.assertRedirects(marketing_response, "/", fetch_redirect_response=False)
         self.assertRedirects(api_management_response, "/", fetch_redirect_response=False)
 
@@ -1219,6 +1223,93 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn('id="footballProgramImportModal"', content)
         self.assertIn('id="confirmFootballProgramImport"', content)
         self.assertIn('data-reuse-playbook="fieldLayout"', content)
+
+    def test_planning_overview_quick_create_edit_and_pdf_export(self):
+        client = self.build_authenticated_client()
+
+        overview_response = client.get("/planning", secure=True)
+        overview_content = overview_response.content.decode("utf-8")
+        management_response = client.get("/management", secure=True)
+
+        self.assertEqual(overview_response.status_code, 200)
+        self.assertContains(management_response, 'href="/planning"')
+        self.assertContains(management_response, "Planning")
+        self.assertIn("Nieuwe planning maken", overview_content)
+        self.assertIn('id="planningModal"', overview_content)
+        self.assertIn('id="planningQuickForm"', overview_content)
+
+        create_response = client.post(
+            "/planning",
+            {
+                "csrf_token": self.TEST_CSRF_TOKEN,
+                "title": "Test planning voetbaldag",
+                "planning_date": "2026-08-15",
+                "location": "Sportpark HWS",
+                "include_icons": "1",
+                "program_start": ["09:00", "10:00"],
+                "program_end": ["10:00", "10:15"],
+                "program_activity": ["Voetbaltraining", "Pauze"],
+                "program_details": ["Veld 1", "Drinken in de kantine"],
+            },
+            secure=True,
+        )
+
+        self.assertEqual(create_response.status_code, 302)
+        self.assertRegex(create_response["Location"], r"^/planning/\d+\?success=")
+        planning_id = int(create_response["Location"].split("/planning/", 1)[1].split("?", 1)[0])
+        saved_planning = legacy.load_planning_document(planning_id)
+        self.assertEqual(saved_planning["title"], "Test planning voetbaldag")
+        self.assertTrue(saved_planning["includeIcons"])
+        self.assertEqual(saved_planning["program"][0]["icon"], "football")
+        self.assertEqual(saved_planning["program"][1]["details"], "Drinken in de kantine")
+
+        edit_response = client.get(f"/planning/{planning_id}", secure=True)
+        self.assertEqual(edit_response.status_code, 200)
+        self.assertContains(edit_response, "Planningstabel")
+        self.assertContains(edit_response, "Test planning voetbaldag")
+        self.assertContains(edit_response, 'id="exportPlanningPdf"')
+
+        update_response = client.post(
+            f"/planning/{planning_id}",
+            {
+                "csrf_token": self.TEST_CSRF_TOKEN,
+                "title": "Test planning aangepast",
+                "planning_date": "2026-08-16",
+                "location": "Veld 2",
+                "include_icons": "0",
+                "program_start": ["11:00"],
+                "program_end": ["12:00"],
+                "program_activity": ["Finale"],
+                "program_details": ["Hoofdveld"],
+            },
+            secure=True,
+        )
+        self.assertEqual(update_response.status_code, 302)
+        saved_planning = legacy.load_planning_document(planning_id)
+        self.assertEqual(saved_planning["title"], "Test planning aangepast")
+        self.assertFalse(saved_planning["includeIcons"])
+        self.assertEqual(saved_planning["program"][0]["activity"], "Finale")
+
+        export_response = client.post(
+            "/api/planning/export-pdf",
+            data=json.dumps(
+                {
+                    "title": saved_planning["title"],
+                    "planningDate": saved_planning["planningDate"],
+                    "location": saved_planning["location"],
+                    "includeIcons": False,
+                    "program": saved_planning["program"],
+                }
+            ),
+            content_type="application/json",
+            secure=True,
+            HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+        )
+
+        self.assertEqual(export_response.status_code, 200)
+        self.assertEqual(export_response["Content-Type"], "application/pdf")
+        self.assertIn("test-planning-aangepast-2026-08-16.pdf", export_response["Content-Disposition"])
+        self.assertTrue(export_response.content.startswith(b"%PDF-"))
 
     def test_football_days_new_page_saves_and_redirects_to_created_playbook(self):
         response = self.build_authenticated_client().post(

@@ -11,6 +11,8 @@ urlpatterns = [
     path("logout", views.logout_page, name="logout_page"),
     path("", views.index, name="index"),
     path("management", views.management_page, name="management_page"),
+    path("planning", views.planning_page, name="planning_page"),
+    path("planning/<int:planning_id>", views.planning_edit_page, name="planning_edit_page"),
     path("management/api", views.api_management_page, name="api_management_page"),
     path("materialen", views.materialen_page, name="materialen_page"),
     path(
@@ -141,6 +143,7 @@ urlpatterns = [
         views.api_amateur_clubs_export_pdf,
         name="api_amateur_clubs_export_pdf",
     ),
+    path("api/planning/export-pdf", views.api_planning_export_pdf, name="api_planning_export_pdf"),
     path("api/dashboard-events", views.api_dashboard_events, name="api_dashboard_events"),
     path(
         "api/registrations/email-status",

@@ -1,0 +1,545 @@
+.planning-header,
+.planning-header-actions,
+.planning-editor-save,
+.planning-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.planning-header {
+  align-items: flex-start;
+}
+
+.planning-header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.planning-eyebrow {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.planning-add-button {
+  width: 54px;
+  height: 54px;
+  flex: 0 0 54px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: #ffffff;
+  background: #111111;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.planning-add-button:hover,
+.planning-add-button:focus-visible {
+  transform: translateY(-2px) rotate(2deg);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.25);
+}
+
+.planning-add-button:focus-visible {
+  outline: 3px solid rgba(214, 163, 79, 0.48);
+  outline-offset: 3px;
+}
+
+.planning-add-button svg {
+  width: 25px;
+  height: 25px;
+}
+
+.planning-add-button svg *,
+.planning-empty-icon svg *,
+.planning-modal-close svg *,
+.planning-drag-handle svg * {
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.planning-add-button svg *,
+.planning-modal-close svg * {
+  stroke-width: 2.3;
+}
+
+.planning-tile-grid {
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+
+.planning-tile {
+  position: relative;
+  overflow: hidden;
+}
+
+.planning-tile::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  background: linear-gradient(180deg, #111111, #d6a34f);
+}
+
+.planning-tile-link {
+  height: 100%;
+}
+
+.planning-tile-open {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 2px;
+  color: #222222;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.planning-tile-open span {
+  font-size: 1.1rem;
+  transition: transform 0.18s ease;
+}
+
+.planning-tile-link:hover .planning-tile-open span,
+.planning-tile-link:focus-visible .planning-tile-open span {
+  transform: translateX(4px);
+}
+
+.planning-empty-state {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  min-height: 210px;
+  text-align: left;
+}
+
+.planning-empty-state h2,
+.planning-empty-state p {
+  margin: 0;
+}
+
+.planning-empty-state p {
+  margin-top: 5px;
+  color: var(--muted);
+}
+
+.planning-empty-icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  color: #ffffff;
+  background: #111111;
+}
+
+.planning-empty-icon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.planning-empty-icon svg * {
+  stroke-width: 1.8;
+}
+
+.planning-editor {
+  display: grid;
+  gap: 18px;
+}
+
+.planning-editor-meta,
+.planning-program-panel {
+  padding: 22px 26px;
+}
+
+.planning-meta-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.25fr) minmax(190px, 0.65fr) minmax(240px, 1fr) minmax(190px, 0.65fr);
+  gap: 14px;
+  align-items: end;
+}
+
+.planning-meta-grid > * {
+  min-width: 0;
+}
+
+.planning-icon-choice {
+  align-self: stretch;
+  justify-content: end;
+}
+
+.planning-switch {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.planning-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.planning-switch-track {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  flex: 0 0 40px;
+  border-radius: 999px;
+  background: #c7c7c7;
+  transition: background-color 0.18s ease;
+}
+
+.planning-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.2);
+  transition: transform 0.18s ease;
+}
+
+.planning-switch input:checked + .planning-switch-track {
+  background: #111111;
+}
+
+.planning-switch input:checked + .planning-switch-track::after {
+  transform: translateX(18px);
+}
+
+.planning-switch input:focus-visible + .planning-switch-track {
+  outline: 3px solid rgba(214, 163, 79, 0.45);
+  outline-offset: 2px;
+}
+
+.planning-switch-label {
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.planning-program-panel,
+.planning-program-section {
+  display: grid;
+  gap: 13px;
+}
+
+.planning-program-titlebar {
+  align-items: flex-start;
+}
+
+.planning-program-titlebar .feature-list-subtitle,
+.planning-program-section .feature-list-subtitle {
+  display: block;
+  margin-top: 4px;
+}
+
+.planning-program-head,
+.planning-program-row {
+  display: grid;
+  grid-template-columns: 38px 44px 105px 105px minmax(220px, 0.9fr) minmax(260px, 1.2fr) 52px;
+  gap: 8px;
+  align-items: center;
+}
+
+.planning-program-head {
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.planning-program-list {
+  display: grid;
+  gap: 8px;
+}
+
+.planning-program-row {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7f7f7 100%);
+  transition: border-color 0.18s ease, opacity 0.18s ease, transform 0.18s ease;
+}
+
+.planning-program-row input {
+  min-width: 0;
+  min-height: 44px;
+  border-radius: 11px;
+  background: #ffffff;
+}
+
+.planning-program-row.is-dragging {
+  opacity: 0.42;
+}
+
+.planning-program-row.is-drop-target {
+  border-color: #111111;
+  transform: translateY(2px);
+}
+
+.planning-drag-handle {
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  background: #ffffff;
+  cursor: grab;
+}
+
+.planning-drag-handle:active {
+  cursor: grabbing;
+}
+
+.planning-drag-handle svg {
+  width: 20px;
+  height: 20px;
+}
+
+.planning-drag-handle svg * {
+  stroke-width: 3.4;
+}
+
+.planning-activity-icon {
+  width: 40px;
+  height: 40px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #d3d3d3;
+  border-radius: 12px;
+  color: #ffffff;
+  background: #111111;
+}
+
+.planning-activity-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.planning-activity-icon svg * {
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.planning-editor-save {
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.planning-save-hint {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.planning-modal {
+  width: min(1080px, calc(100vw - 32px));
+  max-height: min(850px, calc(100vh - 32px));
+  margin: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 22px;
+  color: var(--text);
+  background: #ffffff;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.28);
+}
+
+.planning-modal::backdrop {
+  background: rgba(10, 10, 10, 0.64);
+  backdrop-filter: blur(5px);
+}
+
+.planning-modal-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-height: min(850px, calc(100vh - 32px));
+}
+
+.planning-modal-head,
+.planning-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 20px 24px;
+}
+
+.planning-modal-head {
+  border-bottom: 1px solid var(--line);
+}
+
+.planning-modal-head h2 {
+  margin: 0;
+}
+
+.planning-modal-close {
+  width: 40px;
+  height: 40px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.planning-modal-close:hover {
+  background: var(--surface-soft);
+}
+
+.planning-modal-close svg {
+  width: 20px;
+  height: 20px;
+}
+
+.planning-modal-body {
+  display: grid;
+  gap: 22px;
+  overflow: auto;
+  padding: 22px 24px;
+  background: #f7f7f7;
+}
+
+.planning-quick-meta {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.planning-program-section {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.planning-modal-actions {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+}
+
+body.planning-modal-open {
+  overflow: hidden;
+}
+
+@media (max-width: 1180px) {
+  .planning-meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .planning-program-list {
+    overflow-x: auto;
+    padding-bottom: 3px;
+  }
+
+  .planning-program-head,
+  .planning-program-row {
+    min-width: 930px;
+  }
+}
+
+@media (max-width: 720px) {
+  .planning-header,
+  .planning-header-actions,
+  .planning-editor-save {
+    align-items: stretch;
+  }
+
+  .planning-header {
+    flex-direction: column;
+  }
+
+  .planning-add-button {
+    align-self: flex-end;
+  }
+
+  .planning-header-actions {
+    justify-content: flex-start;
+  }
+
+  .planning-header-actions > * {
+    flex: 1 1 auto;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .planning-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .planning-editor-meta,
+  .planning-program-panel,
+  .planning-modal-body,
+  .planning-modal-head,
+  .planning-modal-actions {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .planning-tile-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .planning-empty-state {
+    align-items: flex-start;
+    padding: 24px;
+  }
+
+  .planning-editor-save {
+    flex-direction: column;
+  }
+
+  .planning-save-hint {
+    margin: 0;
+  }
+
+  .planning-modal {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    border-radius: 16px;
+  }
+
+  .planning-modal-dialog {
+    max-height: calc(100vh - 16px);
+  }
+}
+
+@media print {
+  .planning-header-actions,
+  .planning-add-button,
+  .planning-editor-save,
+  .planning-row-remove,
+  .planning-drag-handle {
+    display: none !important;
+  }
+}

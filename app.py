@@ -575,6 +575,14 @@ WORKSPACE_SEARCH_PAGES = (
         "keywords": ("beheer", "admin", "team", "orders"),
     },
     {
+        "key": "planning",
+        "title": "Planning",
+        "path": "/planning",
+        "section": "Management",
+        "description": "Programma's als planningstabel maken, bewaren en exporteren.",
+        "keywords": ("planning", "programma", "tabel", "pdf"),
+    },
+    {
         "key": "api",
         "title": "API",
         "path": "/management/api",
@@ -3821,6 +3829,17 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS planning_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                planning_date TEXT,
+                location TEXT,
+                include_icons INTEGER NOT NULL DEFAULT 1,
+                program_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS contracts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -4378,6 +4397,12 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_football_days_playbooks_type_date
             ON football_days_playbooks (playbook_type, event_date, updated_at, id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_planning_documents_date
+            ON planning_documents (planning_date DESC, updated_at DESC, id DESC)
             """
         )
         connection.execute(
@@ -11893,6 +11918,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "voetbaldagen",
             "samenwerkende-amateurclubs",
             "management",
+            "planning",
             "api",
             "materialen",
             "orders",
@@ -17318,6 +17344,468 @@ def api_save_leads_blocked_emails():
             "blockedEmails": normalized_value,
             "blockedCount": blocked_count,
         }
+    )
+
+
+def normalize_planning_program(program: Any) -> List[Dict[str, str]]:
+    if not isinstance(program, list):
+        return []
+
+    normalized_rows: List[Dict[str, str]] = []
+    for item in program[:100]:
+        if not isinstance(item, dict):
+            continue
+        start_time = str(item.get("startTime") or "").strip()[:5]
+        end_time = str(item.get("endTime") or "").strip()[:5]
+        if start_time and not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", start_time):
+            start_time = ""
+        if end_time and not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", end_time):
+            end_time = ""
+        activity = str(item.get("activity") or "").strip()[:240]
+        details = str(item.get("details") or "").strip()[:500]
+        if not (start_time or end_time or activity or details):
+            continue
+        normalized_rows.append(
+            {
+                "startTime": start_time,
+                "endTime": end_time,
+                "activity": activity,
+                "details": details,
+                "icon": infer_football_activity_icon(activity),
+            }
+        )
+    return normalized_rows
+
+
+def normalize_planning_document(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
+    if row is None:
+        return {
+            "id": 0,
+            "title": "Nieuwe planning",
+            "planningDate": "",
+            "location": "",
+            "includeIcons": True,
+            "program": [{"startTime": "", "endTime": "", "activity": "", "details": "", "icon": "clock"}],
+            "createdAt": "",
+            "updatedAt": "",
+        }
+    try:
+        program = json.loads(str(row["program_json"] or "[]"))
+    except (TypeError, json.JSONDecodeError):
+        program = []
+    return {
+        "id": int(row["id"]),
+        "title": str(row["title"] or "Planning").strip(),
+        "planningDate": str(row["planning_date"] or "").strip(),
+        "location": str(row["location"] or "").strip(),
+        "includeIcons": bool(row["include_icons"]),
+        "program": normalize_planning_program(program),
+        "createdAt": str(row["created_at"] or "").strip(),
+        "updatedAt": str(row["updated_at"] or "").strip(),
+    }
+
+
+def load_planning_documents() -> List[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, title, planning_date, location, include_icons, program_json, created_at, updated_at
+            FROM planning_documents
+            ORDER BY COALESCE(NULLIF(planning_date, ''), updated_at) DESC, id DESC
+            """
+        ).fetchall()
+    return [normalize_planning_document(row) for row in rows]
+
+
+def load_planning_document(planning_id: int) -> Optional[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT id, title, planning_date, location, include_icons, program_json, created_at, updated_at
+            FROM planning_documents
+            WHERE id = ?
+            """,
+            (planning_id,),
+        ).fetchone()
+    return normalize_planning_document(row) if row is not None else None
+
+
+def build_planning_document_from_form() -> Dict[str, Any]:
+    starts = request.form.getlist("program_start")
+    ends = request.form.getlist("program_end")
+    activities = request.form.getlist("program_activity")
+    details = request.form.getlist("program_details")
+    row_count = min(100, max(len(starts), len(ends), len(activities), len(details)))
+    program = normalize_planning_program(
+        [
+            {
+                "startTime": starts[index] if index < len(starts) else "",
+                "endTime": ends[index] if index < len(ends) else "",
+                "activity": activities[index] if index < len(activities) else "",
+                "details": details[index] if index < len(details) else "",
+            }
+            for index in range(row_count)
+        ]
+    )
+    return {
+        "title": str(request.form.get("title", "") or "").strip()[:160] or "Nieuwe planning",
+        "planningDate": str(request.form.get("planning_date", "") or "").strip()[:10],
+        "location": str(request.form.get("location", "") or "").strip()[:160],
+        "includeIcons": str(request.form.get("include_icons", "0") or "0") == "1",
+        "program": program,
+    }
+
+
+def save_planning_document(planning: Dict[str, Any], planning_id: Optional[int] = None) -> int:
+    now = utcnow_iso()
+    payload = (
+        str(planning.get("title") or "Nieuwe planning").strip()[:160] or "Nieuwe planning",
+        str(planning.get("planningDate") or "").strip()[:10],
+        str(planning.get("location") or "").strip()[:160],
+        1 if planning.get("includeIcons", True) else 0,
+        json.dumps(normalize_planning_program(planning.get("program")), ensure_ascii=False),
+    )
+    with get_db_connection() as connection:
+        if planning_id is not None:
+            connection.execute(
+                """
+                UPDATE planning_documents
+                SET title = ?, planning_date = ?, location = ?, include_icons = ?, program_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (*payload, now, planning_id),
+            )
+            return planning_id
+        cursor = connection.execute(
+            """
+            INSERT INTO planning_documents (
+                title, planning_date, location, include_icons, program_json, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (*payload, now, now),
+        )
+        return int(cursor.lastrowid)
+
+
+def normalize_planning_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "title": str(payload.get("title") or "Planning").strip()[:160] or "Planning",
+        "planningDate": str(payload.get("planningDate") or "").strip()[:10],
+        "location": str(payload.get("location") or "").strip()[:160],
+        "includeIcons": bool(payload.get("includeIcons", True)),
+        "program": normalize_planning_program(payload.get("program")),
+    }
+
+
+def planning_pdf_filename(planning: Dict[str, Any]) -> str:
+    title = unicodedata.normalize("NFKD", str(planning.get("title") or "planning")).encode("ascii", "ignore").decode("ascii")
+    safe_title = re.sub(r"[^a-zA-Z0-9]+", "-", title).strip("-").lower() or "planning"
+    date_suffix = str(planning.get("planningDate") or "").strip()
+    return f"{safe_title}{f'-{date_suffix}' if date_suffix else ''}.pdf"
+
+
+def create_planning_pdf(planning: Dict[str, Any]) -> bytes:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.pdfgen import canvas
+    except ImportError as exc:
+        raise RuntimeError("De PDF-library ontbreekt. Installeer de packages uit requirements.txt.") from exc
+
+    font_root = os.path.join(os.path.dirname(__file__), "static", "assets", "fonts")
+    font_names = {
+        "regular": "PoppinsPDF",
+        "bold": "PoppinsPDF-Bold",
+        "black": "PoppinsPDF-Black",
+    }
+    font_files = {
+        "regular": "Poppins-Regular.ttf",
+        "bold": "Poppins-Bold.ttf",
+        "black": "Poppins-Black.ttf",
+    }
+    try:
+        registered_fonts = set(pdfmetrics.getRegisteredFontNames())
+        for key, font_name in font_names.items():
+            if font_name not in registered_fonts:
+                pdfmetrics.registerFont(TTFont(font_name, os.path.join(font_root, font_files[key])))
+    except Exception as exc:
+        raise RuntimeError("De Poppins-fontbestanden ontbreken of kunnen niet worden geladen.") from exc
+
+    regular_font = font_names["regular"]
+    bold_font = font_names["bold"]
+    black_font = font_names["black"]
+    pdf_white = colors.HexColor("#FFFFFF")
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=(FOOTBALL_DAYS_PDF_WIDTH, FOOTBALL_DAYS_PDF_HEIGHT))
+    backgrounds = football_days_background_paths()
+
+    def draw_background(page_index: int, shade_alpha: float = 0.34) -> None:
+        background_path = backgrounds[page_index % len(backgrounds)] if backgrounds else ""
+        if background_path and os.path.exists(background_path):
+            pdf.drawImage(ImageReader(background_path), 0, 0, FOOTBALL_DAYS_PDF_WIDTH, FOOTBALL_DAYS_PDF_HEIGHT)
+        else:
+            pdf.setFillColor(colors.HexColor("#161616"))
+            pdf.rect(0, 0, FOOTBALL_DAYS_PDF_WIDTH, FOOTBALL_DAYS_PDF_HEIGHT, fill=1, stroke=0)
+        pdf.saveState()
+        pdf.setFillColor(colors.Color(0, 0, 0, alpha=shade_alpha))
+        pdf.rect(0, 0, FOOTBALL_DAYS_PDF_WIDTH, FOOTBALL_DAYS_PDF_HEIGHT, fill=1, stroke=0)
+        pdf.restoreState()
+
+    def trim_text(value: Any, max_width: float, font_name: str, font_size: float) -> str:
+        text_value = str(value or "").strip()
+        if stringWidth(text_value, font_name, font_size) <= max_width:
+            return text_value
+        suffix = "..."
+        while text_value and stringWidth(f"{text_value}{suffix}", font_name, font_size) > max_width:
+            text_value = text_value[:-1].rstrip()
+        return f"{text_value}{suffix}" if text_value else suffix
+
+    def split_lines(value: Any, max_width: float, font_name: str, font_size: float, max_lines: int = 2) -> List[str]:
+        words = str(value or "").strip().split()
+        if not words:
+            return [""]
+        lines: List[str] = []
+        current = ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if not current or stringWidth(candidate, font_name, font_size) <= max_width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            lines[-1] = trim_text(lines[-1], max_width, font_name, font_size)
+        return [trim_text(line, max_width, font_name, font_size) for line in lines]
+
+    def draw_icon(icon_key: str, cx: float, cy: float, size: float = 18) -> None:
+        key = icon_key if icon_key in FOOTBALL_ACTIVITY_ICON_KEYS else "clock"
+        scale = size / 21
+        pdf.saveState()
+        pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.95))
+        pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.08))
+        pdf.setLineWidth(1.5)
+        pdf.circle(cx, cy, size * 0.72, stroke=1, fill=1)
+        pdf.translate(cx, cy)
+        pdf.scale(scale, scale)
+        pdf.setLineWidth(1.9)
+        if key == "football":
+            pdf.circle(0, 0, 7.6, stroke=1, fill=0)
+            pdf.circle(0, 0, 2.2, stroke=1, fill=0)
+            for dx, dy in ((0, 7.3), (6.9, 2.3), (4.4, -6.1), (-4.4, -6.1), (-6.9, 2.3)):
+                pdf.line(0, 0, dx, dy)
+        elif key == "trophy":
+            pdf.roundRect(-7, 1, 14, 10, 2, stroke=1, fill=0)
+            pdf.line(0, 1, 0, -8)
+            pdf.line(-8, -9, 8, -9)
+        elif key == "clipboard":
+            pdf.roundRect(-8, -10, 16, 20, 2, stroke=1, fill=0)
+            pdf.line(-4, 3, 5, 3)
+            pdf.line(-4, -3, 5, -3)
+        elif key == "flame":
+            path = pdf.beginPath()
+            path.moveTo(0, -10)
+            path.curveTo(-14, -4, -7, 7, -1, 12)
+            path.curveTo(-1, 5, 6, 5, 3, 12)
+            path.curveTo(12, 4, 13, -7, 0, -10)
+            pdf.drawPath(path, stroke=1, fill=0)
+        elif key == "camera":
+            pdf.roundRect(-11, -7, 22, 16, 2, stroke=1, fill=0)
+            pdf.circle(0, 1, 4.2, stroke=1, fill=0)
+        elif key == "medical":
+            pdf.rect(-3, -10, 6, 20, stroke=1, fill=0)
+            pdf.rect(-10, -3, 20, 6, stroke=1, fill=0)
+        elif key == "cones":
+            pdf.line(-8, -10, -2, 10)
+            pdf.line(8, -10, 2, 10)
+            pdf.line(-11, -10, 11, -10)
+            pdf.line(-5, 1, 5, 1)
+        elif key == "utensils":
+            pdf.line(-8, 10, -8, -9)
+            pdf.line(-4, 10, -4, -9)
+            pdf.line(7, 10, 7, -10)
+        else:
+            pdf.circle(0, 0, 7.6, stroke=1, fill=0)
+            pdf.line(0, 0, 0, 6)
+            pdf.line(0, 0, 6, -4)
+        pdf.restoreState()
+
+    def draw_centered_title(title: Any, y: float, max_width: float, max_size: float = 48) -> None:
+        title_text = str(title or "PLANNING").strip().upper()
+        font_size = max_size
+        while font_size > 22 and stringWidth(title_text, black_font, font_size) > max_width:
+            font_size -= 1
+        title_text = trim_text(title_text, max_width, black_font, font_size)
+        pdf.setFillColor(pdf_white)
+        pdf.setFont(black_font, font_size)
+        pdf.drawCentredString(FOOTBALL_DAYS_PDF_WIDTH / 2, y, title_text)
+
+    draw_background(0, 0.26)
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "assets", "hws-logo.png")
+    if os.path.exists(logo_path):
+        pdf.drawImage(ImageReader(logo_path), 410, 322, 140, 140, preserveAspectRatio=True, mask="auto")
+    draw_centered_title(planning.get("title"), 220, 820, 50)
+    meta_parts = [format_football_days_date(planning.get("planningDate"))]
+    if planning.get("location"):
+        meta_parts.append(str(planning["location"]))
+    meta = " | ".join(part for part in meta_parts if part)
+    pdf.setFillColor(pdf_white)
+    pdf.setFont(bold_font, 16)
+    pdf.drawCentredString(FOOTBALL_DAYS_PDF_WIDTH / 2, 174, trim_text(meta, 820, bold_font, 16))
+    pdf.showPage()
+
+    program = planning.get("program") or []
+    if not program:
+        program = [{"startTime": "", "endTime": "", "activity": "Nog geen programmaonderdelen toegevoegd", "details": "", "icon": "clock"}]
+    page_rows = chunk_items(program, 8)
+    include_icons = bool(planning.get("includeIcons", True))
+    for page_index, rows in enumerate(page_rows, start=1):
+        draw_background(page_index)
+        draw_centered_title(planning.get("title"), 454, 850, 42)
+        subtitle = " | ".join(
+            part
+            for part in (format_football_days_date(planning.get("planningDate")), str(planning.get("location") or "").strip())
+            if part
+        )
+        pdf.setFont(regular_font, 10)
+        pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.86))
+        pdf.drawCentredString(FOOTBALL_DAYS_PDF_WIDTH / 2, 426, trim_text(subtitle, 850, regular_font, 10))
+
+        table_x = 55
+        table_top = 390
+        table_width = 850
+        icon_width = 58 if include_icons else 0
+        time_width = 145
+        activity_width = 285 if include_icons else 310
+        details_width = table_width - icon_width - time_width - activity_width
+        columns = ([icon_width] if include_icons else []) + [time_width, activity_width, details_width]
+        headers = ([""] if include_icons else []) + ["Tijd", "Onderdeel", "Toelichting"]
+        pdf.saveState()
+        pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.76))
+        pdf.roundRect(table_x, table_top - 34, table_width, 34, 5, fill=1, stroke=0)
+        cursor_x = table_x
+        pdf.setFillColor(pdf_white)
+        pdf.setFont(bold_font, 10)
+        for column_index, header in enumerate(headers):
+            if header:
+                pdf.drawString(cursor_x + 12, table_top - 22, header.upper())
+            cursor_x += columns[column_index]
+        pdf.restoreState()
+
+        row_height = min(42, 318 / max(1, len(rows)))
+        current_top = table_top - 38
+        for row_index, item in enumerate(rows):
+            pdf.saveState()
+            pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.58 if row_index % 2 == 0 else 0.47))
+            pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.16))
+            pdf.roundRect(table_x, current_top - row_height, table_width, row_height - 3, 4, fill=1, stroke=1)
+            pdf.restoreState()
+            cursor_x = table_x
+            if include_icons:
+                draw_icon(str(item.get("icon") or "clock"), cursor_x + (icon_width / 2), current_top - (row_height / 2), 17)
+                cursor_x += icon_width
+            time_label = " - ".join(
+                part for part in (str(item.get("startTime") or "").strip(), str(item.get("endTime") or "").strip()) if part
+            ) or "--:--"
+            pdf.setFillColor(pdf_white)
+            pdf.setFont(bold_font, 11)
+            pdf.drawString(cursor_x + 12, current_top - (row_height / 2) - 4, trim_text(time_label, time_width - 22, bold_font, 11))
+            cursor_x += time_width
+            activity_lines = split_lines(item.get("activity") or "-", activity_width - 22, bold_font, 10.5, 2)
+            pdf.setFont(bold_font, 10.5)
+            activity_y = current_top - (row_height / 2) + (5 if len(activity_lines) > 1 else -4)
+            for line in activity_lines:
+                pdf.drawString(cursor_x + 12, activity_y, line)
+                activity_y -= 13
+            cursor_x += activity_width
+            detail_lines = split_lines(item.get("details") or "-", details_width - 22, regular_font, 9.5, 2)
+            pdf.setFont(regular_font, 9.5)
+            pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.84))
+            detail_y = current_top - (row_height / 2) + (5 if len(detail_lines) > 1 else -4)
+            for line in detail_lines:
+                pdf.drawString(cursor_x + 12, detail_y, line)
+                detail_y -= 12
+            current_top -= row_height
+
+        pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.7))
+        pdf.setFont(regular_font, 8)
+        pdf.drawCentredString(FOOTBALL_DAYS_PDF_WIDTH / 2, 22, f"Planning | pagina {page_index} van {len(page_rows)}")
+        pdf.showPage()
+
+    pdf.save()
+    buffer.seek(0)
+    return buffer.read()
+
+
+@app.route("/planning", methods=["GET", "POST"])
+def planning_page() -> str:
+    access_redirect = require_page_access("planning")
+    if access_redirect is not None:
+        return access_redirect
+
+    if request.method == "POST":
+        planning_id = save_planning_document(build_planning_document_from_form())
+        return redirect(f"/planning/{planning_id}?success=Planning opgeslagen.")
+
+    return render_template(
+        "planning.html",
+        active_page="planning",
+        page_mode="overview",
+        plannings=load_planning_documents(),
+        planning=normalize_planning_document(None),
+        success=request.args.get("success", "").strip(),
+    )
+
+
+@app.route("/planning/<int:planning_id>", methods=["GET", "POST"])
+def planning_edit_page(planning_id: int) -> str:
+    access_redirect = require_page_access("planning")
+    if access_redirect is not None:
+        return access_redirect
+
+    planning = load_planning_document(planning_id)
+    if planning is None:
+        return redirect("/planning")
+    if request.method == "POST":
+        save_planning_document(build_planning_document_from_form(), planning_id)
+        return redirect(f"/planning/{planning_id}?success=Planning opgeslagen.")
+    if not planning["program"]:
+        planning["program"] = [{"startTime": "", "endTime": "", "activity": "", "details": "", "icon": "clock"}]
+    return render_template(
+        "planning.html",
+        active_page="planning",
+        page_mode="edit",
+        plannings=[],
+        planning=planning,
+        success=request.args.get("success", "").strip(),
+    )
+
+
+@app.post("/api/planning/export-pdf")
+def api_planning_export_pdf():
+    access_redirect = require_page_access("planning")
+    if access_redirect is not None:
+        return access_redirect
+
+    planning = normalize_planning_export_payload(request.get_json(silent=True) or {})
+    try:
+        pdf_bytes = create_planning_pdf(planning)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+    return (
+        pdf_bytes,
+        200,
+        {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": f'attachment; filename="{planning_pdf_filename(planning)}"',
+            "Cache-Control": "no-store",
+        },
     )
 
 
