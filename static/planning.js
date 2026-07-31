@@ -226,6 +226,10 @@
     if (dateInput) {
       dateInput.value = nextDayDate();
     }
+    const titleInput = day.querySelector("[data-planning-day-title]");
+    if (titleInput) {
+      titleInput.value = String(titleEditor?.value || "Planning").trim() || "Planning";
+    }
     daysContainer.append(day);
     const rowsContainer = day.querySelector("[data-planning-rows]");
     bindRowsContainer(rowsContainer);
@@ -296,6 +300,7 @@
 
   const collectDays = () =>
     [...editorForm.querySelectorAll("[data-planning-day]")].map((day) => ({
+      title: String(day.querySelector("[data-planning-day-title]")?.value || titleEditor?.value || "Planning").trim(),
       date: String(day.querySelector("[data-planning-day-date]")?.value || "").trim(),
       program: collectRows(day.querySelector("[data-planning-rows]")),
     }));

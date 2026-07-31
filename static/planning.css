@@ -343,6 +343,22 @@
   font-weight: 900;
 }
 
+.planning-day-heading {
+  flex: 1 1 680px;
+  min-width: 0;
+}
+
+.planning-day-fields {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(220px, 0.38fr);
+  gap: 12px;
+}
+
+.planning-day-title,
+.planning-day-date {
+  min-width: 0;
+}
+
 .planning-day-date {
   min-width: 230px;
 }
@@ -613,6 +629,10 @@ body.planning-modal-open {
 
   .planning-day-date {
     min-width: 0;
+  }
+
+  .planning-day-fields {
+    grid-template-columns: 1fr;
   }
 
   .planning-day-actions > * {

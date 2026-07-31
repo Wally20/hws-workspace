@@ -205,12 +205,18 @@
           {% for day in planning.days %}
             <article class="planning-day" data-planning-day>
               <header class="planning-day-header">
-                <div>
+                <div class="planning-day-heading">
                   <p class="planning-day-label" data-planning-day-label>Dag {{ loop.index }}</p>
-                  <label class="field planning-day-date">
-                    <span>Datum van dit dagblad</span>
-                    <input type="date" value="{{ day.date }}" data-planning-day-date required>
-                  </label>
+                  <div class="planning-day-fields">
+                    <label class="field planning-day-title">
+                      <span>Titel van dit dagblad</span>
+                      <input type="text" value="{{ day.title }}" maxlength="160" data-planning-day-title required>
+                    </label>
+                    <label class="field planning-day-date">
+                      <span>Datum van dit dagblad</span>
+                      <input type="date" value="{{ day.date }}" data-planning-day-date required>
+                    </label>
+                  </div>
                 </div>
                 <div class="planning-day-actions">
                   <button type="button" class="subtle-button action-small" data-add-planning-row>+ Regel toevoegen</button>
@@ -263,12 +269,18 @@
   <template id="planningDayTemplate">
     <article class="planning-day" data-planning-day>
       <header class="planning-day-header">
-        <div>
+        <div class="planning-day-heading">
           <p class="planning-day-label" data-planning-day-label>Nieuwe dag</p>
-          <label class="field planning-day-date">
-            <span>Datum van dit dagblad</span>
-            <input type="date" data-planning-day-date required>
-          </label>
+          <div class="planning-day-fields">
+            <label class="field planning-day-title">
+              <span>Titel van dit dagblad</span>
+              <input type="text" maxlength="160" data-planning-day-title required>
+            </label>
+            <label class="field planning-day-date">
+              <span>Datum van dit dagblad</span>
+              <input type="date" data-planning-day-date required>
+            </label>
+          </div>
         </div>
         <div class="planning-day-actions">
           <button type="button" class="subtle-button action-small" data-add-planning-row>+ Regel toevoegen</button>

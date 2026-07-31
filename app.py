@@ -17390,7 +17390,9 @@ def normalize_planning_days(
     days: Any,
     fallback_date: Any = "",
     fallback_program: Any = None,
+    fallback_title: Any = "Planning",
 ) -> List[Dict[str, Any]]:
+    default_title = normalize_planning_title(fallback_title)
     normalized_days: List[Dict[str, Any]] = []
     if isinstance(days, list):
         for day in days[:31]:
@@ -17398,6 +17400,7 @@ def normalize_planning_days(
                 continue
             normalized_days.append(
                 {
+                    "title": normalize_planning_title(day.get("title"), default_title),
                     "date": normalize_planning_date(day.get("date") or day.get("planningDate")),
                     "program": normalize_planning_program(day.get("program")),
                 }
@@ -17405,6 +17408,7 @@ def normalize_planning_days(
     if not normalized_days:
         normalized_days.append(
             {
+                "title": default_title,
                 "date": normalize_planning_date(fallback_date),
                 "program": normalize_planning_program(fallback_program),
             }
@@ -17422,7 +17426,7 @@ def normalize_planning_document(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
             "location": "",
             "includeIcons": True,
             "program": blank_program,
-            "days": [{"date": "", "program": blank_program}],
+            "days": [{"title": "Nieuwe planning", "date": "", "program": blank_program}],
             "programCount": 0,
             "createdAt": "",
             "updatedAt": "",
@@ -17433,7 +17437,7 @@ def normalize_planning_document(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
         stored_program = []
     stored_days = stored_program.get("days") if isinstance(stored_program, dict) else None
     legacy_program = stored_program if isinstance(stored_program, list) else []
-    days = normalize_planning_days(stored_days, row["planning_date"], legacy_program)
+    days = normalize_planning_days(stored_days, row["planning_date"], legacy_program, row["title"])
     first_day = days[0]
     return {
         "id": int(row["id"]),
@@ -17498,13 +17502,15 @@ def build_planning_document_from_form() -> Dict[str, Any]:
             submitted_days = json.loads(days_json)
         except json.JSONDecodeError:
             submitted_days = None
+    title = normalize_planning_title(request.form.get("title"), "Nieuwe planning")
     days = normalize_planning_days(
         submitted_days,
         request.form.get("planning_date", ""),
         legacy_program,
+        title,
     )
     return {
-        "title": normalize_planning_title(request.form.get("title"), "Nieuwe planning"),
+        "title": title,
         "planningDate": days[0]["date"],
         "location": str(request.form.get("location", "") or "").strip()[:160],
         "includeIcons": "1" in request.form.getlist("include_icons"),
@@ -17515,13 +17521,15 @@ def build_planning_document_from_form() -> Dict[str, Any]:
 
 def save_planning_document(planning: Dict[str, Any], planning_id: Optional[int] = None) -> int:
     now = utcnow_iso()
+    title = normalize_planning_title(planning.get("title"), "Nieuwe planning")
     days = normalize_planning_days(
         planning.get("days"),
         planning.get("planningDate"),
         planning.get("program"),
+        title,
     )
     payload = (
-        normalize_planning_title(planning.get("title"), "Nieuwe planning"),
+        title,
         days[0]["date"],
         str(planning.get("location") or "").strip()[:160],
         1 if planning.get("includeIcons", True) else 0,
@@ -17551,13 +17559,15 @@ def save_planning_document(planning: Dict[str, Any], planning_id: Optional[int] 
 
 
 def normalize_planning_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    title = normalize_planning_title(payload.get("title"))
     days = normalize_planning_days(
         payload.get("days"),
         payload.get("planningDate"),
         payload.get("program"),
+        title,
     )
     return {
-        "title": normalize_planning_title(payload.get("title")),
+        "title": title,
         "planningDate": days[0]["date"],
         "location": str(payload.get("location") or "").strip()[:160],
         "includeIcons": bool(payload.get("includeIcons", True)),
@@ -17722,6 +17732,7 @@ def create_planning_pdf(planning: Dict[str, Any]) -> bytes:
         planning.get("days"),
         planning.get("planningDate"),
         planning.get("program"),
+        planning.get("title"),
     )
     sheets: List[Dict[str, Any]] = []
     for day_index, day in enumerate(days, start=1):
@@ -17734,95 +17745,97 @@ def create_planning_pdf(planning: Dict[str, Any]) -> bytes:
                 "icon": "clock",
             }
         ]
-        day_pages = chunk_items(program, 8)
-        for day_page_index, rows in enumerate(day_pages, start=1):
-            sheets.append(
-                {
-                    "dayIndex": day_index,
-                    "dayCount": len(days),
-                    "dayPageIndex": day_page_index,
-                    "dayPageCount": len(day_pages),
-                    "date": day["date"],
-                    "rows": rows,
-                }
-            )
+        sheets.append(
+            {
+                "dayIndex": day_index,
+                "title": day["title"],
+                "date": day["date"],
+                "rows": program,
+            }
+        )
 
     include_icons = bool(planning.get("includeIcons", True))
     for page_index, sheet in enumerate(sheets, start=1):
         rows = sheet["rows"]
         draw_background(page_index)
-        draw_sheet_title(planning.get("title"), 99, 454, 816, 42)
-        subtitle = " | ".join(
-            part
-            for part in (format_football_days_date(sheet["date"]), str(planning.get("location") or "").strip())
-            if part
-        )
-        pdf.setFont(regular_font, 10)
-        pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.86))
-        pdf.drawCentredString(FOOTBALL_DAYS_PDF_WIDTH / 2, 426, trim_text(subtitle, 850, regular_font, 10))
+        draw_sheet_title(sheet["title"], 99, 454, 816, 42)
+        date_label = format_football_days_date(sheet["date"])
+        pdf.setFont(bold_font, 14)
+        pdf.setFillColor(pdf_white)
+        pdf.drawCentredString(FOOTBALL_DAYS_PDF_WIDTH / 2, 425, trim_text(date_label, 850, bold_font, 14))
+        location_label = str(planning.get("location") or "").strip()
+        if location_label:
+            pdf.setFont(regular_font, 8.5)
+            pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.9))
+            pdf.drawCentredString(FOOTBALL_DAYS_PDF_WIDTH / 2, 408, trim_text(location_label, 850, regular_font, 8.5))
 
         table_x = 55
-        table_top = 390
+        table_top = 382
         table_width = 850
-        icon_width = 58 if include_icons else 0
-        time_width = 145
-        activity_width = 285 if include_icons else 310
+        header_height = 28
+        icon_width = 48 if include_icons else 0
+        time_width = 125
+        activity_width = 280 if include_icons else 300
         details_width = table_width - icon_width - time_width - activity_width
         columns = ([icon_width] if include_icons else []) + [time_width, activity_width, details_width]
         headers = ([""] if include_icons else []) + ["Tijd", "Onderdeel", "Toelichting"]
         pdf.saveState()
         pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.76))
-        pdf.roundRect(table_x, table_top - 34, table_width, 34, 5, fill=1, stroke=0)
+        pdf.roundRect(table_x, table_top - header_height, table_width, header_height, 5, fill=1, stroke=0)
         cursor_x = table_x
         pdf.setFillColor(pdf_white)
-        pdf.setFont(bold_font, 10)
+        pdf.setFont(bold_font, 9)
         for column_index, header in enumerate(headers):
             if header:
-                pdf.drawString(cursor_x + 12, table_top - 22, header.upper())
+                pdf.drawString(cursor_x + 10, table_top - 19, header.upper())
             cursor_x += columns[column_index]
         pdf.restoreState()
 
-        row_height = min(42, 318 / max(1, len(rows)))
-        current_top = table_top - 38
+        available_row_height = table_top - header_height - 24
+        row_height = min(38, available_row_height / max(1, len(rows)))
+        row_scale = min(1.0, max(0.24, row_height / 38))
+        row_gap = min(3, max(0.5, row_height * 0.08))
+        horizontal_padding = max(4, 10 * row_scale)
+        max_lines = 2 if row_height >= 28 else 1
+        time_font_size = max(2.6, 10.5 * row_scale)
+        activity_font_size = max(2.6, 10 * row_scale)
+        details_font_size = max(2.5, 9 * row_scale)
+        current_top = table_top - header_height - 4
         for row_index, item in enumerate(rows):
             pdf.saveState()
             pdf.setFillColor(colors.Color(0, 0, 0, alpha=0.58 if row_index % 2 == 0 else 0.47))
             pdf.setStrokeColor(colors.Color(1, 1, 1, alpha=0.16))
-            pdf.roundRect(table_x, current_top - row_height, table_width, row_height - 3, 4, fill=1, stroke=1)
+            pdf.roundRect(table_x, current_top - row_height + row_gap, table_width, row_height - row_gap, min(4, row_height / 4), fill=1, stroke=1)
             pdf.restoreState()
             cursor_x = table_x
             if include_icons:
-                draw_icon(str(item.get("icon") or "clock"), cursor_x + (icon_width / 2), current_top - (row_height / 2), 17)
+                draw_icon(str(item.get("icon") or "clock"), cursor_x + (icon_width / 2), current_top - (row_height / 2), max(4, 15 * row_scale))
                 cursor_x += icon_width
             time_label = " - ".join(
                 part for part in (str(item.get("startTime") or "").strip(), str(item.get("endTime") or "").strip()) if part
             ) or "--:--"
             pdf.setFillColor(pdf_white)
-            pdf.setFont(bold_font, 11)
-            pdf.drawString(cursor_x + 12, current_top - (row_height / 2) - 4, trim_text(time_label, time_width - 22, bold_font, 11))
+            pdf.setFont(bold_font, time_font_size)
+            pdf.drawString(cursor_x + horizontal_padding, current_top - (row_height / 2) - (time_font_size * 0.34), trim_text(time_label, time_width - (horizontal_padding * 2), bold_font, time_font_size))
             cursor_x += time_width
-            activity_lines = split_lines(item.get("activity") or "-", activity_width - 22, bold_font, 10.5, 2)
-            pdf.setFont(bold_font, 10.5)
-            activity_y = current_top - (row_height / 2) + (5 if len(activity_lines) > 1 else -4)
+            activity_lines = split_lines(item.get("activity") or "-", activity_width - (horizontal_padding * 2), bold_font, activity_font_size, max_lines)
+            pdf.setFont(bold_font, activity_font_size)
+            activity_leading = activity_font_size * 1.18
+            activity_y = current_top - (row_height / 2) + ((activity_leading / 2) if len(activity_lines) > 1 else -(activity_font_size * 0.34))
             for line in activity_lines:
-                pdf.drawString(cursor_x + 12, activity_y, line)
-                activity_y -= 13
+                pdf.drawString(cursor_x + horizontal_padding, activity_y, line)
+                activity_y -= activity_leading
             cursor_x += activity_width
-            detail_lines = split_lines(item.get("details") or "-", details_width - 22, regular_font, 9.5, 2)
-            pdf.setFont(regular_font, 9.5)
+            detail_lines = split_lines(item.get("details") or "-", details_width - (horizontal_padding * 2), regular_font, details_font_size, max_lines)
+            pdf.setFont(regular_font, details_font_size)
             pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.84))
-            detail_y = current_top - (row_height / 2) + (5 if len(detail_lines) > 1 else -4)
+            detail_leading = details_font_size * 1.18
+            detail_y = current_top - (row_height / 2) + ((detail_leading / 2) if len(detail_lines) > 1 else -(details_font_size * 0.34))
             for line in detail_lines:
-                pdf.drawString(cursor_x + 12, detail_y, line)
-                detail_y -= 12
+                pdf.drawString(cursor_x + horizontal_padding, detail_y, line)
+                detail_y -= detail_leading
             current_top -= row_height
 
-        pdf.setFillColor(colors.Color(1, 1, 1, alpha=0.7))
-        pdf.setFont(regular_font, 8)
-        footer = f"Dag {sheet['dayIndex']} van {sheet['dayCount']}"
-        if sheet["dayPageCount"] > 1:
-            footer += f" | blad {sheet['dayPageIndex']} van {sheet['dayPageCount']}"
-        pdf.drawCentredString(FOOTBALL_DAYS_PDF_WIDTH / 2, 22, footer)
         pdf.showPage()
 
     pdf.save()
@@ -18004,6 +18017,7 @@ def create_planning_png(planning: Dict[str, Any]) -> bytes:
         planning.get("days"),
         planning.get("planningDate"),
         planning.get("program"),
+        planning.get("title"),
     )
     sheets: List[Dict[str, Any]] = []
     for day_index, day in enumerate(days, start=1):
@@ -18016,18 +18030,14 @@ def create_planning_png(planning: Dict[str, Any]) -> bytes:
                 "icon": "clock",
             }
         ]
-        day_pages = chunk_items(program, 8)
-        for day_page_index, rows in enumerate(day_pages, start=1):
-            sheets.append(
-                {
-                    "dayIndex": day_index,
-                    "dayCount": len(days),
-                    "dayPageIndex": day_page_index,
-                    "dayPageCount": len(day_pages),
-                    "date": day["date"],
-                    "rows": rows,
-                }
-            )
+        sheets.append(
+            {
+                "dayIndex": day_index,
+                "title": day["title"],
+                "date": day["date"],
+                "rows": program,
+            }
+        )
 
     include_icons = bool(planning.get("includeIcons", True))
     rendered_pages: List[Any] = []
@@ -18040,7 +18050,7 @@ def create_planning_png(planning: Dict[str, Any]) -> bytes:
             # source logo after the dark overlay keeps it crisp in the PNG export.
             page.alpha_composite(logo_image, (px(28), px(20)))
         draw = ImageDraw.Draw(page, "RGBA")
-        title = str(planning.get("title") or "Planning").strip().upper()
+        title = str(sheet["title"] or planning.get("title") or "Planning").strip().upper()
         title_size = 42
         title_font = get_font("black", title_size)
         title_left = 99
@@ -18052,22 +18062,23 @@ def create_planning_png(planning: Dict[str, Any]) -> bytes:
         title = trim_text(draw, title, title_max_width, title_font)
         draw_vertical_centered_text(draw, title, title_left, 54, title_font, (255, 255, 255, 255))
 
-        subtitle = " | ".join(
-            part
-            for part in (format_football_days_date(sheet["date"]), str(planning.get("location") or "").strip())
-            if part
-        )
-        subtitle_font = get_font("regular", 10)
-        subtitle = trim_text(draw, subtitle, px(850), subtitle_font)
-        draw_centered_text(draw, subtitle, FOOTBALL_DAYS_PDF_WIDTH / 2, 108, subtitle_font, (255, 255, 255, 220))
+        date_label = format_football_days_date(sheet["date"])
+        date_font = get_font("bold", 14)
+        date_label = trim_text(draw, date_label, px(850), date_font)
+        draw_centered_text(draw, date_label, FOOTBALL_DAYS_PDF_WIDTH / 2, 101, date_font, (255, 255, 255, 255))
+        location_label = str(planning.get("location") or "").strip()
+        if location_label:
+            location_font = get_font("regular", 8.5)
+            location_label = trim_text(draw, location_label, px(850), location_font)
+            draw_centered_text(draw, location_label, FOOTBALL_DAYS_PDF_WIDTH / 2, 126, location_font, (255, 255, 255, 230))
 
         table_x = 55
         table_top = 150
         table_width = 850
-        header_height = 34
-        icon_width = 58 if include_icons else 0
-        time_width = 145
-        activity_width = 285 if include_icons else 310
+        header_height = 28
+        icon_width = 48 if include_icons else 0
+        time_width = 125
+        activity_width = 280 if include_icons else 300
         details_width = table_width - icon_width - time_width - activity_width
         columns = ([icon_width] if include_icons else []) + [time_width, activity_width, details_width]
         headers = ([""] if include_icons else []) + ["Tijd", "Onderdeel", "Toelichting"]
@@ -18079,58 +18090,63 @@ def create_planning_png(planning: Dict[str, Any]) -> bytes:
         )
         draw = ImageDraw.Draw(page, "RGBA")
         cursor_x = table_x
-        header_font = get_font("bold", 10)
+        header_font = get_font("bold", 9)
         for column_index, header in enumerate(headers):
             if header:
-                draw_vertical_centered_text(draw, header.upper(), cursor_x + 12, table_top + (header_height / 2), header_font, (255, 255, 255, 255))
+                draw_vertical_centered_text(draw, header.upper(), cursor_x + 10, table_top + (header_height / 2), header_font, (255, 255, 255, 255))
             cursor_x += columns[column_index]
 
-        row_height = min(42, 318 / max(1, len(rows)))
-        current_top = table_top + header_height + 6
+        available_row_height = 522 - table_top - header_height - 4
+        row_height = min(38, available_row_height / max(1, len(rows)))
+        row_scale = min(1.0, max(0.24, row_height / 38))
+        row_gap = min(3, max(0.5, row_height * 0.08))
+        horizontal_padding = max(4, 10 * row_scale)
+        max_lines = 2 if row_height >= 28 else 1
+        time_font_size = max(2.6, 10.5 * row_scale)
+        activity_font_size = max(2.6, 10 * row_scale)
+        details_font_size = max(2.5, 9 * row_scale)
+        current_top = table_top + header_height + 4
         for row_index, item in enumerate(rows):
-            row_bottom = current_top + row_height - 3
+            row_bottom = current_top + row_height - row_gap
             draw_translucent_rounded_rectangle(
                 page,
                 (px(table_x), px(current_top), px(table_x + table_width), px(row_bottom)),
-                radius=px(4),
+                radius=px(min(4, row_height / 4)),
                 fill=(0, 0, 0, 148 if row_index % 2 == 0 else 120),
                 outline=(255, 255, 255, 42),
                 width=max(1, px(0.7)),
             )
             draw = ImageDraw.Draw(page, "RGBA")
-            center_y = current_top + ((row_height - 3) / 2)
+            center_y = current_top + ((row_height - row_gap) / 2)
             cursor_x = table_x
             if include_icons:
-                draw_icon(draw, str(item.get("icon") or infer_football_activity_icon(str(item.get("activity") or ""))), cursor_x + (icon_width / 2), center_y)
+                draw_icon(draw, str(item.get("icon") or infer_football_activity_icon(str(item.get("activity") or ""))), cursor_x + (icon_width / 2), center_y, max(4, 15 * row_scale))
                 cursor_x += icon_width
 
             time_label = " - ".join(
                 part for part in (str(item.get("startTime") or "").strip(), str(item.get("endTime") or "").strip()) if part
             ) or "--:--"
-            time_font = get_font("bold", 11)
-            time_label = trim_text(draw, time_label, px(time_width - 22), time_font)
-            draw_vertical_centered_text(draw, time_label, cursor_x + 12, center_y, time_font, (255, 255, 255, 255))
+            time_font = get_font("bold", time_font_size)
+            time_label = trim_text(draw, time_label, px(time_width - (horizontal_padding * 2)), time_font)
+            draw_vertical_centered_text(draw, time_label, cursor_x + horizontal_padding, center_y, time_font, (255, 255, 255, 255))
             cursor_x += time_width
 
-            activity_font = get_font("bold", 10.5)
-            activity_lines = split_lines(draw, item.get("activity") or "-", px(activity_width - 22), activity_font, 2)
-            activity_start = center_y - (6.5 * (len(activity_lines) - 1))
+            activity_font = get_font("bold", activity_font_size)
+            activity_lines = split_lines(draw, item.get("activity") or "-", px(activity_width - (horizontal_padding * 2)), activity_font, max_lines)
+            activity_leading = activity_font_size * 1.18
+            activity_start = center_y - ((activity_leading / 2) * (len(activity_lines) - 1))
             for line_index, line in enumerate(activity_lines):
-                draw_vertical_centered_text(draw, line, cursor_x + 12, activity_start + (line_index * 13), activity_font, (255, 255, 255, 255))
+                draw_vertical_centered_text(draw, line, cursor_x + horizontal_padding, activity_start + (line_index * activity_leading), activity_font, (255, 255, 255, 255))
             cursor_x += activity_width
 
-            details_font = get_font("regular", 9.5)
-            details_lines = split_lines(draw, item.get("details") or "-", px(details_width - 22), details_font, 2)
-            details_start = center_y - (6 * (len(details_lines) - 1))
+            details_font = get_font("regular", details_font_size)
+            details_lines = split_lines(draw, item.get("details") or "-", px(details_width - (horizontal_padding * 2)), details_font, max_lines)
+            details_leading = details_font_size * 1.18
+            details_start = center_y - ((details_leading / 2) * (len(details_lines) - 1))
             for line_index, line in enumerate(details_lines):
-                draw_vertical_centered_text(draw, line, cursor_x + 12, details_start + (line_index * 12), details_font, (255, 255, 255, 218))
+                draw_vertical_centered_text(draw, line, cursor_x + horizontal_padding, details_start + (line_index * details_leading), details_font, (255, 255, 255, 218))
             current_top += row_height
 
-        footer_font = get_font("regular", 8)
-        footer = f"Dag {sheet['dayIndex']} van {sheet['dayCount']}"
-        if sheet["dayPageCount"] > 1:
-            footer += f" | blad {sheet['dayPageIndex']} van {sheet['dayPageCount']}"
-        draw_centered_text(draw, footer, FOOTBALL_DAYS_PDF_WIDTH / 2, 508, footer_font, (255, 255, 255, 180))
         rendered_pages.append(page.convert("RGB"))
 
     output_image = Image.new("RGB", (page_width, page_height * len(rendered_pages)), (22, 22, 22))

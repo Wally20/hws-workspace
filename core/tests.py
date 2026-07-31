@@ -1270,23 +1270,27 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertContains(edit_response, "Dagbladen")
         self.assertContains(edit_response, "Test planning voetbaldag")
         self.assertContains(edit_response, 'data-add-planning-day')
+        self.assertContains(edit_response, 'data-planning-day-title')
         self.assertContains(edit_response, 'data-planning-days-json')
         self.assertContains(edit_response, 'id="exportPlanningPdf"')
         self.assertContains(edit_response, 'id="exportPlanningPng"')
 
         updated_days = [
             {
+                "title": "Heenreis naar Terschelling",
                 "date": "2026-08-16",
                 "program": [
                     {
-                        "startTime": "11:00",
-                        "endTime": "12:00",
-                        "activity": "Finale",
+                        "startTime": f"{9 + (row_index // 4):02d}:{(row_index % 4) * 15:02d}",
+                        "endTime": "",
+                        "activity": "Finale" if row_index == 0 else f"Programmaonderdeel {row_index + 1}",
                         "details": "Hoofdveld",
                     }
+                    for row_index in range(10)
                 ],
             },
             {
+                "title": "Trainingsdag op Terschelling",
                 "date": "2026-08-17",
                 "program": [
                     {
@@ -1315,6 +1319,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertFalse(saved_planning["includeIcons"])
         self.assertEqual(saved_planning["program"][0]["activity"], "Finale")
         self.assertEqual(len(saved_planning["days"]), 2)
+        self.assertEqual(saved_planning["days"][0]["title"], "Heenreis naar Terschelling")
+        self.assertEqual(saved_planning["days"][1]["title"], "Trainingsdag op Terschelling")
         self.assertEqual(saved_planning["days"][1]["date"], "2026-08-17")
         self.assertEqual(saved_planning["days"][1]["program"][0]["activity"], "Prijsuitreiking")
 
