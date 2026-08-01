@@ -10,7 +10,21 @@
         <h1>Checklists</h1>
         <p class="welcome-line">Importeer het programma van een voetbaldag en voeg per onderdeel gekleurde controlepunten toe.</p>
       </div>
-      <a class="subtle-button" href="/draaiboeken">Terug naar draaiboeken</a>
+      <div class="checklists-header-actions">
+        <a class="subtle-button" href="/draaiboeken">Terug naar draaiboeken</a>
+        <button
+          class="checklists-add-button"
+          type="button"
+          data-open-checklist-import
+          aria-label="Nieuw programma importeren"
+          aria-haspopup="dialog"
+          aria-controls="checklistImportModal"
+          aria-expanded="false"
+          title="Nieuw programma importeren"
+        >
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+        </button>
+      </div>
     </header>
 
     {% if success %}
@@ -20,70 +34,53 @@
       <div class="notice checklists-notice checklists-notice-error" role="alert">{{ error }}</div>
     {% endif %}
 
-    <section class="summary-card checklists-import-panel">
-      <div class="feature-list-head checklists-import-head">
+    <section class="checklists-library" aria-labelledby="checklistsLibraryTitle">
+      <div class="checklists-library-head">
         <div>
-          <h2 class="panel-title">Programma importeren</h2>
-          <p class="feature-list-subtitle">Kies een opgeslagen draaiboek bij Voetbaldagen. Opnieuw importeren werkt tijden en onderdelen bij en behoudt passende checklistregels.</p>
+          <h2 id="checklistsLibraryTitle">Opgeslagen programma's</h2>
+          <p>Open een programma om de checklist te bekijken of bij te werken.</p>
         </div>
+        <span>{{ checklist_documents|length }} programma{% if checklist_documents|length != 1 %}'s{% endif %}</span>
       </div>
 
-      {% if playbooks %}
-        <form class="checklists-picker" method="get" action="/checklists">
-          <label class="checklists-picker-field">
-            <span>Draaiboek voetbaldag</span>
-            <select name="playbook_id" required>
-              <option value="">Kies een draaiboek</option>
-              {% for playbook in playbooks %}
-                <option value="{{ playbook.id }}" {% if selected_playbook and selected_playbook.id == playbook.id %}selected{% endif %}>
-                  {{ playbook.title }}{% if playbook.eventDateLabel %} · {{ playbook.eventDateLabel }}{% endif %}{% if playbook.location %} · {{ playbook.location }}{% endif %}
-                </option>
-              {% endfor %}
-            </select>
-          </label>
-          <button class="subtle-button subtle-button-strong" type="submit">Openen</button>
-        </form>
-      {% else %}
-        <div class="checklists-empty-state">
-          <strong>Nog geen draaiboeken gevonden</strong>
-          <p>Maak eerst bij Voetbaldagen een draaiboek met programmaonderdelen.</p>
-          <a class="subtle-button subtle-button-strong" href="/voetbaldagen/nieuw">Nieuw draaiboek</a>
+      {% if checklist_documents %}
+        <div class="checklists-tile-grid">
+          {% for document in checklist_documents %}
+            <a
+              class="summary-card checklist-program-tile{% if checklist_document and checklist_document.playbookId == document.playbookId %} is-active{% endif %}"
+              href="/checklists?playbook_id={{ document.playbookId }}#checklist-editor"
+              {% if checklist_document and checklist_document.playbookId == document.playbookId %}aria-current="page"{% endif %}
+            >
+              <span class="checklist-program-tile-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h8l3 3V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"></path><path d="M9 11h6M9 15h6M9 19h4M15 3.5V7h3"></path></svg>
+              </span>
+              <span class="checklist-program-tile-copy">
+                <strong>{{ document.title }}</strong>
+                <small>
+                  {{ document.eventDateLabel or "Datum niet ingevuld" }}
+                  {% if document.location %} · {{ document.location }}{% endif %}
+                </small>
+              </span>
+              <span class="checklist-program-tile-stats">
+                <span>{{ document.sectionCount }} onderdeel{% if document.sectionCount != 1 %}en{% endif %}</span>
+                <span>{{ document.itemCount }} checklistpunt{% if document.itemCount != 1 %}en{% endif %}</span>
+              </span>
+              <span class="checklist-program-tile-arrow" aria-hidden="true">→</span>
+            </a>
+          {% endfor %}
         </div>
-      {% endif %}
-
-      {% if selected_playbook %}
-        <div class="checklists-selected-program">
-          <div class="checklists-program-meta">
-            <span>Geselecteerd</span>
-            <strong>{{ selected_playbook.title }}</strong>
-            <small>
-              {{ selected_playbook.eventDateLabel or "Datum niet ingevuld" }}
-              {% if selected_playbook.location %} · {{ selected_playbook.location }}{% endif %}
-              · {{ selected_playbook.program|length }} programmaonderdelen
-            </small>
-          </div>
-          <form method="post" action="/checklists">
-            <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
-            <input type="hidden" name="playbook_id" value="{{ selected_playbook.id }}">
-            <input type="hidden" name="action" value="import">
-            <button class="subtle-button" type="submit">
-              {% if checklist_document %}Programma opnieuw importeren{% else %}Programma importeren{% endif %}
-            </button>
-          </form>
+      {% else %}
+        <div class="summary-card checklists-empty-state">
+          <span class="checklists-empty-icon" aria-hidden="true">✓</span>
+          <strong>Nog geen programma's geïmporteerd</strong>
+          <p>Gebruik het plus-icoon rechtsboven om je eerste draaiboek als checklistprogramma op te slaan.</p>
+          <button class="subtle-button subtle-button-strong" type="button" data-open-checklist-import>Programma importeren</button>
         </div>
       {% endif %}
     </section>
 
-    {% if selected_playbook and not checklist_document %}
-      <section class="summary-card checklists-empty-editor">
-        <span class="checklists-empty-icon" aria-hidden="true">✓</span>
-        <h2>Importeer het programma om te beginnen</h2>
-        <p>Daarna verschijnt ieder programmaonderdeel als een apart blok waarin je checklistregels en kleuren kunt toevoegen.</p>
-      </section>
-    {% endif %}
-
     {% if checklist_document %}
-      <form class="checklists-editor" method="post" action="/checklists" data-checklist-editor>
+      <form class="checklists-editor" id="checklist-editor" method="post" action="/checklists" data-checklist-editor>
         <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="playbook_id" value="{{ checklist_document.playbookId }}">
         <input type="hidden" name="action" value="save">
@@ -91,8 +88,9 @@
 
         <div class="checklists-editor-toolbar">
           <div>
-            <h2>Checklist per programmaonderdeel</h2>
-            <p>Gebruik kleuren om rollen, prioriteiten of momenten snel herkenbaar te maken.</p>
+            <span class="checklists-editor-eyebrow">{{ checklist_document.eventDateLabel or "Datum niet ingevuld" }}{% if checklist_document.location %} · {{ checklist_document.location }}{% endif %}</span>
+            <h2>{{ checklist_document.title }}</h2>
+            <p>De programmaonderdelen staan chronologisch onder elkaar. Gebruik kleuren om rollen, prioriteiten of momenten snel herkenbaar te maken.</p>
           </div>
           <div class="checklists-editor-actions">
             <button class="subtle-button" type="submit" name="after_save" value="pdf" formtarget="_blank">Opslaan & PDF</button>
@@ -193,6 +191,48 @@
         <button class="checklist-item-remove" type="button" data-remove-checklist-item aria-label="Checklistpunt verwijderen" title="Verwijderen">×</button>
       </div>
     </template>
+
+    <div class="agenda-modal checklist-import-modal" id="checklistImportModal" hidden>
+      <div class="agenda-modal-backdrop" data-close-checklist-import></div>
+      <section class="agenda-modal-dialog checklist-import-dialog" role="dialog" aria-modal="true" aria-labelledby="checklistImportTitle">
+        <div class="agenda-modal-header">
+          <div>
+            <p class="page-kicker">Nieuw programma</p>
+            <h2 id="checklistImportTitle">Draaiboek importeren</h2>
+          </div>
+          <button class="team-modal-close checklist-import-close" type="button" data-close-checklist-import aria-label="Sluiten">×</button>
+        </div>
+
+        {% if playbooks %}
+          <p class="checklist-import-description">Kies een opgeslagen draaiboek bij Voetbaldagen. Alle programmaonderdelen worden op tijd gesorteerd en als tegel opgeslagen.</p>
+          <form class="checklist-import-form" method="post" action="/checklists" data-checklist-import-form>
+            <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+            <input type="hidden" name="action" value="import">
+            <label class="checklists-picker-field">
+              <span>Draaiboek voetbaldag</span>
+              <select name="playbook_id" required data-checklist-import-select>
+                <option value="">Kies een draaiboek</option>
+                {% for playbook in playbooks %}
+                  <option value="{{ playbook.id }}">
+                    {{ playbook.title }}{% if playbook.eventDateLabel %} · {{ playbook.eventDateLabel }}{% endif %}{% if playbook.location %} · {{ playbook.location }}{% endif %}{% if playbook.id in imported_playbook_ids %} · al geïmporteerd{% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+            <div class="checklist-import-actions">
+              <button class="subtle-button" type="button" data-close-checklist-import>Annuleren</button>
+              <button class="subtle-button subtle-button-strong" type="submit">Programma importeren</button>
+            </div>
+          </form>
+        {% else %}
+          <div class="checklists-empty-state checklist-import-empty">
+            <strong>Nog geen draaiboeken gevonden</strong>
+            <p>Maak eerst bij Voetbaldagen een draaiboek met programmaonderdelen.</p>
+            <a class="subtle-button subtle-button-strong" href="/voetbaldagen/nieuw">Nieuw draaiboek maken</a>
+          </div>
+        {% endif %}
+      </section>
+    </div>
   </main>
 
   <script src="../static/checklists.js?v={{ asset_version }}" defer></script>

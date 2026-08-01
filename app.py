@@ -7473,6 +7473,20 @@ def normalize_checklist_color(value: Any) -> str:
     return normalized if normalized in CHECKLIST_COLOR_HEX else "gold"
 
 
+def get_checklist_section_time_sort_key(section: Dict[str, Any], fallback_index: int) -> Tuple[int, int, int, int]:
+    def time_in_minutes(value: Any) -> Optional[int]:
+        match = re.fullmatch(r"([01]\d|2[0-3]):([0-5]\d)", str(value or "").strip())
+        if match is None:
+            return None
+        return int(match.group(1)) * 60 + int(match.group(2))
+
+    start_minutes = time_in_minutes(section.get("startTime"))
+    end_minutes = time_in_minutes(section.get("endTime"))
+    if start_minutes is None:
+        return (1, 24 * 60, 24 * 60, fallback_index)
+    return (0, start_minutes, end_minutes if end_minutes is not None else start_minutes, fallback_index)
+
+
 def normalize_checklist_sections(raw_sections: Any) -> List[Dict[str, Any]]:
     sections = raw_sections if isinstance(raw_sections, list) else []
     normalized_sections = []
@@ -7500,7 +7514,15 @@ def normalize_checklist_sections(raw_sections: Any) -> List[Dict[str, Any]]:
                 "items": items,
             }
         )
-    return normalized_sections
+    return [
+        section
+        for index, section in sorted(
+            enumerate(normalized_sections),
+            key=lambda indexed_section: get_checklist_section_time_sort_key(
+                indexed_section[1], indexed_section[0]
+            ),
+        )
+    ]
 
 
 def normalize_checklist_document(row: Optional[sqlite3.Row]) -> Optional[Dict[str, Any]]:
@@ -7533,6 +7555,22 @@ def load_checklist_document(playbook_id: int) -> Optional[Dict[str, Any]]:
             (playbook_id,),
         ).fetchone()
     return normalize_checklist_document(row)
+
+
+def load_checklist_documents() -> List[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, playbook_id, title, event_date, location, sections_json, created_at, updated_at
+            FROM checklist_documents
+            ORDER BY COALESCE(NULLIF(event_date, ''), updated_at) DESC, updated_at DESC, id DESC
+            """
+        ).fetchall()
+    return [
+        document
+        for row in rows
+        if (document := normalize_checklist_document(row)) is not None
+    ]
 
 
 def build_checklist_document_from_playbook(
@@ -21125,6 +21163,16 @@ def checklists_page() -> str:
     for playbook in playbooks:
         playbook["eventDateLabel"] = format_football_days_date(playbook.get("eventDate"))
 
+    checklist_documents = load_checklist_documents()
+    for document in checklist_documents:
+        document["eventDateLabel"] = format_football_days_date(document.get("eventDate"))
+        document["sectionCount"] = len(document.get("sections") or [])
+        document["itemCount"] = sum(
+            len(section.get("items") or [])
+            for section in document.get("sections") or []
+            if isinstance(section, dict)
+        )
+
     selected_playbook_id = request.form.get("playbook_id", type=int) if request.method == "POST" else request.args.get("playbook_id", type=int)
     selected_playbook = next(
         (playbook for playbook in playbooks if int(playbook.get("id") or 0) == int(selected_playbook_id or 0)),
@@ -21139,7 +21187,7 @@ def checklists_page() -> str:
         if action == "import":
             save_checklist_document(build_checklist_document_from_playbook(selected_playbook, existing_document))
             return redirect(
-                f"/checklists?playbook_id={selected_playbook['id']}&success=Programma geïmporteerd; bestaande checklistregels zijn behouden."
+                f"/checklists?playbook_id={selected_playbook['id']}&success=Programma geïmporteerd; bestaande checklistregels zijn behouden.#checklist-editor"
             )
         if existing_document is None:
             return redirect(
@@ -21170,10 +21218,14 @@ def checklists_page() -> str:
         if selected_playbook is not None
         else None
     )
+    if checklist_document is not None:
+        checklist_document["eventDateLabel"] = format_football_days_date(checklist_document.get("eventDate"))
     return render_template(
         "checklists.html",
         active_page="checklists",
         playbooks=playbooks,
+        checklist_documents=checklist_documents,
+        imported_playbook_ids={document["playbookId"] for document in checklist_documents},
         selected_playbook=selected_playbook,
         checklist_document=checklist_document,
         checklist_colors=list(CHECKLIST_COLOR_OPTIONS),

@@ -1,4 +1,45 @@
 (function () {
+  const importModal = document.getElementById("checklistImportModal");
+  const importTriggers = Array.from(document.querySelectorAll("[data-open-checklist-import]"));
+  const importCloseButtons = Array.from(document.querySelectorAll("[data-close-checklist-import]"));
+  let lastImportTrigger = null;
+
+  const setImportModalOpen = (isOpen, trigger) => {
+    if (!importModal) {
+      return;
+    }
+    if (isOpen) {
+      lastImportTrigger = trigger || document.activeElement;
+    }
+    importModal.hidden = !isOpen;
+    document.body.classList.toggle("checklist-modal-open", isOpen);
+    importTriggers.forEach((button) => button.setAttribute("aria-expanded", isOpen ? "true" : "false"));
+    if (isOpen) {
+      window.requestAnimationFrame(() => importModal.querySelector("[data-checklist-import-select]")?.focus());
+    } else if (lastImportTrigger instanceof HTMLElement) {
+      lastImportTrigger.focus();
+    }
+  };
+
+  importTriggers.forEach((button) => {
+    button.addEventListener("click", () => setImportModalOpen(true, button));
+  });
+  importCloseButtons.forEach((button) => {
+    button.addEventListener("click", () => setImportModalOpen(false));
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && importModal && !importModal.hidden) {
+      setImportModalOpen(false);
+    }
+  });
+  importModal?.querySelector("[data-checklist-import-form]")?.addEventListener("submit", (event) => {
+    const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = "Importeren…";
+    }
+  });
+
   const editor = document.querySelector("[data-checklist-editor]");
   if (!editor) {
     return;
