@@ -50,6 +50,7 @@ urlpatterns = [
     path("draaiboeken", views.draaiboeken_page, name="draaiboeken_page"),
     path("checklists", views.checklists_page, name="checklists_page"),
     path("checklists/export-pdf", views.checklists_export_pdf, name="checklists_export_pdf"),
+    path("checklists/planning/<int:planning_id>", views.checklist_planning_detail_page, name="checklist_planning_detail_page"),
     path("checklists/<int:playbook_id>", views.checklist_detail_page, name="checklist_detail_page"),
     path("voetbaldagen", views.football_days_page, name="football_days_page"),
     path("voetbaldagen/nieuw", views.football_days_new_page, name="football_days_new_page"),

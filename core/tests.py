@@ -397,6 +397,106 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(pdf_response["Content-Type"], "application/pdf")
         self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
 
+    def test_planning_can_be_imported_and_checklist_item_can_be_removed(self):
+        planning_id = legacy.save_planning_document(
+            {
+                "title": "Test planning checklistimport",
+                "planningDate": "2026-08-20",
+                "location": "HWS Testlocatie",
+                "includeIcons": True,
+                "days": [
+                    {
+                        "title": "Donderdagprogramma",
+                        "date": "2026-08-20",
+                        "program": [
+                            {"startTime": "13:00", "endTime": "14:00", "activity": "Partijvorm"},
+                            {"startTime": "09:00", "endTime": "09:30", "activity": "Ontvangst"},
+                        ],
+                    },
+                    {
+                        "title": "Vrijdagprogramma",
+                        "date": "2026-08-21",
+                        "program": [
+                            {"startTime": "08:30", "endTime": "09:00", "activity": "Opbouw"},
+                        ],
+                    },
+                ],
+            }
+        )
+        client = self.build_authenticated_client()
+
+        import_response = client.post(
+            "/checklists",
+            {
+                "csrf_token": self.TEST_CSRF_TOKEN,
+                "source_key": f"planning:{planning_id}",
+                "action": "import",
+            },
+            secure=True,
+        )
+        imported_document = legacy.load_checklist_document(planning_id, "planning")
+
+        self.assertEqual(import_response.status_code, 302)
+        self.assertTrue(import_response["Location"].startswith(f"/checklists/planning/{planning_id}?success="))
+        self.assertIsNotNone(imported_document)
+        self.assertEqual(imported_document["sourceType"], "planning")
+        self.assertEqual(
+            [section["activity"] for section in imported_document["sections"]],
+            ["Ontvangst", "Partijvorm", "Opbouw"],
+        )
+        self.assertEqual([section["dayIndex"] for section in imported_document["sections"]], [0, 0, 1])
+
+        overview_response = client.get("/checklists", secure=True)
+        detail_response = client.get(f"/checklists/planning/{planning_id}", secure=True)
+        self.assertContains(overview_response, f'href="/checklists/planning/{planning_id}"')
+        self.assertContains(overview_response, '<optgroup label="Planning">')
+        self.assertContains(detail_response, "Donderdagprogramma")
+        self.assertContains(detail_response, "data-remove-checklist-item")
+
+        sections_with_item = imported_document["sections"]
+        sections_with_item[0]["items"] = [{"text": "Deelnemerslijst klaarleggen", "color": "green"}]
+        add_response = client.post(
+            f"/checklists/planning/{planning_id}",
+            {
+                "csrf_token": self.TEST_CSRF_TOKEN,
+                "source_type": "planning",
+                "source_id": str(planning_id),
+                "action": "save",
+                "checklist_title": "Test checklist planning",
+                "checklist_data": json.dumps(sections_with_item),
+            },
+            secure=True,
+        )
+        self.assertEqual(add_response.status_code, 302)
+        self.assertEqual(
+            legacy.load_checklist_document(planning_id, "planning")["sections"][0]["items"][0]["text"],
+            "Deelnemerslijst klaarleggen",
+        )
+
+        sections_without_item = legacy.load_checklist_document(planning_id, "planning")["sections"]
+        sections_without_item[0]["items"] = []
+        remove_response = client.post(
+            f"/checklists/planning/{planning_id}",
+            {
+                "csrf_token": self.TEST_CSRF_TOKEN,
+                "source_type": "planning",
+                "source_id": str(planning_id),
+                "action": "save",
+                "checklist_title": "Test checklist planning",
+                "checklist_data": json.dumps(sections_without_item),
+            },
+            secure=True,
+        )
+        pdf_response = client.get(
+            f"/checklists/export-pdf?source_type=planning&source_id={planning_id}",
+            secure=True,
+        )
+
+        self.assertEqual(remove_response.status_code, 302)
+        self.assertEqual(legacy.load_checklist_document(planning_id, "planning")["sections"][0]["items"], [])
+        self.assertEqual(pdf_response.status_code, 200)
+        self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
+
     def test_login_requires_valid_csrf_token(self):
         response = Client(enforce_csrf_checks=False).post(
             "/login",

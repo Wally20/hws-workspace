@@ -12,7 +12,7 @@
           {% if checklist_document %}
             Bekijk het programma en werk per onderdeel de gekleurde controlepunten bij.
           {% else %}
-            Importeer het programma van een voetbaldag en voeg per onderdeel gekleurde controlepunten toe.
+            Importeer een programma uit Planning of Voetbaldagen en voeg per onderdeel gekleurde controlepunten toe.
           {% endif %}
         </p>
       </div>
@@ -59,7 +59,7 @@
           {% for document in checklist_documents %}
             <a
               class="summary-card checklist-program-tile"
-              href="/checklists/{{ document.playbookId }}"
+              href="{{ document.detailUrl }}"
             >
               <span class="checklist-program-tile-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h8l3 3V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"></path><path d="M9 11h6M9 15h6M9 19h4M15 3.5V7h3"></path></svg>
@@ -72,6 +72,7 @@
                 </small>
               </span>
               <span class="checklist-program-tile-stats">
+                <span class="checklist-program-tile-source">{{ document.sourceLabel }}</span>
                 <span>{{ document.sectionCount }} onderdeel{% if document.sectionCount != 1 %}en{% endif %}</span>
                 <span>{{ document.itemCount }} checklistpunt{% if document.itemCount != 1 %}en{% endif %}</span>
               </span>
@@ -83,7 +84,7 @@
         <div class="summary-card checklists-empty-state">
           <span class="checklists-empty-icon" aria-hidden="true">✓</span>
           <strong>Nog geen programma's geïmporteerd</strong>
-          <p>Gebruik het plus-icoon rechtsboven om je eerste draaiboek als checklistprogramma op te slaan.</p>
+          <p>Gebruik het plus-icoon rechtsboven om je eerste planning of draaiboek als checklistprogramma op te slaan.</p>
           <button class="subtle-button subtle-button-strong" type="button" data-open-checklist-import>Programma importeren</button>
         </div>
       {% endif %}
@@ -91,9 +92,10 @@
     {% endif %}
 
     {% if checklist_document %}
-      <form class="checklists-editor" id="checklist-editor" method="post" action="/checklists/{{ checklist_document.playbookId }}" data-checklist-editor>
+      <form class="checklists-editor" id="checklist-editor" method="post" action="{{ checklist_document.detailUrl }}" data-checklist-editor>
         <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
-        <input type="hidden" name="playbook_id" value="{{ checklist_document.playbookId }}">
+        <input type="hidden" name="source_type" value="{{ checklist_document.sourceType }}">
+        <input type="hidden" name="source_id" value="{{ checklist_document.sourceId }}">
         <input type="hidden" name="action" value="save">
         <input type="hidden" name="checklist_data" value="" data-checklist-data>
 
@@ -129,12 +131,20 @@
                 class="summary-card checklist-section"
                 data-checklist-section
                 data-section-key="{{ section.key }}"
+                data-day-index="{{ section.dayIndex }}"
+                data-day-title="{{ section.dayTitle }}"
+                data-day-date="{{ section.dayDate }}"
                 data-start-time="{{ section.startTime }}"
                 data-end-time="{{ section.endTime }}"
                 data-activity="{{ section.activity }}"
               >
                 <div class="checklist-section-head">
                   <div class="checklist-section-title">
+                    {% if section.dayTitle or section.dayDateLabel %}
+                      <small class="checklist-day-label">
+                        {{ section.dayTitle }}{% if section.dayTitle and section.dayDateLabel %} · {% endif %}{{ section.dayDateLabel }}
+                      </small>
+                    {% endif %}
                     <span class="checklist-time">
                       {% if section.startTime or section.endTime %}
                         {{ section.startTime or "--:--" }}{% if section.endTime %} – {{ section.endTime }}{% endif %}
@@ -167,7 +177,7 @@
                           ></button>
                         {% endfor %}
                       </div>
-                      <button class="checklist-item-remove" type="button" data-remove-checklist-item aria-label="Checklistpunt verwijderen" title="Verwijderen">×</button>
+                      <button class="checklist-item-remove" type="button" data-remove-checklist-item aria-label="Checklistpunt verwijderen" title="Checklistpunt verwijderen">×</button>
                     </div>
                   {% endfor %}
                 </div>
@@ -184,7 +194,7 @@
         {% endif %}
 
         <div class="checklists-sticky-save">
-          <span data-checklist-count>0 checklistpunten</span>
+          <span><span data-checklist-count>0 checklistpunten</span><small data-checklist-save-state aria-live="polite"></small></span>
           <div class="checklists-editor-actions">
             <button class="subtle-button" type="submit" name="after_save" value="pdf" formtarget="_blank">Opslaan & PDF</button>
             <button class="subtle-button subtle-button-strong" type="submit">Checklist opslaan</button>
@@ -213,7 +223,7 @@
               ></button>
             {% endfor %}
           </div>
-          <button class="checklist-item-remove" type="button" data-remove-checklist-item aria-label="Checklistpunt verwijderen" title="Verwijderen">×</button>
+          <button class="checklist-item-remove" type="button" data-remove-checklist-item aria-label="Checklistpunt verwijderen" title="Checklistpunt verwijderen">×</button>
         </div>
       </template>
     {% endif %}
@@ -225,25 +235,40 @@
         <div class="agenda-modal-header">
           <div>
             <p class="page-kicker">Nieuw programma</p>
-            <h2 id="checklistImportTitle">Draaiboek importeren</h2>
+            <h2 id="checklistImportTitle">Programma importeren</h2>
           </div>
           <button class="team-modal-close checklist-import-close" type="button" data-close-checklist-import aria-label="Sluiten">×</button>
         </div>
 
-        {% if playbooks %}
-          <p class="checklist-import-description">Kies een opgeslagen draaiboek bij Voetbaldagen. Alle programmaonderdelen worden op tijd gesorteerd en als tegel opgeslagen.</p>
+        {% if playbooks or plannings %}
+          <p class="checklist-import-description">Kies een opgeslagen programma uit Planning of een draaiboek bij Voetbaldagen. Alle programmaonderdelen worden in de juiste volgorde als checklist opgeslagen.</p>
           <form class="checklist-import-form" method="post" action="/checklists" data-checklist-import-form>
             <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
             <input type="hidden" name="action" value="import">
             <label class="checklists-picker-field">
-              <span>Draaiboek voetbaldag</span>
-              <select name="playbook_id" required data-checklist-import-select>
-                <option value="">Kies een draaiboek</option>
-                {% for playbook in playbooks %}
-                  <option value="{{ playbook.id }}">
-                    {{ playbook.title }}{% if playbook.eventDateLabel %} · {{ playbook.eventDateLabel }}{% endif %}{% if playbook.location %} · {{ playbook.location }}{% endif %}{% if playbook.id in imported_playbook_ids %} · al geïmporteerd{% endif %}
-                  </option>
-                {% endfor %}
+              <span>Programma</span>
+              <select name="source_key" required data-checklist-import-select>
+                <option value="">Kies een programma</option>
+                {% if plannings %}
+                  <optgroup label="Planning">
+                    {% for planning in plannings %}
+                      {% set source_key = "planning:" ~ planning.id %}
+                      <option value="{{ source_key }}">
+                        {{ planning.title }}{% if planning.planningDateLabel %} · {{ planning.planningDateLabel }}{% endif %}{% if planning.location %} · {{ planning.location }}{% endif %}{% if source_key in imported_source_keys %} · al geïmporteerd{% endif %}
+                      </option>
+                    {% endfor %}
+                  </optgroup>
+                {% endif %}
+                {% if playbooks %}
+                  <optgroup label="Voetbaldagen">
+                    {% for playbook in playbooks %}
+                      {% set source_key = "playbook:" ~ playbook.id %}
+                      <option value="{{ source_key }}">
+                        {{ playbook.title }}{% if playbook.eventDateLabel %} · {{ playbook.eventDateLabel }}{% endif %}{% if playbook.location %} · {{ playbook.location }}{% endif %}{% if source_key in imported_source_keys %} · al geïmporteerd{% endif %}
+                      </option>
+                    {% endfor %}
+                  </optgroup>
+                {% endif %}
               </select>
             </label>
             <div class="checklist-import-actions">
@@ -253,9 +278,9 @@
           </form>
         {% else %}
           <div class="checklists-empty-state checklist-import-empty">
-            <strong>Nog geen draaiboeken gevonden</strong>
-            <p>Maak eerst bij Voetbaldagen een draaiboek met programmaonderdelen.</p>
-            <a class="subtle-button subtle-button-strong" href="/voetbaldagen/nieuw">Nieuw draaiboek maken</a>
+            <strong>Nog geen programma's gevonden</strong>
+            <p>Maak eerst bij Planning of Voetbaldagen een programma met onderdelen.</p>
+            <a class="subtle-button subtle-button-strong" href="/planning">Naar Planning</a>
           </div>
         {% endif %}
       </section>

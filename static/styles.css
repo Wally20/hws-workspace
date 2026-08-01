@@ -759,6 +759,11 @@ body.sidebar-collapsed .sidebar-toggle {
   font-weight: 800;
 }
 
+.checklist-program-tile-stats .checklist-program-tile-source {
+  background: var(--warm-accent-soft);
+  color: #8a5d17;
+}
+
 .checklist-program-tile-arrow {
   color: #8c8c8c;
   font-size: 1.15rem;
@@ -979,6 +984,15 @@ body.checklist-modal-open {
   line-height: 1.35;
 }
 
+.checklist-day-label {
+  color: #95691f;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
 .checklist-time {
   justify-self: start;
   padding: 5px 9px;
@@ -1104,9 +1118,18 @@ body.checklist-modal-open {
 }
 
 .checklists-sticky-save > span {
+  display: grid;
+  gap: 2px;
   color: var(--muted);
   font-size: 0.76rem;
   font-weight: 700;
+}
+
+.checklists-sticky-save [data-checklist-save-state] {
+  min-height: 1em;
+  color: #95691f;
+  font-size: 0.62rem;
+  font-weight: 800;
 }
 
 @media (max-width: 1100px) {

@@ -48,6 +48,8 @@
   const itemTemplate = document.getElementById("checklistItemTemplate");
   const dataInput = editor.querySelector("[data-checklist-data]");
   const countLabels = Array.from(editor.querySelectorAll("[data-checklist-count]"));
+  const saveState = editor.querySelector("[data-checklist-save-state]");
+  let hasUnsavedChanges = false;
 
   const getSections = () => Array.from(editor.querySelectorAll("[data-checklist-section]"));
 
@@ -65,6 +67,14 @@
     countLabels.forEach((element) => {
       element.textContent = label;
     });
+  };
+
+  const markUnsaved = (message = "Niet-opgeslagen wijzigingen") => {
+    hasUnsavedChanges = true;
+    editor.classList.add("has-unsaved-changes");
+    if (saveState) {
+      saveState.textContent = message;
+    }
   };
 
   const selectColor = (item, option) => {
@@ -96,11 +106,15 @@
     updateSectionEmptyState(section);
     updateCount();
     newItem?.querySelector(".checklist-item-text")?.focus();
+    markUnsaved("Nieuw punt toegevoegd — nog opslaan");
   };
 
   const serialize = () =>
     getSections().map((section, sectionIndex) => ({
       key: section.dataset.sectionKey || `program-${sectionIndex + 1}`,
+      dayIndex: Number.parseInt(section.dataset.dayIndex || "0", 10) || 0,
+      dayTitle: section.dataset.dayTitle || "",
+      dayDate: section.dataset.dayDate || "",
       startTime: section.dataset.startTime || "",
       endTime: section.dataset.endTime || "",
       activity: section.dataset.activity || "Programmaonderdeel",
@@ -130,6 +144,7 @@
         updateSectionEmptyState(section);
       }
       updateCount();
+      markUnsaved("Punt verwijderd — nog opslaan");
       return;
     }
 
@@ -138,7 +153,14 @@
       const item = colorOption.closest("[data-checklist-item]");
       if (item) {
         selectColor(item, colorOption);
+        markUnsaved();
       }
+    }
+  });
+
+  editor.addEventListener("input", (event) => {
+    if (event.target.matches(".checklist-item-text, input[name='checklist_title']")) {
+      markUnsaved();
     }
   });
 
@@ -157,6 +179,19 @@
     if (dataInput) {
       dataInput.value = JSON.stringify(serialize());
     }
+    hasUnsavedChanges = false;
+    editor.classList.remove("has-unsaved-changes");
+    if (saveState) {
+      saveState.textContent = "Bezig met opslaan…";
+    }
+  });
+
+  window.addEventListener("beforeunload", (event) => {
+    if (!hasUnsavedChanges) {
+      return;
+    }
+    event.preventDefault();
+    event.returnValue = "";
   });
 
   getSections().forEach(updateSectionEmptyState);

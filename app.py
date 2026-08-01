@@ -565,8 +565,8 @@ WORKSPACE_SEARCH_PAGES = (
         "title": "Checklists",
         "path": "/checklists",
         "section": "Draaiboeken",
-        "description": "Maak gekleurde checklists bij het programma van een voetbaldag.",
-        "keywords": ("checklist", "coordinator", "programma", "voetbaldag", "clipboard"),
+        "description": "Maak gekleurde checklists bij een planning of het programma van een voetbaldag.",
+        "keywords": ("checklist", "coordinator", "planning", "programma", "voetbaldag", "clipboard"),
     },
     {
         "key": "samenwerkende-amateurclubs",
@@ -7490,18 +7490,52 @@ def normalize_checklist_title(value: Any) -> str:
     return str(value or "").strip()[:140] or DEFAULT_CHECKLIST_TITLE
 
 
-def get_checklist_section_time_sort_key(section: Dict[str, Any], fallback_index: int) -> Tuple[int, int, int, int]:
+def normalize_checklist_source_type(value: Any) -> str:
+    return "planning" if str(value or "").strip().lower() == "planning" else "playbook"
+
+
+def get_checklist_storage_id(source_type: Any, source_id: Any) -> int:
+    normalized_source_id = parse_non_negative_int(source_id)
+    if not normalized_source_id:
+        return 0
+    return -normalized_source_id if normalize_checklist_source_type(source_type) == "planning" else normalized_source_id
+
+
+def get_checklist_source_identity(document: Dict[str, Any]) -> Tuple[str, int, int]:
+    raw_storage_id = int(document.get("playbookId") or 0)
+    source_type = normalize_checklist_source_type(
+        document.get("sourceType") or ("planning" if raw_storage_id < 0 else "playbook")
+    )
+    source_id = parse_non_negative_int(document.get("sourceId") or abs(raw_storage_id))
+    return source_type, source_id, get_checklist_storage_id(source_type, source_id)
+
+
+def get_checklist_detail_url(source_type: Any, source_id: Any) -> str:
+    normalized_source_id = parse_non_negative_int(source_id)
+    if normalize_checklist_source_type(source_type) == "planning":
+        return f"/checklists/planning/{normalized_source_id}"
+    return f"/checklists/{normalized_source_id}"
+
+
+def get_checklist_export_url(source_type: Any, source_id: Any) -> str:
+    normalized_source_type = normalize_checklist_source_type(source_type)
+    normalized_source_id = parse_non_negative_int(source_id)
+    return f"/checklists/export-pdf?source_type={normalized_source_type}&source_id={normalized_source_id}"
+
+
+def get_checklist_section_time_sort_key(section: Dict[str, Any], fallback_index: int) -> Tuple[int, int, int, int, int]:
     def time_in_minutes(value: Any) -> Optional[int]:
         match = re.fullmatch(r"([01]\d|2[0-3]):([0-5]\d)", str(value or "").strip())
         if match is None:
             return None
         return int(match.group(1)) * 60 + int(match.group(2))
 
+    day_index = min(30, parse_non_negative_int(section.get("dayIndex")))
     start_minutes = time_in_minutes(section.get("startTime"))
     end_minutes = time_in_minutes(section.get("endTime"))
     if start_minutes is None:
-        return (1, 24 * 60, 24 * 60, fallback_index)
-    return (0, start_minutes, end_minutes if end_minutes is not None else start_minutes, fallback_index)
+        return (day_index, 1, 24 * 60, 24 * 60, fallback_index)
+    return (day_index, 0, start_minutes, end_minutes if end_minutes is not None else start_minutes, fallback_index)
 
 
 def normalize_checklist_sections(raw_sections: Any) -> List[Dict[str, Any]]:
@@ -7525,6 +7559,14 @@ def normalize_checklist_sections(raw_sections: Any) -> List[Dict[str, Any]]:
         normalized_sections.append(
             {
                 "key": str(section.get("key") or f"program-{section_index + 1}").strip()[:80],
+                "dayIndex": min(30, parse_non_negative_int(section.get("dayIndex"))),
+                "dayTitle": str(section.get("dayTitle") or "").strip()[:160],
+                "dayDate": normalize_planning_date(section.get("dayDate")),
+                "dayDateLabel": (
+                    format_football_days_date(section.get("dayDate"))
+                    if normalize_planning_date(section.get("dayDate"))
+                    else ""
+                ),
                 "startTime": str(section.get("startTime") or "").strip()[:10],
                 "endTime": str(section.get("endTime") or "").strip()[:10],
                 "activity": activity,
@@ -7549,9 +7591,17 @@ def normalize_checklist_document(row: Optional[sqlite3.Row]) -> Optional[Dict[st
         sections = json.loads(str(row["sections_json"] or "[]"))
     except json.JSONDecodeError:
         sections = []
+    storage_id = int(row["playbook_id"])
+    source_type = "planning" if storage_id < 0 else "playbook"
+    source_id = abs(storage_id)
     return {
         "id": int(row["id"]),
-        "playbookId": int(row["playbook_id"]),
+        "playbookId": storage_id,
+        "sourceType": source_type,
+        "sourceId": source_id,
+        "sourceLabel": "Planning" if source_type == "planning" else "Voetbaldag",
+        "detailUrl": get_checklist_detail_url(source_type, source_id),
+        "exportUrl": get_checklist_export_url(source_type, source_id),
         "title": str(row["title"] or "Checklist voetbaldag").strip(),
         "checklistTitle": normalize_checklist_title(row["checklist_title"]),
         "eventDate": str(row["event_date"] or "").strip(),
@@ -7562,7 +7612,8 @@ def normalize_checklist_document(row: Optional[sqlite3.Row]) -> Optional[Dict[st
     }
 
 
-def load_checklist_document(playbook_id: int) -> Optional[Dict[str, Any]]:
+def load_checklist_document(source_id: int, source_type: str = "playbook") -> Optional[Dict[str, Any]]:
+    storage_id = get_checklist_storage_id(source_type, source_id)
     with get_db_connection() as connection:
         row = connection.execute(
             """
@@ -7570,7 +7621,7 @@ def load_checklist_document(playbook_id: int) -> Optional[Dict[str, Any]]:
             FROM checklist_documents
             WHERE playbook_id = ?
             """,
-            (playbook_id,),
+            (storage_id,),
         ).fetchone()
     return normalize_checklist_document(row)
 
@@ -7595,19 +7646,6 @@ def build_checklist_document_from_playbook(
     playbook: Dict[str, Any],
     existing_document: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    existing_sections = normalize_checklist_sections(
-        existing_document.get("sections") if isinstance(existing_document, dict) else []
-    )
-    sections_by_signature: Dict[Tuple[str, str, str], List[Tuple[int, Dict[str, Any]]]] = {}
-    for index, section in enumerate(existing_sections):
-        signature = (
-            str(section.get("startTime") or "").strip(),
-            str(section.get("endTime") or "").strip(),
-            str(section.get("activity") or "").strip().casefold(),
-        )
-        sections_by_signature.setdefault(signature, []).append((index, section))
-
-    used_existing_indexes: Set[int] = set()
     imported_sections = []
     program = playbook.get("program") if isinstance(playbook.get("program"), list) else []
     for index, program_item in enumerate(program[:100]):
@@ -7616,9 +7654,64 @@ def build_checklist_document_from_playbook(
         activity = str(program_item.get("activity") or "").strip()
         if not activity:
             continue
-        start_time = str(program_item.get("startTime") or "").strip()
-        end_time = str(program_item.get("endTime") or "").strip()
-        signature = (start_time, end_time, activity.casefold())
+        imported_sections.append(
+            {
+                "key": f"program-{index + 1}",
+                "startTime": str(program_item.get("startTime") or "").strip(),
+                "endTime": str(program_item.get("endTime") or "").strip(),
+                "activity": activity,
+                "items": [],
+            }
+        )
+
+    merged_sections = merge_imported_checklist_sections(imported_sections, existing_document)
+    source_id = int(playbook.get("id") or 0)
+    return {
+        "id": existing_document.get("id") if isinstance(existing_document, dict) else None,
+        "playbookId": source_id,
+        "sourceType": "playbook",
+        "sourceId": source_id,
+        "title": str(playbook.get("title") or "Checklist voetbaldag").strip(),
+        "checklistTitle": normalize_checklist_title((existing_document or {}).get("checklistTitle")),
+        "eventDate": str(playbook.get("eventDate") or "").strip(),
+        "location": str(playbook.get("location") or "").strip(),
+        "sections": normalize_checklist_sections(merged_sections),
+        "createdAt": str((existing_document or {}).get("createdAt") or ""),
+        "updatedAt": str((existing_document or {}).get("updatedAt") or ""),
+    }
+
+
+def merge_imported_checklist_sections(
+    imported_sections: Any,
+    existing_document: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    def section_signature(section: Dict[str, Any]) -> Tuple[str, str, str, str]:
+        day_date = str(section.get("dayDate") or "").strip()
+        day_title = str(section.get("dayTitle") or "").strip().casefold()
+        day_identity = f"{day_date}|{day_title}" if day_date or day_title else str(parse_non_negative_int(section.get("dayIndex")))
+        return (
+            day_identity,
+            str(section.get("startTime") or "").strip(),
+            str(section.get("endTime") or "").strip(),
+            str(section.get("activity") or "").strip().casefold(),
+        )
+
+    existing_sections = normalize_checklist_sections(
+        existing_document.get("sections") if isinstance(existing_document, dict) else []
+    )
+    sections_by_signature: Dict[Tuple[str, str, str, str], List[Tuple[int, Dict[str, Any]]]] = {}
+    for index, section in enumerate(existing_sections):
+        signature = section_signature(section)
+        sections_by_signature.setdefault(signature, []).append((index, section))
+
+    used_existing_indexes: Set[int] = set()
+    merged_sections = []
+    sections = normalize_checklist_sections(imported_sections)
+    imported_signatures = [section_signature(section) for section in sections]
+    for index, section in enumerate(sections):
+        if not isinstance(section, dict):
+            continue
+        signature = imported_signatures[index]
         matched_section = None
         for existing_index, candidate in sections_by_signature.get(signature, []):
             if existing_index not in used_existing_indexes:
@@ -7626,35 +7719,69 @@ def build_checklist_document_from_playbook(
                 matched_section = candidate
                 break
         if matched_section is None and index < len(existing_sections) and index not in used_existing_indexes:
-            used_existing_indexes.add(index)
-            matched_section = existing_sections[index]
-        imported_sections.append(
-            {
-                "key": str((matched_section or {}).get("key") or f"program-{index + 1}"),
-                "startTime": start_time,
-                "endTime": end_time,
-                "activity": activity,
-                "items": copy.deepcopy((matched_section or {}).get("items") or []),
-            }
-        )
+            positional_candidate = existing_sections[index]
+            if section_signature(positional_candidate) not in set(imported_signatures[index + 1 :]):
+                used_existing_indexes.add(index)
+                matched_section = positional_candidate
+        merged_section = copy.deepcopy(section)
+        merged_section["key"] = str((matched_section or {}).get("key") or section.get("key") or f"program-{index + 1}")
+        merged_section["items"] = copy.deepcopy((matched_section or {}).get("items") or [])
+        merged_sections.append(merged_section)
+    return merged_sections
 
+
+def build_checklist_document_from_planning(
+    planning: Dict[str, Any],
+    existing_document: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    imported_sections: List[Dict[str, Any]] = []
+    days = normalize_planning_days(
+        planning.get("days"),
+        planning.get("planningDate"),
+        planning.get("program"),
+        planning.get("title"),
+    )
+    for day_index, day in enumerate(days):
+        for program_index, program_item in enumerate(day.get("program") or []):
+            activity = str(program_item.get("activity") or program_item.get("details") or "").strip()
+            if not activity:
+                continue
+            imported_sections.append(
+                {
+                    "key": f"planning-day-{day_index + 1}-program-{program_index + 1}",
+                    "dayIndex": day_index,
+                    "dayTitle": str(day.get("title") or planning.get("title") or "Planning").strip(),
+                    "dayDate": str(day.get("date") or "").strip(),
+                    "startTime": str(program_item.get("startTime") or "").strip(),
+                    "endTime": str(program_item.get("endTime") or "").strip(),
+                    "activity": activity,
+                    "items": [],
+                }
+            )
+
+    source_id = int(planning.get("id") or 0)
+    event_date = next((str(day.get("date") or "").strip() for day in days if day.get("date")), "")
     return {
         "id": existing_document.get("id") if isinstance(existing_document, dict) else None,
-        "playbookId": int(playbook.get("id") or 0),
-        "title": str(playbook.get("title") or "Checklist voetbaldag").strip(),
+        "playbookId": -source_id,
+        "sourceType": "planning",
+        "sourceId": source_id,
+        "title": str(planning.get("title") or "Checklist planning").strip(),
         "checklistTitle": normalize_checklist_title((existing_document or {}).get("checklistTitle")),
-        "eventDate": str(playbook.get("eventDate") or "").strip(),
-        "location": str(playbook.get("location") or "").strip(),
-        "sections": normalize_checklist_sections(imported_sections),
+        "eventDate": event_date,
+        "location": str(planning.get("location") or "").strip(),
+        "sections": normalize_checklist_sections(
+            merge_imported_checklist_sections(imported_sections, existing_document)
+        ),
         "createdAt": str((existing_document or {}).get("createdAt") or ""),
         "updatedAt": str((existing_document or {}).get("updatedAt") or ""),
     }
 
 
 def save_checklist_document(document: Dict[str, Any]) -> Dict[str, Any]:
-    playbook_id = parse_non_negative_int(document.get("playbookId"))
-    if not playbook_id:
-        raise ValueError("Kies eerst een draaiboek van een voetbaldag.")
+    source_type, source_id, storage_id = get_checklist_source_identity(document)
+    if not source_id or not storage_id:
+        raise ValueError("Kies eerst een programma om te importeren.")
     now = utcnow_iso()
     title = str(document.get("title") or "Checklist voetbaldag").strip()[:180]
     checklist_title = normalize_checklist_title(document.get("checklistTitle"))
@@ -7675,7 +7802,7 @@ def save_checklist_document(document: Dict[str, Any]) -> Dict[str, Any]:
                 updated_at = excluded.updated_at
             """,
             (
-                playbook_id,
+                storage_id,
                 title,
                 checklist_title,
                 str(document.get("eventDate") or "").strip()[:20],
@@ -7686,7 +7813,7 @@ def save_checklist_document(document: Dict[str, Any]) -> Dict[str, Any]:
             ),
         )
     clear_local_data_cache()
-    saved_document = load_checklist_document(playbook_id)
+    saved_document = load_checklist_document(source_id, source_type)
     if saved_document is None:
         raise RuntimeError("De checklist kon niet worden opgeslagen.")
     return saved_document
@@ -12760,8 +12887,19 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
     def checklist_item_height(item: Dict[str, Any]) -> float:
         return max(19, (len(checklist_item_lines(item)) * item_leading) + 5)
 
+    def section_day_text(section: Dict[str, Any]) -> str:
+        return " · ".join(
+            value
+            for value in (
+                str(section.get("dayTitle") or "").strip(),
+                str(section.get("dayDateLabel") or "").strip(),
+            )
+            if value
+        )
+
     def section_row_height(section: Dict[str, Any], items: List[Dict[str, Any]]) -> float:
-        program_height = 9 + 16 + 7 + (len(activity_lines(section)) * activity_leading) + 8
+        day_label_height = 10 if section_day_text(section) else 0
+        program_height = 9 + 16 + 7 + day_label_height + (len(activity_lines(section)) * activity_leading) + 8
         checklist_height = 16 + sum(checklist_item_height(item) for item in items)
         if len(items) > 1:
             checklist_height += (len(items) - 1) * 2
@@ -12845,6 +12983,18 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
         pdf.setFillColor(black)
         pdf.setFont(font_names["extra_bold"], activity_font_size)
         activity_y = pill_top - 16 - 7 - activity_font_size
+        day_text = section_day_text(section)
+        if day_text:
+            pdf.setFillColor(gold)
+            pdf.setFont(font_names["bold"], 6.2)
+            pdf.drawString(
+                program_x + 8,
+                activity_y,
+                fit_text(day_text.upper(), font_names["bold"], 6.2, program_width - 16),
+            )
+            activity_y -= 10
+            pdf.setFillColor(black)
+            pdf.setFont(font_names["extra_bold"], activity_font_size)
         for line_text in activity_lines(section):
             pdf.drawString(program_x + 8, activity_y, line_text)
             activity_y -= activity_leading
@@ -21312,46 +21462,108 @@ def draaiboeken_page() -> str:
     return render_template("draaiboeken.html", active_page="draaiboeken")
 
 
-def load_checklist_page_data() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+def prepare_checklist_document_view_data(document: Dict[str, Any]) -> Dict[str, Any]:
+    source_type, source_id, storage_id = get_checklist_source_identity(document)
+    document["playbookId"] = storage_id
+    document["sourceType"] = source_type
+    document["sourceId"] = source_id
+    document["sourceLabel"] = "Planning" if source_type == "planning" else "Voetbaldag"
+    document["detailUrl"] = get_checklist_detail_url(source_type, source_id)
+    document["exportUrl"] = get_checklist_export_url(source_type, source_id)
+    document["eventDateLabel"] = format_football_days_date(document.get("eventDate"))
+    document["sectionCount"] = len(document.get("sections") or [])
+    document["itemCount"] = sum(
+        len(section.get("items") or [])
+        for section in document.get("sections") or []
+        if isinstance(section, dict)
+    )
+    return document
+
+
+def load_checklist_page_data() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
     playbooks = load_football_days_playbooks("voetbaldagen")
     for playbook in playbooks:
         playbook["eventDateLabel"] = format_football_days_date(playbook.get("eventDate"))
 
+    plannings = load_planning_documents()
+    for planning in plannings:
+        planning["planningDateLabel"] = format_football_days_date(planning.get("planningDate"))
+
     checklist_documents = load_checklist_documents()
     for document in checklist_documents:
-        document["eventDateLabel"] = format_football_days_date(document.get("eventDate"))
-        document["sectionCount"] = len(document.get("sections") or [])
-        document["itemCount"] = sum(
-            len(section.get("items") or [])
-            for section in document.get("sections") or []
-            if isinstance(section, dict)
-        )
-    return playbooks, checklist_documents
+        prepare_checklist_document_view_data(document)
+    return playbooks, plannings, checklist_documents
+
+
+def parse_checklist_source_submission() -> Tuple[str, int]:
+    source_key = str(request.form.get("source_key") or "").strip()
+    if ":" in source_key:
+        raw_source_type, raw_source_id = source_key.split(":", 1)
+        return normalize_checklist_source_type(raw_source_type), parse_non_negative_int(raw_source_id)
+    source_type = normalize_checklist_source_type(request.form.get("source_type"))
+    source_id = parse_non_negative_int(request.form.get("source_id"))
+    if source_id:
+        return source_type, source_id
+    return "playbook", parse_non_negative_int(request.form.get("playbook_id"))
+
+
+def find_checklist_source(
+    source_type: str,
+    source_id: int,
+    playbooks: Optional[List[Dict[str, Any]]] = None,
+    plannings: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
+    if normalize_checklist_source_type(source_type) == "planning":
+        if plannings is None:
+            return load_planning_document(source_id)
+        return next((planning for planning in plannings if int(planning.get("id") or 0) == source_id), None)
+    if playbooks is None:
+        return load_football_days_playbook(source_id, "voetbaldagen")
+    return next((playbook for playbook in playbooks if int(playbook.get("id") or 0) == source_id), None)
+
+
+def get_checklist_source_metadata(source_type: str, source: Dict[str, Any]) -> Dict[str, str]:
+    if normalize_checklist_source_type(source_type) == "planning":
+        return {
+            "title": str(source.get("title") or "Checklist planning").strip(),
+            "eventDate": str(source.get("planningDate") or "").strip(),
+            "location": str(source.get("location") or "").strip(),
+        }
+    return {
+        "title": str(source.get("title") or "Checklist voetbaldag").strip(),
+        "eventDate": str(source.get("eventDate") or "").strip(),
+        "location": str(source.get("location") or "").strip(),
+    }
 
 
 def save_checklist_editor_submission(
-    selected_playbook: Dict[str, Any],
+    source_type: str,
+    selected_source: Dict[str, Any],
     existing_document: Dict[str, Any],
 ):
-    playbook_id = int(selected_playbook["id"])
+    source_type = normalize_checklist_source_type(source_type)
+    source_id = int(selected_source["id"])
+    detail_url = get_checklist_detail_url(source_type, source_id)
     try:
         submitted_sections = json.loads(str(request.form.get("checklist_data") or "[]"))
     except json.JSONDecodeError:
-        return redirect(f"/checklists/{playbook_id}?error=De checklist kon niet worden gelezen.")
+        return redirect(f"{detail_url}?error=De checklist kon niet worden gelezen.")
+    source_metadata = get_checklist_source_metadata(source_type, selected_source)
     save_checklist_document(
         {
             **existing_document,
-            "playbookId": playbook_id,
-            "title": selected_playbook["title"],
+            "sourceType": source_type,
+            "sourceId": source_id,
+            "title": source_metadata["title"],
             "checklistTitle": request.form.get("checklist_title") or existing_document.get("checklistTitle"),
-            "eventDate": selected_playbook["eventDate"],
-            "location": selected_playbook["location"],
+            "eventDate": source_metadata["eventDate"],
+            "location": source_metadata["location"],
             "sections": submitted_sections,
         }
     )
     if str(request.form.get("after_save") or "").strip() == "pdf":
-        return redirect(f"/checklists/export-pdf?playbook_id={playbook_id}")
-    return redirect(f"/checklists/{playbook_id}?success=Checklist opgeslagen.")
+        return redirect(get_checklist_export_url(source_type, source_id))
+    return redirect(f"{detail_url}?success=Checklist opgeslagen.")
 
 
 @app.route("/checklists", methods=["GET", "POST"])
@@ -21364,35 +21576,40 @@ def checklists_page() -> str:
     if request.method == "GET" and legacy_playbook_id:
         return redirect(f"/checklists/{legacy_playbook_id}")
 
-    playbooks, checklist_documents = load_checklist_page_data()
+    playbooks, plannings, checklist_documents = load_checklist_page_data()
 
     if request.method == "POST":
-        selected_playbook_id = request.form.get("playbook_id", type=int)
-        selected_playbook = next(
-            (playbook for playbook in playbooks if int(playbook.get("id") or 0) == int(selected_playbook_id or 0)),
-            None,
-        )
-        if selected_playbook is None:
-            return redirect("/checklists?error=Kies eerst een draaiboek van een voetbaldag.")
-        existing_document = load_checklist_document(int(selected_playbook["id"]))
+        source_type, source_id = parse_checklist_source_submission()
+        selected_source = find_checklist_source(source_type, source_id, playbooks, plannings)
+        if selected_source is None:
+            return redirect("/checklists?error=Kies eerst een bestaand programma uit Planning of Voetbaldagen.")
+        existing_document = load_checklist_document(source_id, source_type)
         action = str(request.form.get("action") or "save").strip()
         if action == "import":
-            save_checklist_document(build_checklist_document_from_playbook(selected_playbook, existing_document))
+            document = (
+                build_checklist_document_from_planning(selected_source, existing_document)
+                if source_type == "planning"
+                else build_checklist_document_from_playbook(selected_source, existing_document)
+            )
+            save_checklist_document(document)
+            detail_url = get_checklist_detail_url(source_type, source_id)
             return redirect(
-                f"/checklists/{selected_playbook['id']}?success=Programma geïmporteerd; bestaande checklistregels zijn behouden."
+                f"{detail_url}?success=Programma geïmporteerd; bestaande checklistpunten zijn behouden."
             )
         if existing_document is None:
-            return redirect(
-                f"/checklists?error=Importeer eerst het programma uit het draaiboek."
-            )
-        return save_checklist_editor_submission(selected_playbook, existing_document)
+            return redirect("/checklists?error=Importeer eerst het programma.")
+        return save_checklist_editor_submission(source_type, selected_source, existing_document)
 
     return render_template(
         "checklists.html",
         active_page="checklists",
         playbooks=playbooks,
+        plannings=plannings,
         checklist_documents=checklist_documents,
-        imported_playbook_ids={document["playbookId"] for document in checklist_documents},
+        imported_source_keys={
+            f"{document['sourceType']}:{document['sourceId']}"
+            for document in checklist_documents
+        },
         selected_playbook=None,
         checklist_document=None,
         checklist_colors=list(CHECKLIST_COLOR_OPTIONS),
@@ -21403,33 +21620,46 @@ def checklists_page() -> str:
 
 @app.route("/checklists/<int:playbook_id>", methods=["GET", "POST"])
 def checklist_detail_page(playbook_id: int) -> str:
+    return render_checklist_detail_page("playbook", playbook_id)
+
+
+@app.route("/checklists/planning/<int:planning_id>", methods=["GET", "POST"])
+def checklist_planning_detail_page(planning_id: int) -> str:
+    return render_checklist_detail_page("planning", planning_id)
+
+
+def render_checklist_detail_page(source_type: str, source_id: int) -> str:
     access_redirect = require_page_access("checklists")
     if access_redirect is not None:
         return access_redirect
 
-    playbooks = load_football_days_playbooks("voetbaldagen")
-    selected_playbook = next(
-        (playbook for playbook in playbooks if int(playbook.get("id") or 0) == playbook_id),
-        None,
+    source_type = normalize_checklist_source_type(source_type)
+    selected_source = (
+        find_checklist_source(source_type, source_id)
+        if source_type == "planning"
+        else find_checklist_source(source_type, source_id, load_football_days_playbooks("voetbaldagen"))
     )
-    if selected_playbook is None:
-        return redirect("/checklists?error=Dit draaiboek bestaat niet meer.")
+    if selected_source is None:
+        source_label = "planning" if source_type == "planning" else "draaiboek"
+        return redirect(f"/checklists?error=Deze {source_label} bestaat niet meer.")
 
-    checklist_document = load_checklist_document(playbook_id)
+    checklist_document = load_checklist_document(source_id, source_type)
     if checklist_document is None:
-        return redirect("/checklists?error=Importeer eerst het programma uit het draaiboek.")
+        return redirect("/checklists?error=Importeer eerst het programma.")
 
     if request.method == "POST":
-        return save_checklist_editor_submission(selected_playbook, checklist_document)
+        return save_checklist_editor_submission(source_type, selected_source, checklist_document)
 
-    checklist_document["eventDateLabel"] = format_football_days_date(checklist_document.get("eventDate"))
+    prepare_checklist_document_view_data(checklist_document)
     return render_template(
         "checklists.html",
         active_page="checklists",
         playbooks=[],
+        plannings=[],
         checklist_documents=[],
-        imported_playbook_ids=set(),
-        selected_playbook=selected_playbook,
+        imported_source_keys=set(),
+        selected_playbook=selected_source if source_type == "playbook" else None,
+        selected_planning=selected_source if source_type == "planning" else None,
         checklist_document=checklist_document,
         checklist_colors=list(CHECKLIST_COLOR_OPTIONS),
         success=request.args.get("success", "").strip(),
@@ -21443,8 +21673,12 @@ def checklists_export_pdf():
     if access_redirect is not None:
         return access_redirect
 
-    playbook_id = request.args.get("playbook_id", type=int)
-    document = load_checklist_document(int(playbook_id or 0))
+    source_type = normalize_checklist_source_type(request.args.get("source_type"))
+    source_id = request.args.get("source_id", type=int)
+    if not source_id:
+        source_type = "playbook"
+        source_id = request.args.get("playbook_id", type=int)
+    document = load_checklist_document(int(source_id or 0), source_type)
     if document is None:
         return redirect("/checklists?error=Importeer en bewaar eerst een programma.")
     try:
