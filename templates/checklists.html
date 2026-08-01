@@ -8,22 +8,32 @@
       <div>
         <p class="page-kicker">Draaiboeken</p>
         <h1>Checklists</h1>
-        <p class="welcome-line">Importeer het programma van een voetbaldag en voeg per onderdeel gekleurde controlepunten toe.</p>
+        <p class="welcome-line">
+          {% if checklist_document %}
+            Bekijk het programma en werk per onderdeel de gekleurde controlepunten bij.
+          {% else %}
+            Importeer het programma van een voetbaldag en voeg per onderdeel gekleurde controlepunten toe.
+          {% endif %}
+        </p>
       </div>
       <div class="checklists-header-actions">
-        <a class="subtle-button" href="/draaiboeken">Terug naar draaiboeken</a>
-        <button
-          class="checklists-add-button"
-          type="button"
-          data-open-checklist-import
-          aria-label="Nieuw programma importeren"
-          aria-haspopup="dialog"
-          aria-controls="checklistImportModal"
-          aria-expanded="false"
-          title="Nieuw programma importeren"
-        >
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
-        </button>
+        {% if checklist_document %}
+          <a class="subtle-button" href="/checklists">Terug naar checklists</a>
+        {% else %}
+          <a class="subtle-button" href="/draaiboeken">Terug naar draaiboeken</a>
+          <button
+            class="checklists-add-button"
+            type="button"
+            data-open-checklist-import
+            aria-label="Nieuw programma importeren"
+            aria-haspopup="dialog"
+            aria-controls="checklistImportModal"
+            aria-expanded="false"
+            title="Nieuw programma importeren"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+          </button>
+        {% endif %}
       </div>
     </header>
 
@@ -34,7 +44,8 @@
       <div class="notice checklists-notice checklists-notice-error" role="alert">{{ error }}</div>
     {% endif %}
 
-    <section class="checklists-library" aria-labelledby="checklistsLibraryTitle">
+    {% if not checklist_document %}
+      <section class="checklists-library" aria-labelledby="checklistsLibraryTitle">
       <div class="checklists-library-head">
         <div>
           <h2 id="checklistsLibraryTitle">Opgeslagen programma's</h2>
@@ -47,9 +58,8 @@
         <div class="checklists-tile-grid">
           {% for document in checklist_documents %}
             <a
-              class="summary-card checklist-program-tile{% if checklist_document and checklist_document.playbookId == document.playbookId %} is-active{% endif %}"
-              href="/checklists?playbook_id={{ document.playbookId }}#checklist-editor"
-              {% if checklist_document and checklist_document.playbookId == document.playbookId %}aria-current="page"{% endif %}
+              class="summary-card checklist-program-tile"
+              href="/checklists/{{ document.playbookId }}"
             >
               <span class="checklist-program-tile-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h8l3 3V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"></path><path d="M9 11h6M9 15h6M9 19h4M15 3.5V7h3"></path></svg>
@@ -77,10 +87,11 @@
           <button class="subtle-button subtle-button-strong" type="button" data-open-checklist-import>Programma importeren</button>
         </div>
       {% endif %}
-    </section>
+      </section>
+    {% endif %}
 
     {% if checklist_document %}
-      <form class="checklists-editor" id="checklist-editor" method="post" action="/checklists" data-checklist-editor>
+      <form class="checklists-editor" id="checklist-editor" method="post" action="/checklists/{{ checklist_document.playbookId }}" data-checklist-editor>
         <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="playbook_id" value="{{ checklist_document.playbookId }}">
         <input type="hidden" name="action" value="save">
@@ -169,30 +180,33 @@
       </form>
     {% endif %}
 
-    <template id="checklistItemTemplate">
-      <div class="checklist-item" data-checklist-item style="--checklist-item-color: {{ checklist_colors[0].hex }}">
-        <span class="checklist-item-marker" aria-hidden="true"></span>
-        <input class="checklist-item-text" type="text" value="" maxlength="220" placeholder="Bijv. materialen klaarzetten" aria-label="Checklistpunt">
-        <input type="hidden" value="{{ checklist_colors[0].value }}" data-checklist-color>
-        <div class="checklist-color-picker" role="group" aria-label="Kleur checklistpunt">
-          {% for color in checklist_colors %}
-            <button
-              class="checklist-color-option{% if loop.first %} is-selected{% endif %}"
-              type="button"
-              data-color-value="{{ color.value }}"
-              data-color-hex="{{ color.hex }}"
-              style="--color-option: {{ color.hex }}"
-              aria-label="{{ color.label }}"
-              title="{{ color.label }}"
-              aria-pressed="{% if loop.first %}true{% else %}false{% endif %}"
-            ></button>
-          {% endfor %}
+    {% if checklist_document %}
+      <template id="checklistItemTemplate">
+        <div class="checklist-item" data-checklist-item style="--checklist-item-color: {{ checklist_colors[0].hex }}">
+          <span class="checklist-item-marker" aria-hidden="true"></span>
+          <input class="checklist-item-text" type="text" value="" maxlength="220" placeholder="Bijv. materialen klaarzetten" aria-label="Checklistpunt">
+          <input type="hidden" value="{{ checklist_colors[0].value }}" data-checklist-color>
+          <div class="checklist-color-picker" role="group" aria-label="Kleur checklistpunt">
+            {% for color in checklist_colors %}
+              <button
+                class="checklist-color-option{% if loop.first %} is-selected{% endif %}"
+                type="button"
+                data-color-value="{{ color.value }}"
+                data-color-hex="{{ color.hex }}"
+                style="--color-option: {{ color.hex }}"
+                aria-label="{{ color.label }}"
+                title="{{ color.label }}"
+                aria-pressed="{% if loop.first %}true{% else %}false{% endif %}"
+              ></button>
+            {% endfor %}
+          </div>
+          <button class="checklist-item-remove" type="button" data-remove-checklist-item aria-label="Checklistpunt verwijderen" title="Verwijderen">×</button>
         </div>
-        <button class="checklist-item-remove" type="button" data-remove-checklist-item aria-label="Checklistpunt verwijderen" title="Verwijderen">×</button>
-      </div>
-    </template>
+      </template>
+    {% endif %}
 
-    <div class="agenda-modal checklist-import-modal" id="checklistImportModal" hidden>
+    {% if not checklist_document %}
+      <div class="agenda-modal checklist-import-modal" id="checklistImportModal" hidden>
       <div class="agenda-modal-backdrop" data-close-checklist-import></div>
       <section class="agenda-modal-dialog checklist-import-dialog" role="dialog" aria-modal="true" aria-labelledby="checklistImportTitle">
         <div class="agenda-modal-header">
@@ -232,7 +246,8 @@
           </div>
         {% endif %}
       </section>
-    </div>
+      </div>
+    {% endif %}
   </main>
 
   <script src="../static/checklists.js?v={{ asset_version }}" defer></script>

@@ -271,7 +271,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertEqual([section["key"] for section in sections], ["first", "middle", "later", "no-time"])
 
-    def test_checklists_tile_and_editor_page_render(self):
+    def test_checklist_library_and_editor_render_as_separate_pages(self):
         client = self.build_authenticated_client()
         playbook = {
             "id": 42,
@@ -303,19 +303,27 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             patch.object(legacy, "load_checklist_documents", return_value=[document]),
             patch.object(legacy, "load_checklist_document", return_value=document),
         ):
-            overview_response = client.get("/draaiboeken", secure=True)
-            editor_response = client.get("/checklists?playbook_id=42", secure=True)
+            overview_response = client.get("/checklists", secure=True)
+            editor_response = client.get("/checklists/42", secure=True)
+            legacy_url_response = client.get("/checklists?playbook_id=42", secure=True)
 
         self.assertEqual(overview_response.status_code, 200)
-        self.assertContains(overview_response, 'href="/checklists"')
+        self.assertContains(overview_response, 'href="/checklists/42"')
+        self.assertContains(overview_response, "checklist-program-tile")
+        self.assertContains(overview_response, "data-open-checklist-import")
+        self.assertContains(overview_response, 'id="checklistImportModal"')
+        self.assertNotContains(overview_response, "data-checklist-editor")
         self.assertEqual(editor_response.status_code, 200)
         self.assertContains(editor_response, "Deelnemerslijst klaarleggen")
         self.assertContains(editor_response, "data-checklist-editor")
-        self.assertContains(editor_response, "data-open-checklist-import")
-        self.assertContains(editor_response, 'id="checklistImportModal"')
-        self.assertContains(editor_response, "checklist-program-tile is-active")
+        self.assertContains(editor_response, 'href="/checklists">Terug naar checklists</a>')
+        self.assertNotContains(editor_response, "checklist-program-tile")
+        self.assertNotContains(editor_response, "data-open-checklist-import")
+        self.assertNotContains(editor_response, 'id="checklistImportModal"')
         self.assertContains(editor_response, "Opslaan & PDF")
         self.assertContains(editor_response, "checklists.js")
+        self.assertEqual(legacy_url_response.status_code, 302)
+        self.assertEqual(legacy_url_response["Location"], "/checklists/42")
 
     def test_checklist_import_save_and_pdf_export_flow(self):
         playbook_id = legacy.save_football_days_playbook(
@@ -344,20 +352,23 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         )
         imported_document = legacy.load_checklist_document(playbook_id)
         overview_response = client.get("/checklists", secure=True)
+        detail_response = client.get(f"/checklists/{playbook_id}", secure=True)
 
         self.assertEqual(import_response.status_code, 302)
-        self.assertTrue(import_response["Location"].endswith("#checklist-editor"))
+        self.assertTrue(import_response["Location"].startswith(f"/checklists/{playbook_id}?success="))
         self.assertIsNotNone(imported_document)
         self.assertEqual(len(imported_document["sections"]), 2)
         self.assertContains(overview_response, "Test draaiboek checklistflow")
         self.assertContains(overview_response, "checklist-program-tile")
         self.assertContains(overview_response, 'id="checklistImportModal"')
+        self.assertContains(detail_response, "data-checklist-editor")
+        self.assertNotContains(detail_response, "checklist-program-tile")
 
         imported_document["sections"][0]["items"] = [
             {"text": "Deelnemerslijst klaarleggen", "color": "green"}
         ]
         save_response = client.post(
-            "/checklists",
+            f"/checklists/{playbook_id}",
             {
                 "csrf_token": self.TEST_CSRF_TOKEN,
                 "playbook_id": str(playbook_id),
@@ -369,6 +380,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         pdf_response = client.get(f"/checklists/export-pdf?playbook_id={playbook_id}", secure=True)
 
         self.assertEqual(save_response.status_code, 302)
+        self.assertTrue(save_response["Location"].startswith(f"/checklists/{playbook_id}?success="))
         self.assertEqual(legacy.load_checklist_document(playbook_id)["sections"][0]["items"][0]["color"], "green")
         self.assertEqual(pdf_response.status_code, 200)
         self.assertEqual(pdf_response["Content-Type"], "application/pdf")

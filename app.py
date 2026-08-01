@@ -21257,12 +21257,7 @@ def draaiboeken_page() -> str:
     return render_template("draaiboeken.html", active_page="draaiboeken")
 
 
-@app.route("/checklists", methods=["GET", "POST"])
-def checklists_page() -> str:
-    access_redirect = require_page_access("checklists")
-    if access_redirect is not None:
-        return access_redirect
-
+def load_checklist_page_data() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     playbooks = load_football_days_playbooks("voetbaldagen")
     for playbook in playbooks:
         playbook["eventDateLabel"] = format_football_days_date(playbook.get("eventDate"))
@@ -21276,14 +21271,51 @@ def checklists_page() -> str:
             for section in document.get("sections") or []
             if isinstance(section, dict)
         )
+    return playbooks, checklist_documents
 
-    selected_playbook_id = request.form.get("playbook_id", type=int) if request.method == "POST" else request.args.get("playbook_id", type=int)
-    selected_playbook = next(
-        (playbook for playbook in playbooks if int(playbook.get("id") or 0) == int(selected_playbook_id or 0)),
-        None,
+
+def save_checklist_editor_submission(
+    selected_playbook: Dict[str, Any],
+    existing_document: Dict[str, Any],
+):
+    playbook_id = int(selected_playbook["id"])
+    try:
+        submitted_sections = json.loads(str(request.form.get("checklist_data") or "[]"))
+    except json.JSONDecodeError:
+        return redirect(f"/checklists/{playbook_id}?error=De checklist kon niet worden gelezen.")
+    save_checklist_document(
+        {
+            **existing_document,
+            "playbookId": playbook_id,
+            "title": selected_playbook["title"],
+            "eventDate": selected_playbook["eventDate"],
+            "location": selected_playbook["location"],
+            "sections": submitted_sections,
+        }
     )
+    if str(request.form.get("after_save") or "").strip() == "pdf":
+        return redirect(f"/checklists/export-pdf?playbook_id={playbook_id}")
+    return redirect(f"/checklists/{playbook_id}?success=Checklist opgeslagen.")
+
+
+@app.route("/checklists", methods=["GET", "POST"])
+def checklists_page() -> str:
+    access_redirect = require_page_access("checklists")
+    if access_redirect is not None:
+        return access_redirect
+
+    legacy_playbook_id = request.args.get("playbook_id", type=int)
+    if request.method == "GET" and legacy_playbook_id:
+        return redirect(f"/checklists/{legacy_playbook_id}")
+
+    playbooks, checklist_documents = load_checklist_page_data()
 
     if request.method == "POST":
+        selected_playbook_id = request.form.get("playbook_id", type=int)
+        selected_playbook = next(
+            (playbook for playbook in playbooks if int(playbook.get("id") or 0) == int(selected_playbook_id or 0)),
+            None,
+        )
         if selected_playbook is None:
             return redirect("/checklists?error=Kies eerst een draaiboek van een voetbaldag.")
         existing_document = load_checklist_document(int(selected_playbook["id"]))
@@ -21291,45 +21323,56 @@ def checklists_page() -> str:
         if action == "import":
             save_checklist_document(build_checklist_document_from_playbook(selected_playbook, existing_document))
             return redirect(
-                f"/checklists?playbook_id={selected_playbook['id']}&success=Programma geïmporteerd; bestaande checklistregels zijn behouden.#checklist-editor"
+                f"/checklists/{selected_playbook['id']}?success=Programma geïmporteerd; bestaande checklistregels zijn behouden."
             )
         if existing_document is None:
             return redirect(
-                f"/checklists?playbook_id={selected_playbook['id']}&error=Importeer eerst het programma uit het draaiboek."
+                f"/checklists?error=Importeer eerst het programma uit het draaiboek."
             )
-        try:
-            submitted_sections = json.loads(str(request.form.get("checklist_data") or "[]"))
-        except json.JSONDecodeError:
-            return redirect(
-                f"/checklists?playbook_id={selected_playbook['id']}&error=De checklist kon niet worden gelezen."
-            )
-        save_checklist_document(
-            {
-                **existing_document,
-                "playbookId": selected_playbook["id"],
-                "title": selected_playbook["title"],
-                "eventDate": selected_playbook["eventDate"],
-                "location": selected_playbook["location"],
-                "sections": submitted_sections,
-            }
-        )
-        if str(request.form.get("after_save") or "").strip() == "pdf":
-            return redirect(f"/checklists/export-pdf?playbook_id={selected_playbook['id']}")
-        return redirect(f"/checklists?playbook_id={selected_playbook['id']}&success=Checklist opgeslagen.")
+        return save_checklist_editor_submission(selected_playbook, existing_document)
 
-    checklist_document = (
-        load_checklist_document(int(selected_playbook["id"]))
-        if selected_playbook is not None
-        else None
-    )
-    if checklist_document is not None:
-        checklist_document["eventDateLabel"] = format_football_days_date(checklist_document.get("eventDate"))
     return render_template(
         "checklists.html",
         active_page="checklists",
         playbooks=playbooks,
         checklist_documents=checklist_documents,
         imported_playbook_ids={document["playbookId"] for document in checklist_documents},
+        selected_playbook=None,
+        checklist_document=None,
+        checklist_colors=list(CHECKLIST_COLOR_OPTIONS),
+        success=request.args.get("success", "").strip(),
+        error=request.args.get("error", "").strip(),
+    )
+
+
+@app.route("/checklists/<int:playbook_id>", methods=["GET", "POST"])
+def checklist_detail_page(playbook_id: int) -> str:
+    access_redirect = require_page_access("checklists")
+    if access_redirect is not None:
+        return access_redirect
+
+    playbooks = load_football_days_playbooks("voetbaldagen")
+    selected_playbook = next(
+        (playbook for playbook in playbooks if int(playbook.get("id") or 0) == playbook_id),
+        None,
+    )
+    if selected_playbook is None:
+        return redirect("/checklists?error=Dit draaiboek bestaat niet meer.")
+
+    checklist_document = load_checklist_document(playbook_id)
+    if checklist_document is None:
+        return redirect("/checklists?error=Importeer eerst het programma uit het draaiboek.")
+
+    if request.method == "POST":
+        return save_checklist_editor_submission(selected_playbook, checklist_document)
+
+    checklist_document["eventDateLabel"] = format_football_days_date(checklist_document.get("eventDate"))
+    return render_template(
+        "checklists.html",
+        active_page="checklists",
+        playbooks=[],
+        checklist_documents=[],
+        imported_playbook_ids=set(),
         selected_playbook=selected_playbook,
         checklist_document=checklist_document,
         checklist_colors=list(CHECKLIST_COLOR_OPTIONS),
