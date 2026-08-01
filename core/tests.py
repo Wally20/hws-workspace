@@ -196,7 +196,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
         self.assertEqual(pdf_response.content.count(b"/Type /Page\n"), 1)
 
-    def test_checklist_pdf_is_landscape_a4_and_uses_two_column_page(self):
+    def test_checklist_pdf_is_portrait_a4_with_program_and_checklist_columns(self):
         document = {
             "title": "Test checklist voetbaldag",
             "eventDate": "2026-08-16",
@@ -220,7 +220,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
         self.assertEqual(pdf_bytes.count(b"/Type /Page\n"), 1)
-        self.assertIn(b"/MediaBox [ 0 0 841.8898 595.2756 ]", pdf_bytes)
+        self.assertIn(b"/MediaBox [ 0 0 595.2756 841.8898 ]", pdf_bytes)
 
     def test_reimporting_program_preserves_matching_checklist_items(self):
         playbook = {

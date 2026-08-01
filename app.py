@@ -12621,7 +12621,7 @@ def create_materials_all_clubs_pdf(clubs: List[Dict[str, Any]], materials: List[
 def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
     try:
         from reportlab.lib import colors
-        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.pagesizes import A4
         from reportlab.lib.utils import ImageReader
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
@@ -12652,53 +12652,18 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
         "sections": normalize_checklist_sections(document.get("sections")),
     }
     sections = normalized_document["sections"]
-    page_width, page_height = landscape(A4)
-    margin = 36
-    column_gap = 24
-    column_width = (page_width - (2 * margin) - column_gap) / 2
-    content_top = page_height - 202
+    page_width, page_height = A4
+    margin = 30
+    column_gap = 10
+    program_width = 210
+    checklist_width = page_width - (2 * margin) - column_gap - program_width
+    program_x = margin
+    checklist_x = program_x + program_width + column_gap
+    table_header_y = page_height - 217
+    table_header_height = 24
+    content_top = table_header_y - 7
     content_bottom = 48
     content_height = content_top - content_bottom
-    column_capacity = content_height / 0.72
-
-    def section_weight(section: Dict[str, Any]) -> float:
-        return 45 + (max(1, len(section.get("items") or [])) * 18)
-
-    def can_split(candidate: List[Dict[str, Any]]) -> bool:
-        weights = [section_weight(section) for section in candidate]
-        return any(
-            sum(weights[:split_index]) <= column_capacity and sum(weights[split_index:]) <= column_capacity
-            for split_index in range(len(candidate) + 1)
-        )
-
-    def split_columns(page_sections: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        if len(page_sections) <= 1:
-            return page_sections, []
-        weights = [section_weight(section) for section in page_sections]
-        valid_splits = [
-            split_index
-            for split_index in range(1, len(page_sections))
-            if sum(weights[:split_index]) <= column_capacity and sum(weights[split_index:]) <= column_capacity
-        ]
-        candidate_splits = valid_splits or list(range(1, len(page_sections)))
-        split_index = min(
-            candidate_splits,
-            key=lambda index: abs(sum(weights[:index]) - sum(weights[index:])),
-        )
-        return page_sections[:split_index], page_sections[split_index:]
-
-    pages: List[Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]] = []
-    if not sections:
-        pages.append(([], []))
-    else:
-        pending = list(sections)
-        while pending:
-            page_sections: List[Dict[str, Any]] = []
-            while pending and can_split([*page_sections, pending[0]]):
-                page_sections.append(pending.pop(0))
-            if not page_sections:
-                page_sections.append(pending.pop(0))
-            pages.append(split_columns(page_sections))
 
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=(page_width, page_height))
@@ -12720,84 +12685,202 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
             text = text[:-1]
         return f"{text.rstrip()}…"
 
-    def draw_column(column_sections: List[Dict[str, Any]], x: float) -> None:
-        if not column_sections:
-            pdf.setFillColor(soft)
-            pdf.roundRect(x, content_top - 66, column_width, 54, 7, fill=1, stroke=0)
-            pdf.setFillColor(muted)
-            pdf.setFont(font_names["bold"], 8.5)
-            pdf.drawCentredString(x + (column_width / 2), content_top - 39, "Geen programmaonderdelen in deze kolom")
-            return
+    def wrap_text(text_value: Any, font_name: str, font_size: float, max_width: float) -> List[str]:
+        words = str(text_value or "").strip().split()
+        if not words:
+            return [""]
+        lines: List[str] = []
+        current_line = ""
+        for word in words:
+            candidate = f"{current_line} {word}".strip()
+            if pdfmetrics.stringWidth(candidate, font_name, font_size) <= max_width:
+                current_line = candidate
+                continue
+            if current_line:
+                lines.append(current_line)
+                current_line = ""
+            remaining_word = word
+            while remaining_word and pdfmetrics.stringWidth(remaining_word, font_name, font_size) > max_width:
+                split_at = len(remaining_word)
+                while split_at > 1 and pdfmetrics.stringWidth(remaining_word[:split_at], font_name, font_size) > max_width:
+                    split_at -= 1
+                lines.append(remaining_word[:split_at])
+                remaining_word = remaining_word[split_at:]
+            current_line = remaining_word
+        if current_line:
+            lines.append(current_line)
+        return lines or [""]
 
-        total_weight = sum(section_weight(section) for section in column_sections)
-        scale = min(1.0, content_height / max(total_weight, 1))
-        y_top = content_top
-        for section in column_sections:
-            items = section.get("items") or []
-            section_height = section_weight(section) * scale
-            card_height = max(24, section_height - (6 * scale))
-            pdf.setFillColor(soft)
-            pdf.roundRect(x, y_top - card_height, column_width, card_height, 6, fill=1, stroke=0)
+    activity_font_size = 8.4
+    activity_leading = 10.2
+    item_font_size = 7.8
+    item_leading = 9.9
+    item_text_width = checklist_width - 45
+    row_gap = 7
 
-            heading_size = max(6.2, 9.2 * scale)
-            time_size = max(5.8, 7.4 * scale)
-            header_y = y_top - max(15, 18 * scale)
-            time_text = " – ".join(
-                value for value in (section.get("startTime"), section.get("endTime")) if str(value or "").strip()
-            ) or "Programma"
-            time_width = min(80, max(46, pdfmetrics.stringWidth(time_text, font_names["extra_bold"], time_size) + 18))
-            pdf.setFillColor(black)
-            pdf.roundRect(x + 8, header_y - 5, time_width, max(15, 18 * scale), 4, fill=1, stroke=0)
-            pdf.setFillColor(white)
-            pdf.setFont(font_names["extra_bold"], time_size)
-            pdf.drawCentredString(x + 8 + (time_width / 2), header_y, fit_text(time_text, font_names["extra_bold"], time_size, time_width - 10))
-            pdf.setFillColor(black)
-            pdf.setFont(font_names["extra_bold"], heading_size)
-            pdf.drawString(
-                x + time_width + 17,
-                header_y,
-                fit_text(section.get("activity"), font_names["extra_bold"], heading_size, column_width - time_width - 28),
+    def activity_lines(section: Dict[str, Any]) -> List[str]:
+        return wrap_text(
+            section.get("activity") or "Programmaonderdeel",
+            font_names["extra_bold"],
+            activity_font_size,
+            program_width - 16,
+        )
+
+    def checklist_item_lines(item: Dict[str, Any]) -> List[str]:
+        return wrap_text(
+            item.get("text") or "Nog geen checklistregels toegevoegd",
+            font_names["regular"] if item.get("empty") else font_names["bold"],
+            item_font_size,
+            item_text_width,
+        )
+
+    def checklist_item_height(item: Dict[str, Any]) -> float:
+        return max(19, (len(checklist_item_lines(item)) * item_leading) + 5)
+
+    def section_row_height(section: Dict[str, Any], items: List[Dict[str, Any]]) -> float:
+        program_height = 9 + 16 + 7 + (len(activity_lines(section)) * activity_leading) + 8
+        checklist_height = 16 + sum(checklist_item_height(item) for item in items)
+        if len(items) > 1:
+            checklist_height += (len(items) - 1) * 2
+        return max(56, program_height, checklist_height)
+
+    empty_item = {
+        "text": "Nog geen checklistregels toegevoegd",
+        "color": "gold",
+        "empty": True,
+    }
+
+    flow_rows: List[Dict[str, Any]] = []
+    for section in sections:
+        display_items = list(section.get("items") or [empty_item])
+        item_index = 0
+        chunk_index = 0
+        while item_index < len(display_items):
+            chunk = [display_items[item_index]]
+            next_index = item_index + 1
+            while next_index < len(display_items):
+                candidate = [*chunk, display_items[next_index]]
+                if section_row_height(section, candidate) > content_height:
+                    break
+                chunk = candidate
+                next_index += 1
+            flow_rows.append(
+                {
+                    "section": section,
+                    "items": chunk,
+                    "continuation": chunk_index > 0,
+                    "height": min(content_height, section_row_height(section, chunk)),
+                }
             )
+            item_index = next_index
+            chunk_index += 1
 
-            item_height = max(9.5, 18 * scale)
-            item_font_size = max(5.4, 7.5 * scale)
-            item_y = header_y - max(15, 18 * scale)
-            display_items = items or [{"text": "Nog geen checklistregels toegevoegd", "color": "gold", "empty": True}]
-            for item in display_items:
-                color_key = normalize_checklist_color(item.get("color"))
-                item_color = colors.HexColor(CHECKLIST_COLOR_HEX[color_key])
-                row_bottom = item_y - item_height + 2
-                pdf.setFillColor(item_color)
-                pdf.roundRect(x + 8, row_bottom, 3.5, max(5, item_height - 3), 1.5, fill=1, stroke=0)
-                box_size = max(6, min(9.5, item_height - 5))
-                box_y = row_bottom + ((item_height - 3 - box_size) / 2)
-                pdf.setStrokeColor(item_color if not item.get("empty") else line)
-                pdf.setLineWidth(0.9)
-                pdf.rect(x + 18, box_y, box_size, box_size, fill=0, stroke=1)
-                pdf.setFillColor(muted if item.get("empty") else charcoal)
-                pdf.setFont(font_names["regular"] if item.get("empty") else font_names["bold"], item_font_size)
-                pdf.drawString(
-                    x + 18 + box_size + 8,
-                    row_bottom + max(3.5, (item_height - item_font_size) / 2),
-                    fit_text(item.get("text"), font_names["regular"] if item.get("empty") else font_names["bold"], item_font_size, column_width - box_size - 43),
-                )
-                item_y -= item_height
-            y_top -= section_height
+    pages: List[List[Dict[str, Any]]] = []
+    if not flow_rows:
+        pages.append([])
+    else:
+        current_page: List[Dict[str, Any]] = []
+        used_height = 0.0
+        for row in flow_rows:
+            required_height = row["height"] + (row_gap if current_page else 0)
+            if current_page and used_height + required_height > content_height:
+                pages.append(current_page)
+                current_page = []
+                used_height = 0.0
+                required_height = row["height"]
+            current_page.append(row)
+            used_height += required_height
+        if current_page:
+            pages.append(current_page)
+
+    def draw_program_card(row: Dict[str, Any], y_top: float) -> None:
+        section = row["section"]
+        card_height = row["height"]
+        pdf.setFillColor(soft)
+        pdf.roundRect(program_x, y_top - card_height, program_width, card_height, 6, fill=1, stroke=0)
+
+        time_text = " – ".join(
+            value for value in (section.get("startTime"), section.get("endTime")) if str(value or "").strip()
+        ) or "Programma"
+        time_size = 7.1
+        time_width = min(
+            program_width - 16,
+            max(52, pdfmetrics.stringWidth(time_text, font_names["extra_bold"], time_size) + 18),
+        )
+        pill_top = y_top - 9
+        pdf.setFillColor(black)
+        pdf.roundRect(program_x + 8, pill_top - 16, time_width, 16, 4, fill=1, stroke=0)
+        pdf.setFillColor(white)
+        pdf.setFont(font_names["extra_bold"], time_size)
+        pdf.drawCentredString(
+            program_x + 8 + (time_width / 2),
+            pill_top - 11.1,
+            fit_text(time_text, font_names["extra_bold"], time_size, time_width - 10),
+        )
+        if row["continuation"]:
+            pdf.setFillColor(gold)
+            pdf.setFont(font_names["bold"], 6.3)
+            pdf.drawRightString(program_x + program_width - 8, pill_top - 11, "VERVOLG")
+
+        pdf.setFillColor(black)
+        pdf.setFont(font_names["extra_bold"], activity_font_size)
+        activity_y = pill_top - 16 - 7 - activity_font_size
+        for line_text in activity_lines(section):
+            pdf.drawString(program_x + 8, activity_y, line_text)
+            activity_y -= activity_leading
+
+    def draw_checklist_card(row: Dict[str, Any], y_top: float) -> None:
+        card_height = row["height"]
+        pdf.setFillColor(soft)
+        pdf.roundRect(checklist_x, y_top - card_height, checklist_width, card_height, 6, fill=1, stroke=0)
+
+        item_top = y_top - 8
+        for item in row["items"]:
+            item_height = checklist_item_height(item)
+            item_bottom = item_top - item_height
+            color_key = normalize_checklist_color(item.get("color"))
+            item_color = colors.HexColor(CHECKLIST_COLOR_HEX[color_key])
+            pdf.setFillColor(item_color)
+            pdf.roundRect(checklist_x + 8, item_bottom + 2, 3.5, item_height - 4, 1.5, fill=1, stroke=0)
+
+            box_size = 8
+            box_y = item_bottom + ((item_height - box_size) / 2)
+            pdf.setStrokeColor(item_color if not item.get("empty") else line)
+            pdf.setLineWidth(0.9)
+            pdf.rect(checklist_x + 19, box_y, box_size, box_size, fill=0, stroke=1)
+
+            font_name = font_names["regular"] if item.get("empty") else font_names["bold"]
+            pdf.setFillColor(muted if item.get("empty") else charcoal)
+            pdf.setFont(font_name, item_font_size)
+            text_y = item_top - item_font_size - 2
+            for line_text in checklist_item_lines(item):
+                pdf.drawString(checklist_x + 35, text_y, line_text)
+                text_y -= item_leading
+            item_top = item_bottom - 2
+
+    def draw_empty_page() -> None:
+        pdf.setFillColor(soft)
+        pdf.roundRect(margin, content_top - 58, page_width - (2 * margin), 52, 7, fill=1, stroke=0)
+        pdf.setFillColor(muted)
+        pdf.setFont(font_names["bold"], 8.5)
+        pdf.drawCentredString(page_width / 2, content_top - 36, "Nog geen programmaonderdelen toegevoegd")
 
     logo_path = os.path.join(os.path.dirname(__file__), "static", "assets", "hws-logo.png")
     formatted_date = format_football_days_date(normalized_document["eventDate"]) or "Datum niet ingevuld"
-    for page_index, (left_sections, right_sections) in enumerate(pages, start=1):
+    for page_index, page_rows in enumerate(pages, start=1):
+        pdf.setFillColor(white)
+        pdf.rect(0, 0, page_width, page_height, fill=1, stroke=0)
         pdf.setFillColor(black)
-        pdf.rect(0, page_height - 105, page_width, 105, fill=1, stroke=0)
+        pdf.rect(0, page_height - 102, page_width, 102, fill=1, stroke=0)
         pdf.setFillColor(gold)
-        pdf.rect(0, page_height - 110, page_width, 5, fill=1, stroke=0)
+        pdf.rect(0, page_height - 107, page_width, 5, fill=1, stroke=0)
         if os.path.exists(logo_path):
             pdf.drawImage(
                 ImageReader(logo_path),
-                page_width - 112,
-                page_height - 98,
-                78,
-                78,
+                page_width - 96,
+                page_height - 91,
+                66,
+                66,
                 preserveAspectRatio=True,
                 mask="auto",
                 anchor="c",
@@ -12806,36 +12889,57 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
         pdf.setFont(font_names["bold"], 8.5)
         pdf.drawString(margin, page_height - 31, "HWS VOETBALSCHOOL")
         pdf.setFillColor(white)
-        pdf.setFont(font_names["extra_bold"], 22)
-        pdf.drawString(margin, page_height - 69, "CHECKLIST COÖRDINATOR")
+        pdf.setFont(font_names["extra_bold"], 20)
+        pdf.drawString(margin, page_height - 65, "CHECKLIST COÖRDINATOR")
         pdf.setFillColor(colors.HexColor("#cfcfcf"))
         pdf.setFont(font_names["regular"], 7.5)
-        pdf.drawString(margin, page_height - 90, "Programma en controlepunten voor op het clipboard")
+        pdf.drawString(margin, page_height - 85, "Programma en controlepunten voor op het clipboard")
 
-        meta_y = page_height - 157
+        meta_y = page_height - 154
         pdf.setFillColor(soft)
         pdf.roundRect(margin, meta_y, page_width - (2 * margin), 30, 6, fill=1, stroke=0)
         pdf.setFillColor(black)
         pdf.setFont(font_names["extra_bold"], 8.2)
-        pdf.drawString(margin + 13, meta_y + 11, fit_text(normalized_document["title"], font_names["extra_bold"], 8.2, 385))
+        pdf.drawString(margin + 13, meta_y + 11, fit_text(normalized_document["title"], font_names["extra_bold"], 8.2, 247))
         pdf.setFillColor(muted)
         pdf.setFont(font_names["bold"], 7.2)
-        pdf.drawString(margin + 414, meta_y + 11, fit_text(formatted_date, font_names["bold"], 7.2, 115))
+        pdf.drawString(margin + 268, meta_y + 11, fit_text(formatted_date, font_names["bold"], 7.2, 108))
         pdf.drawString(
-            margin + 544,
+            margin + 386,
             meta_y + 11,
-            fit_text(normalized_document["location"] or "Locatie niet ingevuld", font_names["bold"], 7.2, page_width - margin - (margin + 544) - 12),
+            fit_text(
+                normalized_document["location"] or "Locatie niet ingevuld",
+                font_names["bold"],
+                7.2,
+                page_width - (2 * margin) - 399,
+            ),
         )
 
         pdf.setFillColor(black)
-        pdf.setFont(font_names["extra_bold"], 10.5)
-        pdf.drawString(margin, page_height - 186, "PROGRAMMA & CHECKLISTS")
+        pdf.setFont(font_names["extra_bold"], 10)
+        pdf.drawString(margin, page_height - 184, "PROGRAMMA & CHECKLISTS")
         pdf.setFillColor(muted)
-        pdf.setFont(font_names["regular"], 7)
-        pdf.drawRightString(page_width - margin, page_height - 186, "Vink ieder punt af zodra het is uitgevoerd")
+        pdf.setFont(font_names["regular"], 6.7)
+        pdf.drawRightString(page_width - margin, page_height - 184, "Vink ieder punt af zodra het is uitgevoerd")
 
-        draw_column(left_sections, margin)
-        draw_column(right_sections, margin + column_width + column_gap)
+        pdf.setFillColor(black)
+        pdf.roundRect(program_x, table_header_y, program_width, table_header_height, 5, fill=1, stroke=0)
+        pdf.roundRect(checklist_x, table_header_y, checklist_width, table_header_height, 5, fill=1, stroke=0)
+        pdf.setFillColor(gold)
+        pdf.roundRect(checklist_x + 8, table_header_y + 7, 3.5, 10, 1.5, fill=1, stroke=0)
+        pdf.setFillColor(white)
+        pdf.setFont(font_names["extra_bold"], 7.8)
+        pdf.drawString(program_x + 10, table_header_y + 8.2, "PROGRAMMA")
+        pdf.drawString(checklist_x + 19, table_header_y + 8.2, "BIJBEHORENDE CHECKLIST")
+
+        if page_rows:
+            y_top = content_top
+            for row in page_rows:
+                draw_program_card(row, y_top)
+                draw_checklist_card(row, y_top)
+                y_top -= row["height"] + row_gap
+        else:
+            draw_empty_page()
 
         pdf.setStrokeColor(line)
         pdf.setLineWidth(0.6)
