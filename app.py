@@ -13087,6 +13087,18 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
                 page_width - margin - 125,
             ),
         )
+        pdf.setFillColor(gold)
+        pdf.setFont(font_names["extra_bold"], 6.8)
+        pdf.drawString(
+            margin,
+            page_height - 97,
+            fit_text(
+                normalized_document["title"],
+                font_names["extra_bold"],
+                6.8,
+                page_width - margin - 125,
+            ),
+        )
 
         pdf.setFillColor(black)
         pdf.setFont(font_names["extra_bold"], 10)
