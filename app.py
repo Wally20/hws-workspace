@@ -12809,7 +12809,7 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
     checklist_width = page_width - (2 * margin) - column_gap - program_width
     program_x = margin
     checklist_x = program_x + program_width + column_gap
-    table_header_y = page_height - 217
+    table_header_y = page_height - 171
     table_header_height = 24
     content_top = table_header_y - 7
     content_bottom = 48
@@ -13051,7 +13051,6 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
         pdf.drawCentredString(page_width / 2, content_top - 36, "Nog geen programmaonderdelen toegevoegd")
 
     logo_path = os.path.join(os.path.dirname(__file__), "static", "assets", "hws-logo.png")
-    formatted_date = format_football_days_date(normalized_document["eventDate"]) or "Datum niet ingevuld"
     for page_index, page_rows in enumerate(pages, start=1):
         pdf.setFillColor(white)
         pdf.rect(0, 0, page_width, page_height, fill=1, stroke=0)
@@ -13089,32 +13088,12 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
             ),
         )
 
-        meta_y = page_height - 154
-        pdf.setFillColor(soft)
-        pdf.roundRect(margin, meta_y, page_width - (2 * margin), 30, 6, fill=1, stroke=0)
-        pdf.setFillColor(black)
-        pdf.setFont(font_names["extra_bold"], 8.2)
-        pdf.drawString(margin + 13, meta_y + 11, fit_text(normalized_document["title"], font_names["extra_bold"], 8.2, 247))
-        pdf.setFillColor(muted)
-        pdf.setFont(font_names["bold"], 7.2)
-        pdf.drawString(margin + 268, meta_y + 11, fit_text(formatted_date, font_names["bold"], 7.2, 108))
-        pdf.drawString(
-            margin + 386,
-            meta_y + 11,
-            fit_text(
-                normalized_document["location"] or "Locatie niet ingevuld",
-                font_names["bold"],
-                7.2,
-                page_width - (2 * margin) - 399,
-            ),
-        )
-
         pdf.setFillColor(black)
         pdf.setFont(font_names["extra_bold"], 10)
-        pdf.drawString(margin, page_height - 184, "PROGRAMMA & CHECKLISTS")
+        pdf.drawString(margin, page_height - 138, "PROGRAMMA & CHECKLISTS")
         pdf.setFillColor(muted)
         pdf.setFont(font_names["regular"], 6.7)
-        pdf.drawRightString(page_width - margin, page_height - 184, "Vink ieder punt af zodra het is uitgevoerd")
+        pdf.drawRightString(page_width - margin, page_height - 138, "Vink ieder punt af zodra het is uitgevoerd")
 
         pdf.setFillColor(black)
         pdf.roundRect(
