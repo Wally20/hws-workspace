@@ -13128,9 +13128,6 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
         pdf.setStrokeColor(line)
         pdf.setLineWidth(0.6)
         pdf.line(margin, 33, page_width - margin, 33)
-        pdf.setFillColor(muted)
-        pdf.setFont(font_names["regular"], 6.7)
-        pdf.drawString(margin, 19, f"Bijgewerkt {date.today().strftime('%d-%m-%Y')}")
         pdf.setFillColor(black)
         pdf.setFont(font_names["bold"], 6.7)
         page_label = "hwsvoetbalschool.nl"
