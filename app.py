@@ -93,6 +93,7 @@ CHECKLIST_COLOR_OPTIONS = (
     {"value": "purple", "label": "Paars", "hex": "#7758a6"},
 )
 CHECKLIST_COLOR_HEX = {option["value"]: option["hex"] for option in CHECKLIST_COLOR_OPTIONS}
+DEFAULT_CHECKLIST_TITLE = "Programma en controlepunten voor op het clipboard"
 FOOTBALL_PLAYBOOK_CONTEXTS = {
     "voetbaldagen": {
         "playbookType": "voetbaldagen",
@@ -3861,6 +3862,7 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 playbook_id INTEGER NOT NULL UNIQUE,
                 title TEXT NOT NULL,
+                checklist_title TEXT NOT NULL DEFAULT 'Programma en controlepunten voor op het clipboard',
                 event_date TEXT,
                 location TEXT,
                 sections_json TEXT NOT NULL DEFAULT '[]',
@@ -4232,6 +4234,17 @@ def init_db() -> None:
             except sqlite3.OperationalError as exc:
                 if "duplicate column name" not in str(exc).lower():
                     raise
+
+        checklist_document_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(checklist_documents)").fetchall()
+        }
+        if "checklist_title" not in checklist_document_columns:
+            connection.execute(
+                "ALTER TABLE checklist_documents "
+                "ADD COLUMN checklist_title TEXT NOT NULL "
+                "DEFAULT 'Programma en controlepunten voor op het clipboard'"
+            )
 
         contract_columns = {
             row["name"]
@@ -7473,6 +7486,10 @@ def normalize_checklist_color(value: Any) -> str:
     return normalized if normalized in CHECKLIST_COLOR_HEX else "gold"
 
 
+def normalize_checklist_title(value: Any) -> str:
+    return str(value or "").strip()[:140] or DEFAULT_CHECKLIST_TITLE
+
+
 def get_checklist_section_time_sort_key(section: Dict[str, Any], fallback_index: int) -> Tuple[int, int, int, int]:
     def time_in_minutes(value: Any) -> Optional[int]:
         match = re.fullmatch(r"([01]\d|2[0-3]):([0-5]\d)", str(value or "").strip())
@@ -7536,6 +7553,7 @@ def normalize_checklist_document(row: Optional[sqlite3.Row]) -> Optional[Dict[st
         "id": int(row["id"]),
         "playbookId": int(row["playbook_id"]),
         "title": str(row["title"] or "Checklist voetbaldag").strip(),
+        "checklistTitle": normalize_checklist_title(row["checklist_title"]),
         "eventDate": str(row["event_date"] or "").strip(),
         "location": str(row["location"] or "").strip(),
         "sections": normalize_checklist_sections(sections),
@@ -7548,7 +7566,7 @@ def load_checklist_document(playbook_id: int) -> Optional[Dict[str, Any]]:
     with get_db_connection() as connection:
         row = connection.execute(
             """
-            SELECT id, playbook_id, title, event_date, location, sections_json, created_at, updated_at
+            SELECT id, playbook_id, title, checklist_title, event_date, location, sections_json, created_at, updated_at
             FROM checklist_documents
             WHERE playbook_id = ?
             """,
@@ -7561,7 +7579,7 @@ def load_checklist_documents() -> List[Dict[str, Any]]:
     with get_db_connection() as connection:
         rows = connection.execute(
             """
-            SELECT id, playbook_id, title, event_date, location, sections_json, created_at, updated_at
+            SELECT id, playbook_id, title, checklist_title, event_date, location, sections_json, created_at, updated_at
             FROM checklist_documents
             ORDER BY COALESCE(NULLIF(event_date, ''), updated_at) DESC, updated_at DESC, id DESC
             """
@@ -7624,6 +7642,7 @@ def build_checklist_document_from_playbook(
         "id": existing_document.get("id") if isinstance(existing_document, dict) else None,
         "playbookId": int(playbook.get("id") or 0),
         "title": str(playbook.get("title") or "Checklist voetbaldag").strip(),
+        "checklistTitle": normalize_checklist_title((existing_document or {}).get("checklistTitle")),
         "eventDate": str(playbook.get("eventDate") or "").strip(),
         "location": str(playbook.get("location") or "").strip(),
         "sections": normalize_checklist_sections(imported_sections),
@@ -7638,16 +7657,18 @@ def save_checklist_document(document: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("Kies eerst een draaiboek van een voetbaldag.")
     now = utcnow_iso()
     title = str(document.get("title") or "Checklist voetbaldag").strip()[:180]
+    checklist_title = normalize_checklist_title(document.get("checklistTitle"))
     sections = normalize_checklist_sections(document.get("sections"))
     with get_db_connection() as connection:
         connection.execute(
             """
             INSERT INTO checklist_documents (
-                playbook_id, title, event_date, location, sections_json, created_at, updated_at
+                playbook_id, title, checklist_title, event_date, location, sections_json, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(playbook_id) DO UPDATE SET
                 title = excluded.title,
+                checklist_title = excluded.checklist_title,
                 event_date = excluded.event_date,
                 location = excluded.location,
                 sections_json = excluded.sections_json,
@@ -7656,6 +7677,7 @@ def save_checklist_document(document: Dict[str, Any]) -> Dict[str, Any]:
             (
                 playbook_id,
                 title,
+                checklist_title,
                 str(document.get("eventDate") or "").strip()[:20],
                 str(document.get("location") or "").strip()[:180],
                 json.dumps(sections, ensure_ascii=False),
@@ -12647,6 +12669,7 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
 
     normalized_document = {
         "title": str(document.get("title") or "Checklist voetbaldag").strip(),
+        "checklistTitle": normalize_checklist_title(document.get("checklistTitle")),
         "eventDate": str(document.get("eventDate") or "").strip(),
         "location": str(document.get("location") or "").strip(),
         "sections": normalize_checklist_sections(document.get("sections")),
@@ -12654,7 +12677,7 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
     sections = normalized_document["sections"]
     page_width, page_height = A4
     margin = 30
-    column_gap = 10
+    column_gap = 0
     program_width = 210
     checklist_width = page_width - (2 * margin) - column_gap - program_width
     program_x = margin
@@ -12667,7 +12690,7 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
 
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=(page_width, page_height))
-    pdf.setTitle(f"Checklist coördinator - {normalized_document['title']}")
+    pdf.setTitle(f"{normalized_document['checklistTitle']} - {normalized_document['title']}")
     pdf.setAuthor("HWS Voetbalschool")
     black = colors.HexColor("#111111")
     charcoal = colors.HexColor("#252525")
@@ -12795,9 +12818,6 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
 
     def draw_program_card(row: Dict[str, Any], y_top: float) -> None:
         section = row["section"]
-        card_height = row["height"]
-        pdf.setFillColor(soft)
-        pdf.roundRect(program_x, y_top - card_height, program_width, card_height, 6, fill=1, stroke=0)
 
         time_text = " – ".join(
             value for value in (section.get("startTime"), section.get("endTime")) if str(value or "").strip()
@@ -12830,10 +12850,6 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
             activity_y -= activity_leading
 
     def draw_checklist_card(row: Dict[str, Any], y_top: float) -> None:
-        card_height = row["height"]
-        pdf.setFillColor(soft)
-        pdf.roundRect(checklist_x, y_top - card_height, checklist_width, card_height, 6, fill=1, stroke=0)
-
         item_top = y_top - 8
         for item in row["items"]:
             item_height = checklist_item_height(item)
@@ -12857,6 +12873,25 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
                 pdf.drawString(checklist_x + 35, text_y, line_text)
                 text_y -= item_leading
             item_top = item_bottom - 2
+
+    def draw_combined_row(row: Dict[str, Any], y_top: float) -> None:
+        card_height = row["height"]
+        card_bottom = y_top - card_height
+        pdf.setFillColor(soft)
+        pdf.setStrokeColor(line)
+        pdf.setLineWidth(0.75)
+        pdf.roundRect(
+            program_x,
+            card_bottom,
+            program_width + checklist_width,
+            card_height,
+            6,
+            fill=1,
+            stroke=1,
+        )
+        pdf.setStrokeColor(colors.HexColor("#c9c9c9"))
+        pdf.setLineWidth(0.9)
+        pdf.line(checklist_x, card_bottom + 7, checklist_x, y_top - 7)
 
     def draw_empty_page() -> None:
         pdf.setFillColor(soft)
@@ -12892,8 +12927,17 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
         pdf.setFont(font_names["extra_bold"], 20)
         pdf.drawString(margin, page_height - 65, "CHECKLIST COÖRDINATOR")
         pdf.setFillColor(colors.HexColor("#cfcfcf"))
-        pdf.setFont(font_names["regular"], 7.5)
-        pdf.drawString(margin, page_height - 85, "Programma en controlepunten voor op het clipboard")
+        pdf.setFont(font_names["bold"], 8.2)
+        pdf.drawString(
+            margin,
+            page_height - 85,
+            fit_text(
+                normalized_document["checklistTitle"],
+                font_names["bold"],
+                8.2,
+                page_width - margin - 125,
+            ),
+        )
 
         meta_y = page_height - 154
         pdf.setFillColor(soft)
@@ -12923,10 +12967,20 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
         pdf.drawRightString(page_width - margin, page_height - 184, "Vink ieder punt af zodra het is uitgevoerd")
 
         pdf.setFillColor(black)
-        pdf.roundRect(program_x, table_header_y, program_width, table_header_height, 5, fill=1, stroke=0)
-        pdf.roundRect(checklist_x, table_header_y, checklist_width, table_header_height, 5, fill=1, stroke=0)
+        pdf.roundRect(
+            program_x,
+            table_header_y,
+            program_width + checklist_width,
+            table_header_height,
+            5,
+            fill=1,
+            stroke=0,
+        )
         pdf.setFillColor(gold)
         pdf.roundRect(checklist_x + 8, table_header_y + 7, 3.5, 10, 1.5, fill=1, stroke=0)
+        pdf.setStrokeColor(gold)
+        pdf.setLineWidth(1.25)
+        pdf.line(checklist_x, table_header_y + 5, checklist_x, table_header_y + table_header_height - 5)
         pdf.setFillColor(white)
         pdf.setFont(font_names["extra_bold"], 7.8)
         pdf.drawString(program_x + 10, table_header_y + 8.2, "PROGRAMMA")
@@ -12935,6 +12989,7 @@ def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
         if page_rows:
             y_top = content_top
             for row in page_rows:
+                draw_combined_row(row, y_top)
                 draw_program_card(row, y_top)
                 draw_checklist_card(row, y_top)
                 y_top -= row["height"] + row_gap
@@ -21288,6 +21343,7 @@ def save_checklist_editor_submission(
             **existing_document,
             "playbookId": playbook_id,
             "title": selected_playbook["title"],
+            "checklistTitle": request.form.get("checklist_title") or existing_document.get("checklistTitle"),
             "eventDate": selected_playbook["eventDate"],
             "location": selected_playbook["location"],
             "sections": submitted_sections,

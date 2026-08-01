@@ -834,6 +834,11 @@ body.sidebar-collapsed .sidebar-toggle {
   align-items: center;
 }
 
+.checklists-editor-toolbar > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
 .checklists-editor-toolbar h2,
 .checklists-editor-toolbar p {
   margin: 0;
@@ -857,6 +862,33 @@ body.sidebar-collapsed .sidebar-toggle {
   margin-top: 4px;
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.checklist-pdf-title-field {
+  display: grid;
+  gap: 6px;
+  max-width: 680px;
+  margin-top: 16px;
+}
+
+.checklist-pdf-title-field > span {
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.checklist-pdf-title-field input {
+  min-height: 46px;
+  border-radius: 11px;
+  background: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.checklist-pdf-title-field small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
 }
 
 .checklists-editor-actions {

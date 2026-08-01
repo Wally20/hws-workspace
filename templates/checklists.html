@@ -102,6 +102,19 @@
             <span class="checklists-editor-eyebrow">{{ checklist_document.eventDateLabel or "Datum niet ingevuld" }}{% if checklist_document.location %} · {{ checklist_document.location }}{% endif %}</span>
             <h2>{{ checklist_document.title }}</h2>
             <p>De programmaonderdelen staan chronologisch onder elkaar. Gebruik kleuren om rollen, prioriteiten of momenten snel herkenbaar te maken.</p>
+            <label class="checklist-pdf-title-field">
+              <span>Titel van de checklist</span>
+              <input
+                type="text"
+                name="checklist_title"
+                value="{{ checklist_document.checklistTitle }}"
+                maxlength="140"
+                required
+                aria-describedby="checklistPdfTitleHint"
+                placeholder="Bijv. Checklist coördinator – ochtendprogramma"
+              >
+              <small id="checklistPdfTitleHint">Deze titel staat bovenaan de PDF, direct onder “Checklist coördinator”.</small>
+            </label>
           </div>
           <div class="checklists-editor-actions">
             <button class="subtle-button" type="submit" name="after_save" value="pdf" formtarget="_blank">Opslaan & PDF</button>

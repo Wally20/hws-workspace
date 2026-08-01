@@ -199,6 +199,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
     def test_checklist_pdf_is_portrait_a4_with_program_and_checklist_columns(self):
         document = {
             "title": "Test checklist voetbaldag",
+            "checklistTitle": "Checklist coördinator – testdag",
             "eventDate": "2026-08-16",
             "location": "VV Test",
             "sections": [
@@ -235,6 +236,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         }
         existing_document = {
             "id": 8,
+            "checklistTitle": "Checklist ontvangstteam",
             "sections": [
                 {
                     "key": "program-1",
@@ -256,6 +258,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         imported = legacy.build_checklist_document_from_playbook(playbook, existing_document)
 
         self.assertEqual(imported["playbookId"], 42)
+        self.assertEqual(imported["checklistTitle"], "Checklist ontvangstteam")
         self.assertEqual(imported["sections"][0]["items"][0]["color"], "green")
         self.assertEqual(imported["sections"][1]["items"][0]["text"], "Hesjes verdelen")
 
@@ -284,6 +287,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             "id": 8,
             "playbookId": 42,
             "title": playbook["title"],
+            "checklistTitle": "Checklist ontvangstteam",
             "eventDate": playbook["eventDate"],
             "location": playbook["location"],
             "sections": [
@@ -316,6 +320,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(editor_response.status_code, 200)
         self.assertContains(editor_response, "Deelnemerslijst klaarleggen")
         self.assertContains(editor_response, "data-checklist-editor")
+        self.assertContains(editor_response, 'name="checklist_title"')
+        self.assertContains(editor_response, 'value="Checklist ontvangstteam"')
         self.assertContains(editor_response, 'href="/checklists">Terug naar checklists</a>')
         self.assertNotContains(editor_response, "checklist-program-tile")
         self.assertNotContains(editor_response, "data-open-checklist-import")
@@ -373,6 +379,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 "csrf_token": self.TEST_CSRF_TOKEN,
                 "playbook_id": str(playbook_id),
                 "action": "save",
+                "checklist_title": "Checklist coördinator – finaleprogramma",
                 "checklist_data": json.dumps(imported_document["sections"]),
             },
             secure=True,
@@ -381,6 +388,10 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertEqual(save_response.status_code, 302)
         self.assertTrue(save_response["Location"].startswith(f"/checklists/{playbook_id}?success="))
+        self.assertEqual(
+            legacy.load_checklist_document(playbook_id)["checklistTitle"],
+            "Checklist coördinator – finaleprogramma",
+        )
         self.assertEqual(legacy.load_checklist_document(playbook_id)["sections"][0]["items"][0]["color"], "green")
         self.assertEqual(pdf_response.status_code, 200)
         self.assertEqual(pdf_response["Content-Type"], "application/pdf")
