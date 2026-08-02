@@ -177,6 +177,7 @@
       <input type="hidden" name="days_json" value="" data-planning-days-json>
       <input type="hidden" name="task_assignment_json" value="" data-planning-task-assignment-json>
       <input type="hidden" name="bullet_slides_json" value="" data-planning-bullet-slides-json>
+      <input type="hidden" name="slide_order_json" value="" data-planning-slide-order-json>
       <section class="summary-card old-function-tile planning-editor-meta">
         <div class="planning-meta-grid planning-meta-grid-compact">
           <label class="field">
@@ -195,36 +196,36 @@
         </div>
       </section>
 
-      <section class="summary-card old-function-tile planning-bullet-panel" data-planning-bullet-section>
-        <div class="feature-list-head planning-bullet-titlebar">
+      <section class="summary-card old-function-tile planning-slide-panel">
+        <div class="feature-list-head planning-slide-titlebar">
           <div>
-            <p class="panel-title">Bulletpointslides</p>
-            <p class="feature-list-subtitle">Voeg losse slides toe met een eigen titel en opsomming, en bepaal waar ze in de export komen.</p>
+            <p class="panel-title">Slidevolgorde</p>
+            <p class="feature-list-subtitle">Sleep dagplanningen, bulletpointslides en de taakverdeling aan de handgreep naar de gewenste plek. Deze volgorde wordt ook in de PDF- en PNG-export gebruikt.</p>
           </div>
-          <button type="button" class="subtle-button action-small" data-add-planning-bullet-slide>+ Slide toevoegen</button>
+          <div class="planning-slide-add-actions">
+            <button type="button" class="subtle-button action-small" data-add-planning-bullet-slide>+ Bulletpointslide</button>
+            <button type="button" class="subtle-button action-small" data-add-planning-day>+ Dagplanning</button>
+          </div>
         </div>
-        <div class="planning-bullet-slides" data-planning-bullet-slides>
-          {% for slide in planning.bulletSlides %}
-            <article class="planning-bullet-slide" data-planning-bullet-slide>
+        <p class="planning-slide-instructions" id="planningSlideInstructions">Sleep met de handgreep. Met de pijltjestoetsen op een geselecteerde handgreep kun je een slide ook omhoog of omlaag verplaatsen.</p>
+        <div class="planning-slides" data-planning-slides data-planning-bullet-slides data-planning-days>
+          {% for item in planning.slideItems %}
+            {% set slide = item["data"] %}
+            {% if item.type == "bulletPoints" %}
+            <article class="planning-bullet-slide planning-slide-card" data-planning-slide data-planning-slide-type="bulletPoints" data-planning-bullet-slide>
               <header class="planning-bullet-slide-header">
-                <p class="planning-bullet-slide-label" data-planning-bullet-slide-label>Slide {{ loop.index }}</p>
+                <div class="planning-slide-card-heading">
+                  <button type="button" class="planning-slide-drag-handle" data-planning-slide-drag draggable="true" aria-label="Sleep bulletpointslide" aria-describedby="planningSlideInstructions">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
+                  </button>
+                  <p class="planning-bullet-slide-label" data-planning-slide-label>Bulletpointslide</p>
+                </div>
                 <button type="button" class="subtle-button action-small planning-bullet-slide-remove" data-remove-planning-bullet-slide>Slide verwijderen</button>
               </header>
-              <div class="planning-bullet-controls">
+              <div class="planning-bullet-controls planning-bullet-controls-single">
                 <label class="field">
                   <span>Titel van de slide</span>
                   <input type="text" value="{{ slide.title }}" maxlength="160" placeholder="Bijv. Belangrijke afspraken" data-planning-bullet-title required>
-                </label>
-                <label class="field">
-                  <span>Plaats in de export</span>
-                  <select data-planning-bullet-position>
-                    <option value="0" {% if slide.insertAfterDay == 0 %}selected{% endif %}>Voor dag 1</option>
-                    {% for day in planning.days %}
-                      <option value="{{ loop.index }}" {% if slide.insertAfterDay == loop.index %}selected{% endif %}>
-                        {% if loop.last %}Na dag {{ loop.index }}{% else %}Tussen dag {{ loop.index }} en dag {{ loop.index + 1 }}{% endif %}
-                      </option>
-                    {% endfor %}
-                  </select>
                 </label>
               </div>
               <div class="planning-bullet-list" data-planning-bullet-list>
@@ -240,78 +241,63 @@
                 <button type="button" class="subtle-button action-small" data-add-planning-bullet>+ Bulletpoint</button>
               </div>
             </article>
-          {% endfor %}
-        </div>
-      </section>
-
-      <section class="summary-card old-function-tile planning-task-panel" data-planning-task-assignment>
-        <div class="feature-list-head planning-task-titlebar">
-          <div>
-            <p class="panel-title">Taakverdeling</p>
-            <p class="feature-list-subtitle">Voeg een aparte slide toe met dezelfde verdeling van naam, rol en taak als in een draaiboek.</p>
-          </div>
-          <button type="button" class="subtle-button action-small" data-add-planning-task>+ Medewerker</button>
-        </div>
-        <div class="planning-task-controls">
-          <div class="field planning-task-toggle-field">
-            <span>Taakverdelingsslide</span>
-            <label class="planning-switch">
-              <input type="checkbox" data-planning-task-enabled {% if planning.taskAssignment.enabled %}checked{% endif %}>
-              <span class="planning-switch-track" aria-hidden="true"></span>
-              <span class="planning-switch-label">Tonen</span>
-            </label>
-          </div>
-          <label class="field">
-            <span>Plaats in de export</span>
-            <select data-planning-task-position>
-              <option value="0" {% if planning.taskAssignment.insertAfterDay == 0 %}selected{% endif %}>Voor dag 1</option>
-              {% for day in planning.days %}
-                <option value="{{ loop.index }}" {% if planning.taskAssignment.insertAfterDay == loop.index %}selected{% endif %}>
-                  {% if loop.last %}Na dag {{ loop.index }}{% else %}Tussen dag {{ loop.index }} en dag {{ loop.index + 1 }}{% endif %}
-                </option>
-              {% endfor %}
-            </select>
-          </label>
-        </div>
-        <div class="planning-task-table">
-          <div class="planning-task-head" aria-hidden="true">
-            <span>Naam</span><span>Rol</span><span>Taak</span><span></span>
-          </div>
-          <div class="planning-task-rows" data-planning-task-rows>
-            {% for member in planning.taskAssignment.rows %}
-              <div class="planning-task-row" data-planning-task-row>
-                <input type="text" value="{{ member.name }}" maxlength="160" placeholder="Naam" aria-label="Naam medewerker" data-planning-task-name>
-                <input type="text" value="{{ member.role }}" maxlength="160" placeholder="Trainer, EHBO, coördinator" aria-label="Rol medewerker" data-planning-task-role>
-                <textarea rows="2" maxlength="500" placeholder="Bijvoorbeeld: veld 2 uitzetten" aria-label="Taak medewerker" data-planning-task-text>{{ member.task }}</textarea>
-                <button type="button" class="subtle-button action-small planning-task-remove" data-remove-planning-task aria-label="Verwijder medewerker">Wis</button>
+            {% elif item.type == "taskAssignment" %}
+            <article class="planning-task-panel planning-slide-card" data-planning-slide data-planning-slide-type="taskAssignment" data-planning-task-assignment>
+              <div class="feature-list-head planning-task-titlebar">
+                <div class="planning-slide-card-heading">
+                  <button type="button" class="planning-slide-drag-handle" data-planning-slide-drag draggable="true" aria-label="Sleep taakverdelingsslide" aria-describedby="planningSlideInstructions">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
+                  </button>
+                  <div>
+                    <p class="planning-bullet-slide-label" data-planning-slide-label>Taakverdelingsslide</p>
+                    <p class="panel-title">Taakverdeling</p>
+                    <p class="feature-list-subtitle">Een aparte slide met de verdeling van naam, rol en taak.</p>
+                  </div>
+                </div>
+                <button type="button" class="subtle-button action-small" data-add-planning-task>+ Medewerker</button>
               </div>
-            {% endfor %}
-          </div>
-        </div>
-      </section>
-
-      <section class="summary-card old-function-tile planning-program-panel">
-        <div class="feature-list-head planning-program-titlebar">
-          <div>
-            <p class="panel-title">Dagbladen</p>
-            <p class="feature-list-subtitle">Iedere dag krijgt een eigen blad in de PDF- en PNG-export, met de datum direct onder de titel.</p>
-          </div>
-          <button type="button" class="subtle-button action-small" data-add-planning-day>+ Dag toevoegen</button>
-        </div>
-        <div class="planning-days" data-planning-days>
-          {% for day in planning.days %}
-            <article class="planning-day" data-planning-day>
+              <div class="planning-task-controls planning-task-controls-single">
+                <div class="field planning-task-toggle-field">
+                  <span>Taakverdelingsslide</span>
+                  <label class="planning-switch">
+                    <input type="checkbox" data-planning-task-enabled {% if slide.enabled %}checked{% endif %}>
+                    <span class="planning-switch-track" aria-hidden="true"></span>
+                    <span class="planning-switch-label">Tonen</span>
+                  </label>
+                </div>
+              </div>
+              <div class="planning-task-table">
+                <div class="planning-task-head" aria-hidden="true">
+                  <span>Naam</span><span>Rol</span><span>Taak</span><span></span>
+                </div>
+                <div class="planning-task-rows" data-planning-task-rows>
+                  {% for member in slide.rows %}
+                    <div class="planning-task-row" data-planning-task-row>
+                      <input type="text" value="{{ member.name }}" maxlength="160" placeholder="Naam" aria-label="Naam medewerker" data-planning-task-name>
+                      <input type="text" value="{{ member.role }}" maxlength="160" placeholder="Trainer, EHBO, coördinator" aria-label="Rol medewerker" data-planning-task-role>
+                      <textarea rows="2" maxlength="500" placeholder="Bijvoorbeeld: veld 2 uitzetten" aria-label="Taak medewerker" data-planning-task-text>{{ member.task }}</textarea>
+                      <button type="button" class="subtle-button action-small planning-task-remove" data-remove-planning-task aria-label="Verwijder medewerker">Wis</button>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            </article>
+            {% else %}
+            <article class="planning-day planning-slide-card" data-planning-slide data-planning-slide-type="day" data-planning-day>
               <header class="planning-day-header">
+                <button type="button" class="planning-slide-drag-handle" data-planning-slide-drag draggable="true" aria-label="Sleep dagplanning" aria-describedby="planningSlideInstructions">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
+                </button>
                 <div class="planning-day-heading">
-                  <p class="planning-day-label" data-planning-day-label>Dag {{ loop.index }}</p>
+                  <p class="planning-day-label" data-planning-slide-label>Dagplanning</p>
                   <div class="planning-day-fields">
                     <label class="field planning-day-title">
                       <span>Titel van dit dagblad</span>
-                      <input type="text" value="{{ day.title }}" maxlength="160" data-planning-day-title required>
+                      <input type="text" value="{{ slide.title }}" maxlength="160" data-planning-day-title required>
                     </label>
                     <label class="field planning-day-date">
                       <span>Datum van dit dagblad</span>
-                      <input type="date" value="{{ day.date }}" data-planning-day-date required>
+                      <input type="date" value="{{ slide.date }}" data-planning-day-date required>
                     </label>
                   </div>
                 </div>
@@ -324,7 +310,7 @@
                 <span></span><span>Icoon</span><span>Van</span><span>Tot</span><span>Onderdeel</span><span>Toelichting</span><span></span>
               </div>
               <div class="planning-program-list" data-planning-rows>
-                {% for row in day.program %}
+                {% for row in slide.program %}
                   <div class="planning-program-row" data-planning-row>
                     <button type="button" class="planning-drag-handle" data-planning-drag draggable="true" aria-label="Sleep regel">
                       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
@@ -339,6 +325,7 @@
                 {% endfor %}
               </div>
             </article>
+            {% endif %}
           {% endfor %}
         </div>
         <div class="planning-editor-save">
@@ -364,10 +351,13 @@
   </template>
 
   <template id="planningDayTemplate">
-    <article class="planning-day" data-planning-day>
+    <article class="planning-day planning-slide-card" data-planning-slide data-planning-slide-type="day" data-planning-day>
       <header class="planning-day-header">
+        <button type="button" class="planning-slide-drag-handle" data-planning-slide-drag draggable="true" aria-label="Sleep dagplanning" aria-describedby="planningSlideInstructions">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
+        </button>
         <div class="planning-day-heading">
-          <p class="planning-day-label" data-planning-day-label>Nieuwe dag</p>
+          <p class="planning-day-label" data-planning-slide-label>Nieuwe dagplanning</p>
           <div class="planning-day-fields">
             <label class="field planning-day-title">
               <span>Titel van dit dagblad</span>
@@ -401,19 +391,20 @@
   </template>
 
   <template id="planningBulletSlideTemplate">
-    <article class="planning-bullet-slide" data-planning-bullet-slide>
+    <article class="planning-bullet-slide planning-slide-card" data-planning-slide data-planning-slide-type="bulletPoints" data-planning-bullet-slide>
       <header class="planning-bullet-slide-header">
-        <p class="planning-bullet-slide-label" data-planning-bullet-slide-label>Nieuwe slide</p>
+        <div class="planning-slide-card-heading">
+          <button type="button" class="planning-slide-drag-handle" data-planning-slide-drag draggable="true" aria-label="Sleep bulletpointslide" aria-describedby="planningSlideInstructions">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01"></path></svg>
+          </button>
+          <p class="planning-bullet-slide-label" data-planning-slide-label>Nieuwe bulletpointslide</p>
+        </div>
         <button type="button" class="subtle-button action-small planning-bullet-slide-remove" data-remove-planning-bullet-slide>Slide verwijderen</button>
       </header>
-      <div class="planning-bullet-controls">
+      <div class="planning-bullet-controls planning-bullet-controls-single">
         <label class="field">
           <span>Titel van de slide</span>
           <input type="text" value="Nieuwe slide" maxlength="160" placeholder="Bijv. Belangrijke afspraken" data-planning-bullet-title required>
-        </label>
-        <label class="field">
-          <span>Plaats in de export</span>
-          <select data-planning-bullet-position></select>
         </label>
       </div>
       <div class="planning-bullet-list" data-planning-bullet-list></div>

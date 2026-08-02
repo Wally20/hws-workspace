@@ -18246,6 +18246,107 @@ def normalize_planning_bullet_slides(value: Any, day_count: int = 1) -> List[Dic
     return normalized_slides
 
 
+def build_legacy_planning_slide_order(
+    days: List[Dict[str, Any]],
+    assignment: Dict[str, Any],
+    bullet_slides: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Translate the former before/between/after-day positions to one slide deck."""
+    positioned_bullets: Dict[int, List[Dict[str, Any]]] = {}
+    for bullet_index, slide in enumerate(bullet_slides):
+        positioned_bullets.setdefault(slide["insertAfterDay"], []).append(
+            {"type": "bulletPoints", "index": bullet_index}
+        )
+
+    slide_order: List[Dict[str, Any]] = []
+    for position in range(len(days) + 1):
+        if assignment["insertAfterDay"] == position:
+            slide_order.append({"type": "taskAssignment"})
+        slide_order.extend(positioned_bullets.get(position, []))
+        if position < len(days):
+            slide_order.append({"type": "day", "index": position})
+    return slide_order
+
+
+def normalize_planning_slide_order(
+    value: Any,
+    days: List[Dict[str, Any]],
+    assignment: Dict[str, Any],
+    bullet_slides: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    fallback_order = build_legacy_planning_slide_order(days, assignment, bullet_slides)
+    if not isinstance(value, list):
+        return fallback_order
+
+    normalized_order: List[Dict[str, Any]] = []
+    seen: set = set()
+    for item in value[: len(days) + len(bullet_slides) + 1]:
+        if not isinstance(item, dict):
+            continue
+        slide_type = str(item.get("type") or "").strip()
+        if slide_type == "taskAssignment":
+            key = (slide_type, None)
+            normalized_item = {"type": slide_type}
+        elif slide_type in {"day", "bulletPoints"}:
+            try:
+                item_index = int(item.get("index"))
+            except (TypeError, ValueError):
+                continue
+            item_count = len(days) if slide_type == "day" else len(bullet_slides)
+            if item_index < 0 or item_index >= item_count:
+                continue
+            key = (slide_type, item_index)
+            normalized_item = {"type": slide_type, "index": item_index}
+        else:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized_order.append(normalized_item)
+
+    for item in fallback_order:
+        key = (item["type"], item.get("index"))
+        if key not in seen:
+            normalized_order.append(item)
+            seen.add(key)
+    return normalized_order
+
+
+def apply_planning_slide_positions(
+    assignment: Dict[str, Any],
+    bullet_slides: List[Dict[str, Any]],
+    slide_order: List[Dict[str, Any]],
+) -> None:
+    """Keep legacy positions in sync while slideOrder remains authoritative."""
+    preceding_days = 0
+    for item in slide_order:
+        slide_type = item["type"]
+        if slide_type == "day":
+            preceding_days += 1
+        elif slide_type == "taskAssignment":
+            assignment["insertAfterDay"] = preceding_days
+        elif slide_type == "bulletPoints":
+            bullet_slides[item["index"]]["insertAfterDay"] = preceding_days
+
+
+def build_planning_slide_items(
+    days: List[Dict[str, Any]],
+    assignment: Dict[str, Any],
+    bullet_slides: List[Dict[str, Any]],
+    slide_order: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    for order_item in slide_order:
+        slide_type = order_item["type"]
+        if slide_type == "day":
+            items.append({"type": slide_type, "data": days[order_item["index"]]})
+        elif slide_type == "bulletPoints":
+            items.append({"type": slide_type, "data": bullet_slides[order_item["index"]]})
+        else:
+            items.append({"type": slide_type, "data": assignment})
+    return items
+
+
 def build_planning_export_sheets(planning: Dict[str, Any]) -> List[Dict[str, Any]]:
     days = normalize_planning_days(
         planning.get("days"),
@@ -18255,29 +18356,39 @@ def build_planning_export_sheets(planning: Dict[str, Any]) -> List[Dict[str, Any
     )
     assignment = normalize_planning_task_assignment(planning.get("taskAssignment"), len(days))
     bullet_slides = normalize_planning_bullet_slides(planning.get("bulletSlides"), len(days))
-    assignment_sheet = {
-        "type": "taskAssignment",
-        "title": "Taakverdeling",
-        "rows": assignment["rows"] or [{"name": "Nog in te vullen", "role": "", "task": ""}],
-    }
-    positioned_bullet_sheets: Dict[int, List[Dict[str, Any]]] = {}
-    for slide in bullet_slides:
-        positioned_bullet_sheets.setdefault(slide["insertAfterDay"], []).append(
-            {
-                "type": "bulletPoints",
-                "title": slide["title"],
-                "rows": slide["bullets"] or ["Nog in te vullen"],
-            }
-        )
-
-    def append_extra_sheets(position: int) -> None:
-        if assignment["enabled"] and assignment["insertAfterDay"] == position:
-            sheets.append(assignment_sheet)
-        sheets.extend(positioned_bullet_sheets.get(position, []))
+    slide_order = normalize_planning_slide_order(
+        planning.get("slideOrder"),
+        days,
+        assignment,
+        bullet_slides,
+    )
 
     sheets: List[Dict[str, Any]] = []
-    append_extra_sheets(0)
-    for day_index, day in enumerate(days, start=1):
+    for item in slide_order:
+        slide_type = item["type"]
+        if slide_type == "taskAssignment":
+            if assignment["enabled"]:
+                sheets.append(
+                    {
+                        "type": "taskAssignment",
+                        "title": "Taakverdeling",
+                        "rows": assignment["rows"] or [{"name": "Nog in te vullen", "role": "", "task": ""}],
+                    }
+                )
+            continue
+        if slide_type == "bulletPoints":
+            slide = bullet_slides[item["index"]]
+            sheets.append(
+                {
+                    "type": "bulletPoints",
+                    "title": slide["title"],
+                    "rows": slide["bullets"] or ["Nog in te vullen"],
+                }
+            )
+            continue
+
+        day_index = item["index"]
+        day = days[day_index]
         program = day["program"] or [
             {
                 "startTime": "",
@@ -18290,13 +18401,12 @@ def build_planning_export_sheets(planning: Dict[str, Any]) -> List[Dict[str, Any
         sheets.append(
             {
                 "type": "day",
-                "dayIndex": day_index,
+                "dayIndex": day_index + 1,
                 "title": day["title"],
                 "date": day["date"],
                 "rows": program,
             }
         )
-        append_extra_sheets(day_index)
     return sheets
 
 
@@ -18313,6 +18423,8 @@ def normalize_planning_document(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
             "days": [{"title": "Nieuwe planning", "date": "", "program": blank_program}],
             "taskAssignment": normalize_planning_task_assignment(None),
             "bulletSlides": [],
+            "slideOrder": [{"type": "day", "index": 0}, {"type": "taskAssignment"}],
+            "slideItems": [],
             "programCount": 0,
             "createdAt": "",
             "updatedAt": "",
@@ -18324,10 +18436,13 @@ def normalize_planning_document(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
     stored_days = stored_program.get("days") if isinstance(stored_program, dict) else None
     stored_task_assignment = stored_program.get("taskAssignment") if isinstance(stored_program, dict) else None
     stored_bullet_slides = stored_program.get("bulletSlides") if isinstance(stored_program, dict) else None
+    stored_slide_order = stored_program.get("slideOrder") if isinstance(stored_program, dict) else None
     legacy_program = stored_program if isinstance(stored_program, list) else []
     days = normalize_planning_days(stored_days, row["planning_date"], legacy_program, row["title"])
     task_assignment = normalize_planning_task_assignment(stored_task_assignment, len(days))
     bullet_slides = normalize_planning_bullet_slides(stored_bullet_slides, len(days))
+    slide_order = normalize_planning_slide_order(stored_slide_order, days, task_assignment, bullet_slides)
+    apply_planning_slide_positions(task_assignment, bullet_slides, slide_order)
     first_day = days[0]
     return {
         "id": int(row["id"]),
@@ -18339,6 +18454,8 @@ def normalize_planning_document(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
         "days": days,
         "taskAssignment": task_assignment,
         "bulletSlides": bullet_slides,
+        "slideOrder": slide_order,
+        "slideItems": build_planning_slide_items(days, task_assignment, bullet_slides, slide_order),
         "programCount": sum(len(day["program"]) for day in days),
         "createdAt": str(row["created_at"] or "").strip(),
         "updatedAt": str(row["updated_at"] or "").strip(),
@@ -18408,6 +18525,13 @@ def build_planning_document_from_form() -> Dict[str, Any]:
             submitted_bullet_slides = json.loads(bullet_slides_json)
         except json.JSONDecodeError:
             submitted_bullet_slides = None
+    submitted_slide_order: Any = None
+    slide_order_json = str(request.form.get("slide_order_json", "") or "").strip()
+    if slide_order_json:
+        try:
+            submitted_slide_order = json.loads(slide_order_json)
+        except json.JSONDecodeError:
+            submitted_slide_order = None
     title = normalize_planning_title(request.form.get("title"), "Nieuwe planning")
     days = normalize_planning_days(
         submitted_days,
@@ -18417,6 +18541,8 @@ def build_planning_document_from_form() -> Dict[str, Any]:
     )
     task_assignment = normalize_planning_task_assignment(submitted_task_assignment, len(days))
     bullet_slides = normalize_planning_bullet_slides(submitted_bullet_slides, len(days))
+    slide_order = normalize_planning_slide_order(submitted_slide_order, days, task_assignment, bullet_slides)
+    apply_planning_slide_positions(task_assignment, bullet_slides, slide_order)
     return {
         "title": title,
         "planningDate": days[0]["date"],
@@ -18426,6 +18552,7 @@ def build_planning_document_from_form() -> Dict[str, Any]:
         "days": days,
         "taskAssignment": task_assignment,
         "bulletSlides": bullet_slides,
+        "slideOrder": slide_order,
     }
 
 
@@ -18440,13 +18567,20 @@ def save_planning_document(planning: Dict[str, Any], planning_id: Optional[int] 
     )
     task_assignment = normalize_planning_task_assignment(planning.get("taskAssignment"), len(days))
     bullet_slides = normalize_planning_bullet_slides(planning.get("bulletSlides"), len(days))
+    slide_order = normalize_planning_slide_order(planning.get("slideOrder"), days, task_assignment, bullet_slides)
+    apply_planning_slide_positions(task_assignment, bullet_slides, slide_order)
     payload = (
         title,
         days[0]["date"],
         str(planning.get("location") or "").strip()[:160],
         1 if planning.get("includeIcons", True) else 0,
         json.dumps(
-            {"days": days, "taskAssignment": task_assignment, "bulletSlides": bullet_slides},
+            {
+                "days": days,
+                "taskAssignment": task_assignment,
+                "bulletSlides": bullet_slides,
+                "slideOrder": slide_order,
+            },
             ensure_ascii=False,
         ),
     )
@@ -18483,6 +18617,8 @@ def normalize_planning_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]
     )
     task_assignment = normalize_planning_task_assignment(payload.get("taskAssignment"), len(days))
     bullet_slides = normalize_planning_bullet_slides(payload.get("bulletSlides"), len(days))
+    slide_order = normalize_planning_slide_order(payload.get("slideOrder"), days, task_assignment, bullet_slides)
+    apply_planning_slide_positions(task_assignment, bullet_slides, slide_order)
     return {
         "title": title,
         "planningDate": days[0]["date"],
@@ -18492,6 +18628,7 @@ def normalize_planning_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]
         "days": days,
         "taskAssignment": task_assignment,
         "bulletSlides": bullet_slides,
+        "slideOrder": slide_order,
     }
 
 

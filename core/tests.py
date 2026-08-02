@@ -1569,17 +1569,19 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         edit_response = client.get(f"/planning/{planning_id}", secure=True)
         self.assertEqual(edit_response.status_code, 200)
-        self.assertContains(edit_response, "Dagbladen")
+        self.assertContains(edit_response, "Slidevolgorde")
         self.assertContains(edit_response, "Test planning voetbaldag")
         self.assertContains(edit_response, 'data-add-planning-day')
         self.assertContains(edit_response, 'data-planning-day-title')
         self.assertContains(edit_response, 'data-planning-days-json')
         self.assertContains(edit_response, 'data-planning-task-assignment-json')
-        self.assertContains(edit_response, 'data-planning-task-position')
         self.assertContains(edit_response, 'data-planning-bullet-slides-json')
+        self.assertContains(edit_response, 'data-planning-slide-order-json')
+        self.assertContains(edit_response, 'data-planning-slides')
+        self.assertContains(edit_response, 'data-planning-slide-drag')
         self.assertContains(edit_response, 'data-add-planning-bullet-slide')
         self.assertContains(edit_response, 'id="planningBulletSlideTemplate"')
-        self.assertContains(edit_response, "Bulletpointslides")
+        self.assertContains(edit_response, "+ Bulletpointslide")
         self.assertContains(edit_response, "Taakverdeling")
         self.assertContains(edit_response, 'id="exportPlanningPdf"')
         self.assertContains(edit_response, 'id="exportPlanningPng"')
@@ -1631,6 +1633,13 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 "bullets": ["Voetbalschoenen", "Regenjas"],
             },
         ]
+        slide_order = [
+            {"type": "bulletPoints", "index": 1},
+            {"type": "day", "index": 0},
+            {"type": "bulletPoints", "index": 0},
+            {"type": "day", "index": 1},
+            {"type": "taskAssignment"},
+        ]
         update_response = client.post(
             f"/planning/{planning_id}",
             {
@@ -1641,6 +1650,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 "days_json": json.dumps(updated_days),
                 "task_assignment_json": json.dumps(task_assignment),
                 "bullet_slides_json": json.dumps(bullet_slides),
+                "slide_order_json": json.dumps(slide_order),
             },
             secure=True,
         )
@@ -1655,23 +1665,36 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(saved_planning["days"][1]["date"], "2026-08-17")
         self.assertEqual(saved_planning["days"][1]["program"][0]["activity"], "Prijsuitreiking")
         self.assertTrue(saved_planning["taskAssignment"]["enabled"])
-        self.assertEqual(saved_planning["taskAssignment"]["insertAfterDay"], 1)
+        self.assertEqual(saved_planning["taskAssignment"]["insertAfterDay"], 2)
         self.assertEqual(saved_planning["taskAssignment"]["rows"][0]["task"], "Veld 1 uitzetten")
         self.assertEqual(len(saved_planning["bulletSlides"]), 2)
         self.assertEqual(saved_planning["bulletSlides"][0]["title"], "Belangrijke afspraken")
         self.assertEqual(saved_planning["bulletSlides"][0]["bullets"][1], "Neem een eigen bidon mee")
-        self.assertEqual(saved_planning["bulletSlides"][1]["insertAfterDay"], 2)
+        self.assertEqual(saved_planning["bulletSlides"][0]["insertAfterDay"], 1)
+        self.assertEqual(saved_planning["bulletSlides"][1]["insertAfterDay"], 0)
+        self.assertEqual(saved_planning["slideOrder"], slide_order)
+        reordered_sheets = legacy.build_planning_export_sheets(saved_planning)
         self.assertEqual(
-            [sheet["type"] for sheet in legacy.build_planning_export_sheets(saved_planning)],
-            ["bulletPoints", "day", "taskAssignment", "day", "bulletPoints"],
+            [sheet["type"] for sheet in reordered_sheets],
+            ["bulletPoints", "day", "bulletPoints", "day", "taskAssignment"],
+        )
+        self.assertEqual(
+            [sheet["title"] for sheet in reordered_sheets],
+            [
+                "Wat nemen we mee?",
+                "Heenreis naar Terschelling",
+                "Belangrijke afspraken",
+                "Trainingsdag op Terschelling",
+                "Taakverdeling",
+            ],
         )
         before_first_day = {
-            **saved_planning,
+            **{key: value for key, value in saved_planning.items() if key != "slideOrder"},
             "taskAssignment": {**saved_planning["taskAssignment"], "insertAfterDay": 0},
             "bulletSlides": [],
         }
         after_last_day = {
-            **saved_planning,
+            **{key: value for key, value in saved_planning.items() if key != "slideOrder"},
             "taskAssignment": {**saved_planning["taskAssignment"], "insertAfterDay": 2},
             "bulletSlides": [],
         }
@@ -1696,6 +1719,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                     "days": saved_planning["days"],
                     "taskAssignment": saved_planning["taskAssignment"],
                     "bulletSlides": saved_planning["bulletSlides"],
+                    "slideOrder": saved_planning["slideOrder"],
                 }
             ),
             content_type="application/json",
@@ -1721,6 +1745,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                     "days": saved_planning["days"],
                     "taskAssignment": saved_planning["taskAssignment"],
                     "bulletSlides": saved_planning["bulletSlides"],
+                    "slideOrder": saved_planning["slideOrder"],
                 }
             ),
             content_type="application/json",
