@@ -497,6 +497,128 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(pdf_response.status_code, 200)
         self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
 
+    def test_saving_planning_automatically_updates_imported_checklist(self):
+        planning_id = legacy.save_planning_document(
+            {
+                "title": "Test planning automatische checklist",
+                "planningDate": "2026-08-20",
+                "location": "Oude locatie",
+                "days": [
+                    {
+                        "title": "Donderdagprogramma",
+                        "date": "2026-08-20",
+                        "program": [
+                            {"startTime": "09:00", "endTime": "09:30", "activity": "Ontvangst"},
+                            {"startTime": "09:30", "endTime": "10:00", "activity": "Warming-up"},
+                        ],
+                    }
+                ],
+            }
+        )
+        planning = legacy.load_planning_document(planning_id)
+        checklist = legacy.build_checklist_document_from_planning(planning)
+        checklist["sections"][0]["items"] = [
+            {"text": "Deelnemerslijst klaarleggen", "color": "green"}
+        ]
+        legacy.save_checklist_document(checklist)
+
+        legacy.save_planning_document(
+            {
+                "title": "Test planning automatisch bijgewerkt",
+                "planningDate": "2026-08-21",
+                "location": "Nieuwe locatie",
+                "days": [
+                    {
+                        "title": "Vrijdagprogramma",
+                        "date": "2026-08-21",
+                        "program": [
+                            {"startTime": "09:00", "endTime": "09:45", "activity": "Ontvangst deelnemers"},
+                            {"startTime": "09:45", "endTime": "10:15", "activity": "Warming-up"},
+                            {"startTime": "10:15", "endTime": "11:00", "activity": "Partijvorm"},
+                        ],
+                    }
+                ],
+            },
+            planning_id,
+        )
+
+        synchronized = legacy.load_checklist_document(planning_id, "planning")
+
+        self.assertEqual(synchronized["title"], "Test planning automatisch bijgewerkt")
+        self.assertEqual(synchronized["eventDate"], "2026-08-21")
+        self.assertEqual(synchronized["location"], "Nieuwe locatie")
+        self.assertEqual(
+            [section["activity"] for section in synchronized["sections"]],
+            ["Ontvangst deelnemers", "Warming-up", "Partijvorm"],
+        )
+        self.assertEqual(
+            synchronized["sections"][0]["items"],
+            [{"text": "Deelnemerslijst klaarleggen", "color": "green"}],
+        )
+
+    def test_opening_checklist_repairs_stale_playbook_program(self):
+        playbook_id = legacy.save_football_days_playbook(
+            {
+                "playbookType": "voetbaldagen",
+                "title": "Test draaiboek actuele checklist",
+                "eventDate": "2026-08-22",
+                "location": "VV Test",
+                "program": [
+                    {"startTime": "09:00", "endTime": "09:30", "activity": "Actueel programma"}
+                ],
+                "staff": [],
+            }
+        )
+        stale_document = legacy.build_checklist_document_from_playbook(
+            {
+                "id": playbook_id,
+                "title": "Test draaiboek oude checklist",
+                "eventDate": "2026-08-16",
+                "location": "Oude locatie",
+                "program": [
+                    {"startTime": "08:00", "endTime": "08:30", "activity": "Verouderd programma"}
+                ],
+            }
+        )
+        stale_document["sections"][0]["items"] = [
+            {"text": "Bestaand checklistpunt", "color": "blue"}
+        ]
+        legacy.save_checklist_document(stale_document)
+
+        response = self.build_authenticated_client().get(f"/checklists/{playbook_id}", secure=True)
+        synchronized = legacy.load_checklist_document(playbook_id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Actueel programma")
+        self.assertNotContains(response, "Verouderd programma")
+        self.assertEqual(synchronized["title"], "Test draaiboek actuele checklist")
+        self.assertEqual(
+            synchronized["sections"][0]["items"],
+            [{"text": "Bestaand checklistpunt", "color": "blue"}],
+        )
+
+        legacy.save_football_days_playbook(
+            {
+                "playbookType": "voetbaldagen",
+                "title": "Test draaiboek opnieuw opgeslagen",
+                "eventDate": "2026-08-23",
+                "location": "Nieuwe locatie",
+                "program": [
+                    {"startTime": "10:00", "endTime": "10:45", "activity": "Nieuw programma na opslaan"}
+                ],
+                "staff": [],
+            },
+            playbook_id=playbook_id,
+        )
+        automatically_synchronized = legacy.load_checklist_document(playbook_id)
+
+        self.assertEqual(automatically_synchronized["title"], "Test draaiboek opnieuw opgeslagen")
+        self.assertEqual(automatically_synchronized["sections"][0]["activity"], "Nieuw programma na opslaan")
+        self.assertEqual(
+            automatically_synchronized["sections"][0]["items"],
+            [{"text": "Bestaand checklistpunt", "color": "blue"}],
+        )
+
     def test_login_requires_valid_csrf_token(self):
         response = Client(enforce_csrf_checks=False).post(
             "/login",

@@ -7819,6 +7819,40 @@ def save_checklist_document(document: Dict[str, Any]) -> Dict[str, Any]:
     return saved_document
 
 
+def get_checklist_sync_payload(document: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "title": str(document.get("title") or "").strip(),
+        "checklistTitle": normalize_checklist_title(document.get("checklistTitle")),
+        "eventDate": str(document.get("eventDate") or "").strip(),
+        "location": str(document.get("location") or "").strip(),
+        "sections": normalize_checklist_sections(document.get("sections")),
+    }
+
+
+def synchronize_existing_checklist_document(
+    source_type: str,
+    source: Dict[str, Any],
+    existing_document: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    normalized_source_type = normalize_checklist_source_type(source_type)
+    source_id = parse_non_negative_int(source.get("id"))
+    if not source_id:
+        return existing_document
+
+    document = existing_document or load_checklist_document(source_id, normalized_source_type)
+    if document is None:
+        return None
+
+    synchronized_document = (
+        build_checklist_document_from_planning(source, document)
+        if normalized_source_type == "planning"
+        else build_checklist_document_from_playbook(source, document)
+    )
+    if get_checklist_sync_payload(synchronized_document) == get_checklist_sync_payload(document):
+        return document
+    return save_checklist_document(synchronized_document)
+
+
 def count_ecwid_product_registrations(
     orders: List[Dict[str, Any]],
     product_id: str,
@@ -7945,6 +7979,7 @@ def save_football_days_playbook(
         1 if playbook.get("includeProgram", True) else 0,
     )
 
+    saved_playbook_id: int
     with get_db_connection() as connection:
         if playbook_id:
             connection.execute(
@@ -7974,18 +8009,24 @@ def save_football_days_playbook(
                 """,
                 (*payload, now, playbook_id),
             )
-            return playbook_id
-
-        cursor = connection.execute(
-            """
-            INSERT INTO football_days_playbooks (
-                playbook_type, title, event_date, cycle_number, cycle_start_date, cycle_end_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, field_layout_json, field_trainings_json, cycle_no_training_dates_json, contingencies, include_staff, include_staff_setup_tasks, include_program, created_at, updated_at
+            saved_playbook_id = playbook_id
+        else:
+            cursor = connection.execute(
+                """
+                INSERT INTO football_days_playbooks (
+                    playbook_type, title, event_date, cycle_number, cycle_start_date, cycle_end_date, location, ecwid_product_id, ecwid_product_name, ecwid_product_sku, staff_json, program_json, field_layout_json, field_trainings_json, cycle_no_training_dates_json, contingencies, include_staff, include_staff_setup_tasks, include_program, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (*payload, now, now),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (*payload, now, now),
-        )
-        return int(cursor.lastrowid)
+            saved_playbook_id = int(cursor.lastrowid)
+
+    if normalized_type == "voetbaldagen":
+        saved_playbook = load_football_days_playbook(saved_playbook_id, normalized_type)
+        if saved_playbook is not None:
+            synchronize_existing_checklist_document("playbook", saved_playbook)
+    return saved_playbook_id
 
 
 def build_football_days_playbook_from_form(playbook_type: str = "voetbaldagen") -> Dict[str, Any]:
@@ -18584,6 +18625,7 @@ def save_planning_document(planning: Dict[str, Any], planning_id: Optional[int] 
             ensure_ascii=False,
         ),
     )
+    saved_planning_id: int
     with get_db_connection() as connection:
         if planning_id is not None:
             connection.execute(
@@ -18594,17 +18636,23 @@ def save_planning_document(planning: Dict[str, Any], planning_id: Optional[int] 
                 """,
                 (*payload, now, planning_id),
             )
-            return planning_id
-        cursor = connection.execute(
-            """
-            INSERT INTO planning_documents (
-                title, planning_date, location, include_icons, program_json, created_at, updated_at
+            saved_planning_id = planning_id
+        else:
+            cursor = connection.execute(
+                """
+                INSERT INTO planning_documents (
+                    title, planning_date, location, include_icons, program_json, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (*payload, now, now),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (*payload, now, now),
-        )
-        return int(cursor.lastrowid)
+            saved_planning_id = int(cursor.lastrowid)
+
+    saved_planning = load_planning_document(saved_planning_id)
+    if saved_planning is not None:
+        synchronize_existing_checklist_document("planning", saved_planning)
+    return saved_planning_id
 
 
 def normalize_planning_export_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -21614,8 +21662,22 @@ def load_checklist_page_data() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any
     for planning in plannings:
         planning["planningDateLabel"] = format_football_days_date(planning.get("planningDate"))
 
+    playbooks_by_id = {int(playbook.get("id") or 0): playbook for playbook in playbooks}
+    plannings_by_id = {int(planning.get("id") or 0): planning for planning in plannings}
     checklist_documents = load_checklist_documents()
-    for document in checklist_documents:
+    for index, document in enumerate(checklist_documents):
+        source_id = int(document.get("sourceId") or 0)
+        source = (
+            plannings_by_id.get(source_id)
+            if document.get("sourceType") == "planning"
+            else playbooks_by_id.get(source_id)
+        )
+        if source is not None:
+            checklist_documents[index] = (
+                synchronize_existing_checklist_document(document.get("sourceType"), source, document)
+                or document
+            )
+        document = checklist_documents[index]
         prepare_checklist_document_view_data(document)
     return playbooks, plannings, checklist_documents
 
@@ -21647,20 +21709,6 @@ def find_checklist_source(
     return next((playbook for playbook in playbooks if int(playbook.get("id") or 0) == source_id), None)
 
 
-def get_checklist_source_metadata(source_type: str, source: Dict[str, Any]) -> Dict[str, str]:
-    if normalize_checklist_source_type(source_type) == "planning":
-        return {
-            "title": str(source.get("title") or "Checklist planning").strip(),
-            "eventDate": str(source.get("planningDate") or "").strip(),
-            "location": str(source.get("location") or "").strip(),
-        }
-    return {
-        "title": str(source.get("title") or "Checklist voetbaldag").strip(),
-        "eventDate": str(source.get("eventDate") or "").strip(),
-        "location": str(source.get("location") or "").strip(),
-    }
-
-
 def save_checklist_editor_submission(
     source_type: str,
     selected_source: Dict[str, Any],
@@ -21673,19 +21721,19 @@ def save_checklist_editor_submission(
         submitted_sections = json.loads(str(request.form.get("checklist_data") or "[]"))
     except json.JSONDecodeError:
         return redirect(f"{detail_url}?error=De checklist kon niet worden gelezen.")
-    source_metadata = get_checklist_source_metadata(source_type, selected_source)
-    save_checklist_document(
-        {
-            **existing_document,
-            "sourceType": source_type,
-            "sourceId": source_id,
-            "title": source_metadata["title"],
-            "checklistTitle": request.form.get("checklist_title") or existing_document.get("checklistTitle"),
-            "eventDate": source_metadata["eventDate"],
-            "location": source_metadata["location"],
-            "sections": submitted_sections,
-        }
+    submitted_document = {
+        **existing_document,
+        "sourceType": source_type,
+        "sourceId": source_id,
+        "checklistTitle": request.form.get("checklist_title") or existing_document.get("checklistTitle"),
+        "sections": submitted_sections,
+    }
+    synchronized_document = (
+        build_checklist_document_from_planning(selected_source, submitted_document)
+        if source_type == "planning"
+        else build_checklist_document_from_playbook(selected_source, submitted_document)
     )
+    save_checklist_document(synchronized_document)
     if str(request.form.get("after_save") or "").strip() == "pdf":
         return redirect(get_checklist_export_url(source_type, source_id))
     return redirect(f"{detail_url}?success=Checklist opgeslagen.")
@@ -21775,6 +21823,10 @@ def render_checklist_detail_page(source_type: str, source_id: int) -> str:
     if request.method == "POST":
         return save_checklist_editor_submission(source_type, selected_source, checklist_document)
 
+    checklist_document = (
+        synchronize_existing_checklist_document(source_type, selected_source, checklist_document)
+        or checklist_document
+    )
     prepare_checklist_document_view_data(checklist_document)
     return render_template(
         "checklists.html",
@@ -21806,6 +21858,9 @@ def checklists_export_pdf():
     document = load_checklist_document(int(source_id or 0), source_type)
     if document is None:
         return redirect("/checklists?error=Importeer en bewaar eerst een programma.")
+    selected_source = find_checklist_source(source_type, int(source_id or 0))
+    if selected_source is not None:
+        document = synchronize_existing_checklist_document(source_type, selected_source, document) or document
     try:
         pdf_bytes = create_checklist_pdf(document)
     except RuntimeError as exc:
