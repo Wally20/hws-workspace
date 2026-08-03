@@ -410,6 +410,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(overview_response.status_code, 200)
         self.assertContains(overview_response, 'href="/checklists/42"')
         self.assertContains(overview_response, "checklist-program-tile")
+        self.assertContains(overview_response, "<strong>Checklist ontvangstteam</strong>", html=True)
+        self.assertContains(overview_response, "Test draaiboek voetbaldag")
         self.assertContains(overview_response, "data-open-checklist-import")
         self.assertContains(overview_response, 'id="checklistImportModal"')
         self.assertNotContains(overview_response, "data-checklist-editor")

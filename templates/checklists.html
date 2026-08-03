@@ -65,9 +65,10 @@
                 <svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h8l3 3V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"></path><path d="M9 11h6M9 15h6M9 19h4M15 3.5V7h3"></path></svg>
               </span>
               <span class="checklist-program-tile-copy">
-                <strong>{{ document.title }}</strong>
+                <strong>{{ document.checklistTitle }}</strong>
                 <small>
-                  {{ document.eventDateLabel or "Datum niet ingevuld" }}
+                  {{ document.title }}
+                  · {{ document.eventDateLabel or "Datum niet ingevuld" }}
                   {% if document.location %} · {{ document.location }}{% endif %}
                 </small>
               </span>
