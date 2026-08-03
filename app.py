@@ -8131,7 +8131,12 @@ def parse_dressing_room_sign_workbook(file_bytes: bytes, filename: str) -> List[
     participant_count = 0
     try:
         for worksheet in workbook.worksheets:
-            max_column = min(max(int(worksheet.max_column or 1), 1), 80)
+            if worksheet.max_column is None:
+                try:
+                    worksheet.calculate_dimension(force=True)
+                except (AttributeError, TypeError, ValueError, UnboundLocalError):
+                    pass
+            max_column = min(max(int(worksheet.max_column or 80), 1), 80)
             header_row_number = 0
             columns: Optional[Dict[str, int]] = None
             for row_number, row in enumerate(

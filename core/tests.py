@@ -5,6 +5,7 @@ import re
 import sqlite3
 import tempfile
 import time
+import zipfile
 from datetime import date, datetime
 from io import BytesIO
 from importlib import import_module
@@ -267,6 +268,35 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertEqual(groups[0], {"name": "Groep 1", "participants": ["Fleur van den Berg"]})
         self.assertEqual(groups[1], {"name": "Groep 2", "participants": ["Mats De Jong"]})
+
+    def test_dressing_room_sign_parser_supports_workbook_without_saved_dimensions(self):
+        workbook = legacy.Workbook()
+        worksheet = workbook.active
+        worksheet.append(["Groep:", "Voornaam:", "Achternaam:"])
+        worksheet.append(["Groep 1", "Moos", "Nijholt"])
+        worksheet.append(["Groep 2", "Jort", "van der Paauw"])
+        source_buffer = BytesIO()
+        workbook.save(source_buffer)
+
+        source_buffer.seek(0)
+        dimensionless_buffer = BytesIO()
+        with (
+            zipfile.ZipFile(source_buffer, "r") as source_archive,
+            zipfile.ZipFile(dimensionless_buffer, "w") as target_archive,
+        ):
+            for archive_item in source_archive.infolist():
+                content = source_archive.read(archive_item.filename)
+                if archive_item.filename == "xl/worksheets/sheet1.xml":
+                    content = re.sub(br"<dimension\s+ref=\"[^\"]+\"\s*/>", b"", content)
+                target_archive.writestr(archive_item, content)
+
+        groups = legacy.parse_dressing_room_sign_workbook(
+            dimensionless_buffer.getvalue(),
+            "teamindeling-zonder-dimensies.xlsx",
+        )
+
+        self.assertEqual(groups[0], {"name": "Groep 1", "participants": ["Moos Nijholt"]})
+        self.assertEqual(groups[1], {"name": "Groep 2", "participants": ["Jort van der Paauw"]})
 
     def test_dressing_room_sign_import_library_detail_and_pdf_flow(self):
         workbook = legacy.Workbook()
