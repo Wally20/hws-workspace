@@ -3879,6 +3879,7 @@ def init_db() -> None:
                 event_date TEXT,
                 location TEXT,
                 sections_json TEXT NOT NULL DEFAULT '[]',
+                excluded_sections_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -4266,6 +4267,11 @@ def init_db() -> None:
                 "ALTER TABLE checklist_documents "
                 "ADD COLUMN checklist_title TEXT NOT NULL "
                 "DEFAULT 'Programma en controlepunten voor op het clipboard'"
+            )
+        if "excluded_sections_json" not in checklist_document_columns:
+            connection.execute(
+                "ALTER TABLE checklist_documents "
+                "ADD COLUMN excluded_sections_json TEXT NOT NULL DEFAULT '[]'"
             )
 
         contract_columns = {
@@ -7612,6 +7618,95 @@ def normalize_checklist_sections(raw_sections: Any) -> List[Dict[str, Any]]:
     ]
 
 
+def get_checklist_section_signature(section: Dict[str, Any]) -> Tuple[str, str, str, str]:
+    day_date = str(section.get("dayDate") or "").strip()
+    day_title = str(section.get("dayTitle") or "").strip().casefold()
+    day_identity = (
+        f"{day_date}|{day_title}"
+        if day_date or day_title
+        else str(parse_non_negative_int(section.get("dayIndex")))
+    )
+    return (
+        day_identity,
+        str(section.get("startTime") or "").strip(),
+        str(section.get("endTime") or "").strip(),
+        str(section.get("activity") or "").strip().casefold(),
+    )
+
+
+def normalize_checklist_excluded_sections(raw_sections: Any) -> List[Dict[str, Any]]:
+    return [
+        {key: copy.deepcopy(section[key]) for key in (
+            "key",
+            "dayIndex",
+            "dayTitle",
+            "dayDate",
+            "startTime",
+            "endTime",
+            "activity",
+        )}
+        for section in normalize_checklist_sections(raw_sections)
+    ]
+
+
+def filter_excluded_checklist_sections(
+    imported_sections: Any,
+    excluded_sections: Any,
+) -> List[Dict[str, Any]]:
+    normalized_sections = normalize_checklist_sections(imported_sections)
+    normalized_excluded = normalize_checklist_excluded_sections(excluded_sections)
+    used_excluded_indexes: Set[int] = set()
+    visible_sections: List[Dict[str, Any]] = []
+    for section in normalized_sections:
+        signature = get_checklist_section_signature(section)
+        excluded_index = next(
+            (
+                index
+                for index, excluded in enumerate(normalized_excluded)
+                if index not in used_excluded_indexes
+                and get_checklist_section_signature(excluded) == signature
+            ),
+            None,
+        )
+        if excluded_index is None:
+            visible_sections.append(section)
+        else:
+            used_excluded_indexes.add(excluded_index)
+    return visible_sections
+
+
+def find_removed_checklist_sections(
+    previous_sections: Any,
+    submitted_sections: Any,
+) -> List[Dict[str, Any]]:
+    remaining_sections = normalize_checklist_sections(submitted_sections)
+    used_submitted_indexes: Set[int] = set()
+    removed_sections: List[Dict[str, Any]] = []
+    for previous in normalize_checklist_sections(previous_sections):
+        previous_key = str(previous.get("key") or "").strip()
+        previous_signature = get_checklist_section_signature(previous)
+        matching_index = next(
+            (
+                index
+                for index, submitted in enumerate(remaining_sections)
+                if index not in used_submitted_indexes
+                and (
+                    (
+                        previous_key
+                        and previous_key == str(submitted.get("key") or "").strip()
+                    )
+                    or get_checklist_section_signature(submitted) == previous_signature
+                )
+            ),
+            None,
+        )
+        if matching_index is None:
+            removed_sections.append(previous)
+        else:
+            used_submitted_indexes.add(matching_index)
+    return normalize_checklist_excluded_sections(removed_sections)
+
+
 def normalize_checklist_document(row: Optional[sqlite3.Row]) -> Optional[Dict[str, Any]]:
     if row is None:
         return None
@@ -7619,6 +7714,10 @@ def normalize_checklist_document(row: Optional[sqlite3.Row]) -> Optional[Dict[st
         sections = json.loads(str(row["sections_json"] or "[]"))
     except json.JSONDecodeError:
         sections = []
+    try:
+        excluded_sections = json.loads(str(row["excluded_sections_json"] or "[]"))
+    except (IndexError, json.JSONDecodeError):
+        excluded_sections = []
     storage_id = int(row["playbook_id"])
     source_type = "planning" if storage_id < 0 else "playbook"
     source_id = abs(storage_id)
@@ -7635,6 +7734,7 @@ def normalize_checklist_document(row: Optional[sqlite3.Row]) -> Optional[Dict[st
         "eventDate": str(row["event_date"] or "").strip(),
         "location": str(row["location"] or "").strip(),
         "sections": normalize_checklist_sections(sections),
+        "excludedSections": normalize_checklist_excluded_sections(excluded_sections),
         "createdAt": str(row["created_at"] or "").strip(),
         "updatedAt": str(row["updated_at"] or "").strip(),
     }
@@ -7645,7 +7745,7 @@ def load_checklist_document(source_id: int, source_type: str = "playbook") -> Op
     with get_db_connection() as connection:
         row = connection.execute(
             """
-            SELECT id, playbook_id, title, checklist_title, event_date, location, sections_json, created_at, updated_at
+            SELECT id, playbook_id, title, checklist_title, event_date, location, sections_json, excluded_sections_json, created_at, updated_at
             FROM checklist_documents
             WHERE playbook_id = ?
             """,
@@ -7658,7 +7758,7 @@ def load_checklist_documents() -> List[Dict[str, Any]]:
     with get_db_connection() as connection:
         rows = connection.execute(
             """
-            SELECT id, playbook_id, title, checklist_title, event_date, location, sections_json, created_at, updated_at
+            SELECT id, playbook_id, title, checklist_title, event_date, location, sections_json, excluded_sections_json, created_at, updated_at
             FROM checklist_documents
             ORDER BY COALESCE(NULLIF(event_date, ''), updated_at) DESC, updated_at DESC, id DESC
             """
@@ -7692,7 +7792,14 @@ def build_checklist_document_from_playbook(
             }
         )
 
-    merged_sections = merge_imported_checklist_sections(imported_sections, existing_document)
+    excluded_sections = normalize_checklist_excluded_sections(
+        (existing_document or {}).get("excludedSections")
+    )
+    visible_imported_sections = filter_excluded_checklist_sections(
+        imported_sections,
+        excluded_sections,
+    )
+    merged_sections = merge_imported_checklist_sections(visible_imported_sections, existing_document)
     source_id = int(playbook.get("id") or 0)
     return {
         "id": existing_document.get("id") if isinstance(existing_document, dict) else None,
@@ -7704,6 +7811,7 @@ def build_checklist_document_from_playbook(
         "eventDate": str(playbook.get("eventDate") or "").strip(),
         "location": str(playbook.get("location") or "").strip(),
         "sections": normalize_checklist_sections(merged_sections),
+        "excludedSections": excluded_sections,
         "createdAt": str((existing_document or {}).get("createdAt") or ""),
         "updatedAt": str((existing_document or {}).get("updatedAt") or ""),
     }
@@ -7713,29 +7821,18 @@ def merge_imported_checklist_sections(
     imported_sections: Any,
     existing_document: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    def section_signature(section: Dict[str, Any]) -> Tuple[str, str, str, str]:
-        day_date = str(section.get("dayDate") or "").strip()
-        day_title = str(section.get("dayTitle") or "").strip().casefold()
-        day_identity = f"{day_date}|{day_title}" if day_date or day_title else str(parse_non_negative_int(section.get("dayIndex")))
-        return (
-            day_identity,
-            str(section.get("startTime") or "").strip(),
-            str(section.get("endTime") or "").strip(),
-            str(section.get("activity") or "").strip().casefold(),
-        )
-
     existing_sections = normalize_checklist_sections(
         existing_document.get("sections") if isinstance(existing_document, dict) else []
     )
     sections_by_signature: Dict[Tuple[str, str, str, str], List[Tuple[int, Dict[str, Any]]]] = {}
     for index, section in enumerate(existing_sections):
-        signature = section_signature(section)
+        signature = get_checklist_section_signature(section)
         sections_by_signature.setdefault(signature, []).append((index, section))
 
     used_existing_indexes: Set[int] = set()
     merged_sections = []
     sections = normalize_checklist_sections(imported_sections)
-    imported_signatures = [section_signature(section) for section in sections]
+    imported_signatures = [get_checklist_section_signature(section) for section in sections]
     for index, section in enumerate(sections):
         if not isinstance(section, dict):
             continue
@@ -7748,7 +7845,7 @@ def merge_imported_checklist_sections(
                 break
         if matched_section is None and index < len(existing_sections) and index not in used_existing_indexes:
             positional_candidate = existing_sections[index]
-            if section_signature(positional_candidate) not in set(imported_signatures[index + 1 :]):
+            if get_checklist_section_signature(positional_candidate) not in set(imported_signatures[index + 1 :]):
                 used_existing_indexes.add(index)
                 matched_section = positional_candidate
         merged_section = copy.deepcopy(section)
@@ -7787,6 +7884,13 @@ def build_checklist_document_from_planning(
                 }
             )
 
+    excluded_sections = normalize_checklist_excluded_sections(
+        (existing_document or {}).get("excludedSections")
+    )
+    visible_imported_sections = filter_excluded_checklist_sections(
+        imported_sections,
+        excluded_sections,
+    )
     source_id = int(planning.get("id") or 0)
     event_date = next((str(day.get("date") or "").strip() for day in days if day.get("date")), "")
     return {
@@ -7799,8 +7903,9 @@ def build_checklist_document_from_planning(
         "eventDate": event_date,
         "location": str(planning.get("location") or "").strip(),
         "sections": normalize_checklist_sections(
-            merge_imported_checklist_sections(imported_sections, existing_document)
+            merge_imported_checklist_sections(visible_imported_sections, existing_document)
         ),
+        "excludedSections": excluded_sections,
         "createdAt": str((existing_document or {}).get("createdAt") or ""),
         "updatedAt": str((existing_document or {}).get("updatedAt") or ""),
     }
@@ -7814,19 +7919,22 @@ def save_checklist_document(document: Dict[str, Any]) -> Dict[str, Any]:
     title = str(document.get("title") or "Checklist voetbaldag").strip()[:180]
     checklist_title = normalize_checklist_title(document.get("checklistTitle"))
     sections = normalize_checklist_sections(document.get("sections"))
+    excluded_sections = normalize_checklist_excluded_sections(document.get("excludedSections"))
     with get_db_connection() as connection:
         connection.execute(
             """
             INSERT INTO checklist_documents (
-                playbook_id, title, checklist_title, event_date, location, sections_json, created_at, updated_at
+                playbook_id, title, checklist_title, event_date, location, sections_json,
+                excluded_sections_json, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(playbook_id) DO UPDATE SET
                 title = excluded.title,
                 checklist_title = excluded.checklist_title,
                 event_date = excluded.event_date,
                 location = excluded.location,
                 sections_json = excluded.sections_json,
+                excluded_sections_json = excluded.excluded_sections_json,
                 updated_at = excluded.updated_at
             """,
             (
@@ -7836,6 +7944,7 @@ def save_checklist_document(document: Dict[str, Any]) -> Dict[str, Any]:
                 str(document.get("eventDate") or "").strip()[:20],
                 str(document.get("location") or "").strip()[:180],
                 json.dumps(sections, ensure_ascii=False),
+                json.dumps(excluded_sections, ensure_ascii=False),
                 now,
                 now,
             ),
@@ -8154,6 +8263,7 @@ def get_checklist_sync_payload(document: Dict[str, Any]) -> Dict[str, Any]:
         "eventDate": str(document.get("eventDate") or "").strip(),
         "location": str(document.get("location") or "").strip(),
         "sections": normalize_checklist_sections(document.get("sections")),
+        "excludedSections": normalize_checklist_excluded_sections(document.get("excludedSections")),
     }
 
 
@@ -22225,8 +22335,14 @@ def prepare_checklist_document_view_data(document: Dict[str, Any]) -> Dict[str, 
     document["sourceLabel"] = "Planning" if source_type == "planning" else "Voetbaldag"
     document["detailUrl"] = get_checklist_detail_url(source_type, source_id)
     document["exportUrl"] = get_checklist_export_url(source_type, source_id)
+    document["sourceEditUrl"] = (
+        f"/planning/{source_id}"
+        if source_type == "planning"
+        else f"/voetbaldagen/{source_id}"
+    )
     document["eventDateLabel"] = format_football_days_date(document.get("eventDate"))
     document["sectionCount"] = len(document.get("sections") or [])
+    document["excludedSectionCount"] = len(document.get("excludedSections") or [])
     document["itemCount"] = sum(
         len(section.get("items") or [])
         for section in document.get("sections") or []
@@ -22303,12 +22419,21 @@ def save_checklist_editor_submission(
         submitted_sections = json.loads(str(request.form.get("checklist_data") or "[]"))
     except json.JSONDecodeError:
         return redirect(f"{detail_url}?error=De checklist kon niet worden gelezen.")
+    normalized_submitted_sections = normalize_checklist_sections(submitted_sections)
+    newly_excluded_sections = find_removed_checklist_sections(
+        existing_document.get("sections"),
+        normalized_submitted_sections,
+    )
     submitted_document = {
         **existing_document,
         "sourceType": source_type,
         "sourceId": source_id,
         "checklistTitle": request.form.get("checklist_title") or existing_document.get("checklistTitle"),
-        "sections": submitted_sections,
+        "sections": normalized_submitted_sections,
+        "excludedSections": [
+            *normalize_checklist_excluded_sections(existing_document.get("excludedSections")),
+            *newly_excluded_sections,
+        ],
     }
     synchronized_document = (
         build_checklist_document_from_planning(selected_source, submitted_document)

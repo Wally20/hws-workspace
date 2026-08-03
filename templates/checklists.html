@@ -155,7 +155,15 @@
                     </span>
                     <h3>{{ section.activity }}</h3>
                   </div>
-                  <button class="subtle-button action-small" type="button" data-add-checklist-item>Checklistpunt toevoegen</button>
+                  <div class="checklist-section-actions">
+                    <button class="subtle-button action-small" type="button" data-add-checklist-item>Checklistpunt toevoegen</button>
+                    <button
+                      class="subtle-button action-small checklist-section-remove"
+                      type="button"
+                      data-remove-checklist-section
+                      aria-label="{{ section.activity }} alleen uit deze checklist verwijderen"
+                    >Onderdeel verwijderen</button>
+                  </div>
                 </div>
 
                 <div class="checklist-items" data-checklist-items>
@@ -186,11 +194,20 @@
               </article>
             {% endfor %}
           </div>
+          <section class="summary-card checklists-empty-editor" data-checklist-sections-empty hidden>
+            <h2>Alle onderdelen zijn uit deze checklist verwijderd</h2>
+            <p>De onderdelen blijven ongewijzigd in Planning of het draaiboek. Sla de checklist op om deze wijziging te bewaren.</p>
+          </section>
         {% else %}
           <section class="summary-card checklists-empty-editor">
-            <h2>Dit draaiboek bevat nog geen programmaonderdelen</h2>
-            <p>Vul het programma aan bij Voetbaldagen en importeer het daarna opnieuw.</p>
-            <a class="subtle-button" href="/voetbaldagen/{{ checklist_document.playbookId }}">Draaiboek openen</a>
+            {% if checklist_document.excludedSectionCount %}
+              <h2>Alle onderdelen zijn uit deze checklist verwijderd</h2>
+              <p>De onderdelen staan nog gewoon in {{ checklist_document.sourceLabel }} en zijn daar niet aangepast.</p>
+            {% else %}
+              <h2>Dit programma bevat nog geen programmaonderdelen</h2>
+              <p>Vul het programma aan in {{ checklist_document.sourceLabel }} en open de checklist daarna opnieuw.</p>
+            {% endif %}
+            <a class="subtle-button" href="{{ checklist_document.sourceEditUrl }}">{{ checklist_document.sourceLabel }} openen</a>
           </section>
         {% endif %}
 
@@ -242,7 +259,7 @@
         </div>
 
         {% if playbooks or plannings %}
-          <p class="checklist-import-description">Kies een opgeslagen programma uit Planning of een draaiboek bij Voetbaldagen. Alle programmaonderdelen worden in de juiste volgorde als checklist opgeslagen.</p>
+          <p class="checklist-import-description">Kies een opgeslagen programma uit Planning of een draaiboek bij Voetbaldagen. Alleen de programmaonderdelen worden in de juiste volgorde als checklist opgeslagen; bulletpointslides en taakverdelingen worden niet meegenomen.</p>
           <form class="checklist-import-form" method="post" action="/checklists" data-checklist-import-form>
             <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
             <input type="hidden" name="action" value="import">
@@ -289,5 +306,5 @@
     {% endif %}
   </main>
 
-  <script src="../static/checklists.js?v={{ asset_version }}" defer></script>
+  <script src="/static/checklists.js?v={{ asset_version }}" defer></script>
 {% endblock %}

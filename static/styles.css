@@ -972,6 +972,24 @@ body.checklist-modal-open {
   align-items: flex-start;
 }
 
+.checklist-section-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.checklist-section-remove {
+  border-color: var(--error-line);
+  color: #a33b3b;
+}
+
+.checklist-section-remove:hover {
+  border-color: #c65353;
+  background: var(--error-soft);
+}
+
 .checklist-section-title {
   display: grid;
   gap: 7px;
@@ -1172,6 +1190,16 @@ body.checklist-modal-open {
 
   .checklist-section-head {
     display: grid;
+  }
+
+  .checklist-section-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .checklist-section-actions .subtle-button {
+    width: 100%;
   }
 
   .checklist-item {

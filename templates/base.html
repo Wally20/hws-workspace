@@ -12,10 +12,10 @@
     <meta name="apple-mobile-web-app-title" content="HWS Workspace">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>{{ page_document_title|trim }}</title>
-    <link rel="icon" type="image/png" href="../static/assets/hws-logo.png">
-    <link rel="apple-touch-icon" href="../static/assets/hws-logo.png">
+    <link rel="icon" type="image/png" href="/static/assets/hws-logo.png">
+    <link rel="apple-touch-icon" href="/static/assets/hws-logo.png">
     <link rel="manifest" href="/manifest.webmanifest?v={{ asset_version }}">
-    <link rel="stylesheet" href="../static/styles.css?v={{ asset_version }}">
+    <link rel="stylesheet" href="/static/styles.css?v={{ asset_version }}">
     {% block head %}{% endblock %}
   </head>
   <body>
@@ -23,7 +23,7 @@
       <aside class="sidebar" id="appSidebar">
         <div class="brand-panel">
           <div class="brand-mark">
-            <img src="../static/assets/hws-logo.png" alt="HWS Voetbalschool logo">
+            <img src="/static/assets/hws-logo.png" alt="HWS Voetbalschool logo">
           </div>
           <div class="brand-copy">
             <p class="brand-subtitle">Workspace</p>
@@ -95,7 +95,7 @@
       <header class="workspace-topbar">
         <div class="workspace-topbar-inner">
           <a class="workspace-brand" href="/" aria-label="Naar dashboard">
-            <img src="../static/assets/hws-logo.png" alt="HWS Voetbalschool">
+            <img src="/static/assets/hws-logo.png" alt="HWS Voetbalschool">
             <span>Workspace</span>
           </a>
 
@@ -244,6 +244,6 @@
     </div>
     <script id="workspaceSearchPages" type="application/json" nonce="{{ csp_nonce }}">{{ workspace_search_pages|tojson }}</script>
     {% block scripts %}{% endblock %}
-    <script nonce="{{ csp_nonce }}" src="../static/base.js?v={{ asset_version }}" defer></script>
+    <script nonce="{{ csp_nonce }}" src="/static/base.js?v={{ asset_version }}" defer></script>
   </body>
 </html>

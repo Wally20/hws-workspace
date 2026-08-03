@@ -49,9 +49,16 @@
   const dataInput = editor.querySelector("[data-checklist-data]");
   const countLabels = Array.from(editor.querySelectorAll("[data-checklist-count]"));
   const saveState = editor.querySelector("[data-checklist-save-state]");
+  const sectionsEmptyState = editor.querySelector("[data-checklist-sections-empty]");
   let hasUnsavedChanges = false;
 
   const getSections = () => Array.from(editor.querySelectorAll("[data-checklist-section]"));
+
+  const updateSectionsEmptyState = () => {
+    if (sectionsEmptyState) {
+      sectionsEmptyState.hidden = getSections().length > 0;
+    }
+  };
 
   const updateSectionEmptyState = (section) => {
     const emptyMessage = section.querySelector("[data-checklist-empty]");
@@ -127,6 +134,22 @@
     }));
 
   editor.addEventListener("click", (event) => {
+    const removeSectionButton = event.target.closest("[data-remove-checklist-section]");
+    if (removeSectionButton) {
+      const section = removeSectionButton.closest("[data-checklist-section]");
+      const activity = section?.dataset.activity || "dit programmaonderdeel";
+      const shouldRemove = window.confirm(
+        `Wil je “${activity}” alleen uit deze checklist verwijderen? Het onderdeel blijft in Planning of het draaiboek staan.`,
+      );
+      if (shouldRemove) {
+        section?.remove();
+        updateSectionsEmptyState();
+        updateCount();
+        markUnsaved("Onderdeel verwijderd — nog opslaan");
+      }
+      return;
+    }
+
     const addButton = event.target.closest("[data-add-checklist-item]");
     if (addButton) {
       const section = addButton.closest("[data-checklist-section]");
@@ -195,5 +218,6 @@
   });
 
   getSections().forEach(updateSectionEmptyState);
+  updateSectionsEmptyState();
   updateCount();
 })();

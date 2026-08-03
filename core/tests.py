@@ -1,4 +1,5 @@
 import json
+import mimetypes
 import os
 import re
 import sqlite3
@@ -10,6 +11,7 @@ from importlib import import_module
 from unittest.mock import Mock, patch
 
 from django.conf import settings
+from django.contrib.staticfiles import finders
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, SimpleTestCase
 from PIL import Image
@@ -495,7 +497,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(pdf_response["Content-Type"], "application/pdf")
         self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
 
-    def test_planning_can_be_imported_and_checklist_item_can_be_removed(self):
+    def test_planning_import_ignores_other_slides_and_checklist_content_can_be_removed(self):
         planning_id = legacy.save_planning_document(
             {
                 "title": "Test planning checklistimport",
@@ -518,6 +520,24 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                             {"startTime": "08:30", "endTime": "09:00", "activity": "Opbouw"},
                         ],
                     },
+                ],
+                "taskAssignment": {
+                    "enabled": True,
+                    "rows": [
+                        {"name": "Testtrainer", "role": "Coördinator", "task": "Testtaakverdeling klaarzetten"}
+                    ],
+                },
+                "bulletSlides": [
+                    {
+                        "title": "Test bulletpointslide",
+                        "bullets": ["Testbullet die niet in de checklist hoort"],
+                    }
+                ],
+                "slideOrder": [
+                    {"type": "day", "index": 0},
+                    {"type": "bulletPoints", "index": 0},
+                    {"type": "taskAssignment"},
+                    {"type": "day", "index": 1},
                 ],
             }
         )
@@ -550,6 +570,29 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertContains(overview_response, '<optgroup label="Planning">')
         self.assertContains(detail_response, "Donderdagprogramma")
         self.assertContains(detail_response, "data-remove-checklist-item")
+        self.assertContains(detail_response, "data-remove-checklist-section")
+        self.assertContains(detail_response, 'href="/static/styles.css?')
+        self.assertContains(detail_response, 'src="/static/base.js?')
+        self.assertContains(detail_response, 'src="/static/checklists.js?')
+        self.assertContains(detail_response, 'src="/static/assets/hws-logo.png"')
+        self.assertNotContains(detail_response, "/checklists/static/")
+        self.assertNotContains(detail_response, "Test bulletpointslide")
+        self.assertNotContains(detail_response, "Testbullet die niet in de checklist hoort")
+        self.assertNotContains(detail_response, "Testtaakverdeling klaarzetten")
+
+        static_assets = (
+            ("styles.css", {"text/css"}),
+            ("base.js", {"text/javascript", "application/javascript"}),
+            ("checklists.js", {"text/javascript", "application/javascript"}),
+            ("assets/hws-logo.png", {"image/png"}),
+        )
+        for asset_path, expected_content_types in static_assets:
+            self.assertIsNotNone(finders.find(asset_path), asset_path)
+            self.assertIn(
+                mimetypes.guess_type(asset_path)[0],
+                expected_content_types,
+                asset_path,
+            )
 
         sections_with_item = imported_document["sections"]
         sections_with_item[0]["items"] = [{"text": "Deelnemerslijst klaarleggen", "color": "green"}]
@@ -594,6 +637,40 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(legacy.load_checklist_document(planning_id, "planning")["sections"][0]["items"], [])
         self.assertEqual(pdf_response.status_code, 200)
         self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
+
+        remaining_sections = legacy.load_checklist_document(planning_id, "planning")["sections"][1:]
+        remove_section_response = client.post(
+            f"/checklists/planning/{planning_id}",
+            {
+                "csrf_token": self.TEST_CSRF_TOKEN,
+                "source_type": "planning",
+                "source_id": str(planning_id),
+                "action": "save",
+                "checklist_title": "Test checklist planning",
+                "checklist_data": json.dumps(remaining_sections),
+            },
+            secure=True,
+        )
+        reopened_response = client.get(f"/checklists/planning/{planning_id}", secure=True)
+        checklist_after_removal = legacy.load_checklist_document(planning_id, "planning")
+        planning_after_removal = legacy.load_planning_document(planning_id)
+
+        self.assertEqual(remove_section_response.status_code, 302)
+        self.assertEqual(
+            [section["activity"] for section in checklist_after_removal["sections"]],
+            ["Partijvorm", "Opbouw"],
+        )
+        self.assertEqual(len(checklist_after_removal["excludedSections"]), 1)
+        self.assertNotContains(reopened_response, "Ontvangst")
+        self.assertEqual(
+            [item["activity"] for day in planning_after_removal["days"] for item in day["program"]],
+            ["Partijvorm", "Ontvangst", "Opbouw"],
+        )
+        self.assertEqual(planning_after_removal["bulletSlides"][0]["title"], "Test bulletpointslide")
+        self.assertEqual(
+            planning_after_removal["taskAssignment"]["rows"][0]["task"],
+            "Testtaakverdeling klaarzetten",
+        )
 
     def test_saving_planning_automatically_updates_imported_checklist(self):
         planning_id = legacy.save_planning_document(
@@ -683,7 +760,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         ]
         legacy.save_checklist_document(stale_document)
 
-        response = self.build_authenticated_client().get(f"/checklists/{playbook_id}", secure=True)
+        client = self.build_authenticated_client()
+        response = client.get(f"/checklists/{playbook_id}", secure=True)
         synchronized = legacy.load_checklist_document(playbook_id)
 
         self.assertEqual(response.status_code, 200)
@@ -716,6 +794,26 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             automatically_synchronized["sections"][0]["items"],
             [{"text": "Bestaand checklistpunt", "color": "blue"}],
         )
+
+        remove_section_response = client.post(
+            f"/checklists/{playbook_id}",
+            {
+                "csrf_token": self.TEST_CSRF_TOKEN,
+                "source_type": "playbook",
+                "source_id": str(playbook_id),
+                "action": "save",
+                "checklist_title": "Test checklist draaiboek",
+                "checklist_data": "[]",
+            },
+            secure=True,
+        )
+        reopened_response = client.get(f"/checklists/{playbook_id}", secure=True)
+        source_after_removal = legacy.load_football_days_playbook(playbook_id, "voetbaldagen")
+
+        self.assertEqual(remove_section_response.status_code, 302)
+        self.assertEqual(legacy.load_checklist_document(playbook_id)["sections"], [])
+        self.assertContains(reopened_response, "Alle onderdelen zijn uit deze checklist verwijderd")
+        self.assertEqual(source_after_removal["program"][0]["activity"], "Nieuw programma na opslaan")
 
     def test_login_requires_valid_csrf_token(self):
         response = Client(enforce_csrf_checks=False).post(
