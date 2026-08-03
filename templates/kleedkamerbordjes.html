@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block title %}Kleedkamerbordjes | HWS Voetbalschool Workspace{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="/static/kleedkamerbordjes.css?v={{ asset_version }}">
+{% endblock %}
+
+{% block content %}
+  <main class="dressing-room-page">
+    <header class="page-header dressing-room-header">
+      <div>
+        <p class="dressing-room-kicker">Draaiboeken</p>
+        <h1>Kleedkamerbordjes</h1>
+        <p class="welcome-line">
+          {% if selected_document %}
+            Bekijk alle teams en exporteer ieder team als een eigen A4-pagina in één PDF.
+          {% else %}
+            Maak vanuit een Excel-teamindeling automatisch voor ieder team of iedere groep een eigen A4-bordje.
+          {% endif %}
+        </p>
+      </div>
+      <div class="dressing-room-header-actions">
+        <a class="subtle-button" href="{% if selected_document %}/kleedkamerbordjes{% else %}/draaiboeken{% endif %}">
+          {% if selected_document %}Terug naar bordjes{% else %}Terug naar draaiboeken{% endif %}
+        </a>
+        <button
+          class="dressing-room-add-button"
+          type="button"
+          data-open-dressing-room-import
+          aria-label="Nieuwe kleedkamerbordjes maken"
+          aria-haspopup="dialog"
+          aria-controls="dressingRoomImportModal"
+          aria-expanded="false"
+          title="Nieuwe kleedkamerbordjes maken"
+        >
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+        </button>
+      </div>
+    </header>
+
+    {% if success %}
+      <div class="notice dressing-room-notice" role="status">{{ success }}</div>
+    {% endif %}
+    {% if error %}
+      <div class="notice dressing-room-notice dressing-room-notice-error" role="alert">{{ error }}</div>
+    {% endif %}
+
+    {% if not selected_document %}
+      <section class="dressing-room-library" aria-labelledby="dressingRoomLibraryTitle">
+        <div class="dressing-room-library-head">
+          <div>
+            <h2 id="dressingRoomLibraryTitle">Opgeslagen kleedkamerbordjes</h2>
+            <p>Open een tegel om alle A4-bordjes te bekijken en als PDF te exporteren.</p>
+          </div>
+          <span>{{ documents|length }} bestand{% if documents|length != 1 %}en{% endif %}</span>
+        </div>
+
+        {% if documents %}
+          <div class="dressing-room-tile-grid">
+            {% for document in documents %}
+              <a class="summary-card dressing-room-document-tile" href="{{ document.detailUrl }}">
+                <span class="dressing-room-document-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h8l3 3V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"></path><path d="M9 11h6M9 15h6M15 3.5V7h3"></path></svg>
+                </span>
+                <span class="dressing-room-document-copy">
+                  <strong>{{ document.title }}</strong>
+                  <small>{{ document.sourceFilename }}</small>
+                </span>
+                <span class="dressing-room-document-stats">
+                  <span>{{ document.groupCount }} team{% if document.groupCount != 1 %}s/groepen{% endif %}</span>
+                  <span>{{ document.participantCount }} deelnemers</span>
+                  <span>{{ document.updatedAtLabel }}</span>
+                </span>
+                <span class="dressing-room-document-arrow" aria-hidden="true">→</span>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="summary-card dressing-room-empty-state">
+            <span class="dressing-room-empty-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h8l3 3V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"></path><path d="M9 11h6M9 15h6M15 3.5V7h3"></path></svg>
+            </span>
+            <strong>Nog geen kleedkamerbordjes opgeslagen</strong>
+            <p>Klik op het plus-icoon rechtsboven en drop een ingevulde Excel-teamindeling om te beginnen.</p>
+            <button class="subtle-button subtle-button-strong" type="button" data-open-dressing-room-import>Excel importeren</button>
+          </div>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    {% if selected_document %}
+      <section class="dressing-room-detail" aria-labelledby="dressingRoomDocumentTitle">
+        <div class="dressing-room-detail-toolbar">
+          <div>
+            <span class="dressing-room-eyebrow">{{ selected_document.sourceFilename }}</span>
+            <h2 id="dressingRoomDocumentTitle">{{ selected_document.title }}</h2>
+            <p>{{ selected_document.groupCount }} teams of groepen · {{ selected_document.participantCount }} deelnemers · bijgewerkt {{ selected_document.updatedAtLabel }}</p>
+          </div>
+          <div class="dressing-room-detail-actions">
+            <form method="post" action="{{ selected_document.detailUrl }}" data-delete-dressing-room-document>
+              <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+              <input type="hidden" name="action" value="delete">
+              <button class="subtle-button dressing-room-delete-button" type="submit">Verwijderen</button>
+            </form>
+            <a class="subtle-button subtle-button-strong" href="{{ selected_document.exportUrl }}" target="_blank" rel="noopener">Exporteer als PDF</a>
+          </div>
+        </div>
+
+        <div class="dressing-room-preview-grid">
+          {% for group in selected_document.groups %}
+            <article class="dressing-room-a4-preview">
+              <div class="dressing-room-a4-header">
+                <span>HWS VOETBALSCHOOL</span>
+                <strong>KLEEDKAMER</strong>
+                <h3>{{ group.name }}</h3>
+              </div>
+              <div class="dressing-room-a4-body">
+                <div class="dressing-room-a4-body-head">
+                  <strong>DEELNEMERS</strong>
+                  <span>{{ group.participants|length }} deelnemers</span>
+                </div>
+                <ul class="dressing-room-name-list{% if group.participants|length > 72 %} is-ultra-dense{% elif group.participants|length > 40 %} is-dense{% elif group.participants|length > 18 %} is-compact{% endif %}">
+                  {% for participant in group.participants %}
+                    <li>{{ participant }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+              <div class="dressing-room-a4-footer">{{ selected_document.title }}<strong>hwsvoetbalschool.nl</strong></div>
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    <div class="agenda-modal dressing-room-import-modal" id="dressingRoomImportModal" hidden>
+      <div class="agenda-modal-backdrop" data-close-dressing-room-import></div>
+      <section class="agenda-modal-dialog dressing-room-import-dialog" role="dialog" aria-modal="true" aria-labelledby="dressingRoomImportTitle">
+        <div class="agenda-modal-header">
+          <div>
+            <p class="dressing-room-kicker">Nieuw bestand</p>
+            <h2 id="dressingRoomImportTitle">Excel-teamindeling importeren</h2>
+          </div>
+          <button class="team-modal-close dressing-room-import-close" type="button" data-close-dressing-room-import aria-label="Sluiten">×</button>
+        </div>
+
+        <p class="dressing-room-import-description">
+          Importeer een <strong>.xlsx</strong>-bestand met de kolommen <strong>Naam</strong> en <strong>Team</strong>. Een bestand met <strong>Voornaam</strong>, <strong>Achternaam</strong> en <strong>Groep</strong> werkt ook. Iedere ingevulde groep wordt één A4-pagina.
+        </p>
+
+        <form class="dressing-room-import-form" method="post" action="/kleedkamerbordjes" enctype="multipart/form-data" data-dressing-room-import-form>
+          <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+          <label class="dressing-room-title-field">
+            <span>Naam van het bestand <small>optioneel</small></span>
+            <input type="text" name="title" maxlength="180" placeholder="Bijv. Teamindeling zomerkamp 2026">
+          </label>
+
+          <label class="dressing-room-drop-zone" data-dressing-room-drop-zone>
+            <input type="file" name="team_assignment_file" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12" required data-dressing-room-file-input>
+            <span class="dressing-room-drop-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5"></path><path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"></path></svg>
+            </span>
+            <strong data-dressing-room-file-label>Drop je Excel-bestand hier</strong>
+            <small>Klik om een bestand te kiezen · maximaal 10 MB</small>
+          </label>
+
+          <div class="dressing-room-import-feedback" data-dressing-room-import-feedback aria-live="polite"></div>
+          <div class="dressing-room-import-actions">
+            <button class="subtle-button" type="button" data-close-dressing-room-import>Annuleren</button>
+            <button class="subtle-button subtle-button-strong" type="submit" data-dressing-room-import-submit>Bordjes maken en opslaan</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </main>
+{% endblock %}
+
+{% block scripts %}
+  <script nonce="{{ csp_nonce }}" src="/static/kleedkamerbordjes.js?v={{ asset_version }}" defer></script>
+{% endblock %}

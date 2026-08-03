@@ -1,0 +1,621 @@
+.dressing-room-page {
+  display: grid;
+  gap: 20px;
+  padding-bottom: 40px;
+}
+
+.dressing-room-header,
+.dressing-room-header-actions,
+.dressing-room-library-head,
+.dressing-room-detail-toolbar,
+.dressing-room-detail-actions,
+.dressing-room-a4-body-head,
+.dressing-room-a4-footer,
+.dressing-room-import-actions {
+  display: flex;
+  align-items: center;
+}
+
+.dressing-room-header,
+.dressing-room-library-head,
+.dressing-room-detail-toolbar,
+.dressing-room-a4-body-head,
+.dressing-room-a4-footer {
+  justify-content: space-between;
+}
+
+.dressing-room-header {
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.dressing-room-header-actions,
+.dressing-room-detail-actions,
+.dressing-room-import-actions {
+  gap: 10px;
+}
+
+.dressing-room-kicker {
+  margin: 0 0 5px;
+  color: var(--warm-accent);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.dressing-room-add-button {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: #111111;
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.dressing-room-add-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.18);
+}
+
+.dressing-room-add-button:focus-visible {
+  outline: 3px solid rgba(214, 163, 79, 0.38);
+  outline-offset: 3px;
+}
+
+.dressing-room-add-button svg {
+  width: 23px;
+  height: 23px;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+.dressing-room-notice {
+  margin: 0;
+  border-color: var(--success-line);
+  background: var(--success-soft);
+}
+
+.dressing-room-notice-error {
+  border-color: var(--error-line);
+  background: var(--error-soft);
+}
+
+.dressing-room-library,
+.dressing-room-detail,
+.dressing-room-document-copy,
+.dressing-room-empty-state,
+.dressing-room-import-form,
+.dressing-room-title-field {
+  display: grid;
+}
+
+.dressing-room-library,
+.dressing-room-detail {
+  gap: 16px;
+}
+
+.dressing-room-library-head {
+  gap: 18px;
+  align-items: flex-end;
+}
+
+.dressing-room-library-head h2,
+.dressing-room-library-head p,
+.dressing-room-detail-toolbar h2,
+.dressing-room-detail-toolbar p {
+  margin: 0;
+}
+
+.dressing-room-library-head h2,
+.dressing-room-detail-toolbar h2 {
+  font-size: 1.2rem;
+}
+
+.dressing-room-library-head p,
+.dressing-room-detail-toolbar p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.dressing-room-library-head > span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.dressing-room-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.dressing-room-document-tile {
+  position: relative;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  gap: 13px;
+  align-items: start;
+  min-width: 0;
+  padding: 18px;
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.dressing-room-document-tile:hover {
+  border-color: #d6a34f;
+  box-shadow: 0 15px 34px rgba(46, 32, 9, 0.1);
+  transform: translateY(-2px);
+}
+
+.dressing-room-document-icon,
+.dressing-room-empty-icon,
+.dressing-room-drop-icon {
+  display: grid;
+  place-items: center;
+}
+
+.dressing-room-document-icon {
+  width: 46px;
+  height: 46px;
+  grid-row: 1 / span 2;
+  border-radius: 13px;
+  background: var(--warm-accent-soft);
+  color: #936418;
+}
+
+.dressing-room-document-icon svg,
+.dressing-room-empty-icon svg,
+.dressing-room-drop-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dressing-room-document-icon svg {
+  width: 24px;
+  height: 24px;
+  stroke-width: 1.8;
+}
+
+.dressing-room-document-copy {
+  gap: 4px;
+  min-width: 0;
+}
+
+.dressing-room-document-copy strong,
+.dressing-room-document-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dressing-room-document-copy strong {
+  font-size: 0.92rem;
+}
+
+.dressing-room-document-copy small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.dressing-room-document-stats {
+  display: flex;
+  grid-column: 2 / -1;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.dressing-room-document-stats span {
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: #f4f4f4;
+  color: #646464;
+  font-size: 0.64rem;
+  font-weight: 800;
+}
+
+.dressing-room-document-stats span:first-child {
+  background: var(--warm-accent-soft);
+  color: #8a5d17;
+}
+
+.dressing-room-document-arrow {
+  color: #8c8c8c;
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.dressing-room-empty-state {
+  justify-items: center;
+  gap: 8px;
+  padding: 36px;
+  text-align: center;
+}
+
+.dressing-room-empty-state p {
+  max-width: 680px;
+  margin: 0 0 6px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.dressing-room-empty-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--warm-accent);
+  color: #111111;
+}
+
+.dressing-room-empty-icon svg {
+  width: 25px;
+  height: 25px;
+  stroke-width: 1.8;
+}
+
+.dressing-room-detail-toolbar {
+  gap: 20px;
+  align-items: flex-end;
+}
+
+.dressing-room-eyebrow {
+  display: block;
+  margin-bottom: 4px;
+  color: #95691f;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dressing-room-detail-actions form {
+  margin: 0;
+}
+
+.dressing-room-delete-button {
+  border-color: rgba(180, 35, 24, 0.2);
+  color: #b42318;
+}
+
+.dressing-room-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(260px, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+.dressing-room-a4-preview {
+  display: grid;
+  grid-template-rows: 27% minmax(0, 1fr) auto;
+  aspect-ratio: 210 / 297;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #d7d7d7;
+  border-radius: 4px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.11);
+}
+
+.dressing-room-a4-header {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 9% 8% 7%;
+  border-bottom: 5px solid #d6a34f;
+  background: #111111;
+  color: #ffffff;
+}
+
+.dressing-room-a4-header::after {
+  content: "HWS";
+  position: absolute;
+  top: 14%;
+  right: 8%;
+  color: rgba(255, 255, 255, 0.13);
+  font-size: clamp(1.4rem, 4vw, 3rem);
+  font-weight: 900;
+}
+
+.dressing-room-a4-header > span {
+  color: #d6a34f;
+  font-size: clamp(0.38rem, 0.7vw, 0.58rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.dressing-room-a4-header > strong {
+  margin-top: 4%;
+  font-size: clamp(0.95rem, 2vw, 1.45rem);
+  line-height: 1;
+}
+
+.dressing-room-a4-header h3 {
+  max-width: 92%;
+  margin: 6% 0 0;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: clamp(1.05rem, 2.4vw, 1.75rem);
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dressing-room-a4-body {
+  min-height: 0;
+  overflow: hidden;
+  padding: 8% 8% 4%;
+}
+
+.dressing-room-a4-body-head {
+  gap: 10px;
+  margin-bottom: 5%;
+}
+
+.dressing-room-a4-body-head strong {
+  font-size: clamp(0.58rem, 1vw, 0.82rem);
+}
+
+.dressing-room-a4-body-head span {
+  color: #757575;
+  font-size: clamp(0.42rem, 0.75vw, 0.62rem);
+  font-weight: 700;
+}
+
+.dressing-room-name-list {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dressing-room-name-list.is-compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 8px;
+}
+
+.dressing-room-name-list.is-dense {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px 6px;
+}
+
+.dressing-room-name-list.is-ultra-dense {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px 4px;
+}
+
+.dressing-room-name-list.is-dense li,
+.dressing-room-name-list.is-ultra-dense li {
+  padding-block: 3.5%;
+  font-size: clamp(0.34rem, 0.62vw, 0.52rem);
+}
+
+.dressing-room-name-list li {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  padding: 4.5% 5% 4.5% 14%;
+  border-radius: 4px;
+  color: #242424;
+  font-size: clamp(0.45rem, 0.8vw, 0.68rem);
+  font-weight: 700;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dressing-room-name-list li:nth-child(odd) {
+  background: #f4f4f4;
+}
+
+.dressing-room-name-list li::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 5%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #d6a34f;
+  transform: translateY(-50%);
+}
+
+.dressing-room-a4-footer {
+  gap: 8px;
+  margin: 0 8%;
+  padding: 4% 0 5%;
+  border-top: 1px solid #dedede;
+  overflow: hidden;
+  color: #777777;
+  font-size: clamp(0.36rem, 0.65vw, 0.52rem);
+  white-space: nowrap;
+}
+
+.dressing-room-a4-footer strong {
+  color: #111111;
+}
+
+.dressing-room-import-dialog {
+  width: min(640px, 100%);
+}
+
+.dressing-room-import-close {
+  font-size: 2.4rem;
+}
+
+.dressing-room-import-description {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.65;
+}
+
+.dressing-room-import-form {
+  gap: 16px;
+}
+
+.dressing-room-title-field {
+  gap: 7px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.dressing-room-title-field small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.dressing-room-title-field input {
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.87rem;
+}
+
+.dressing-room-drop-zone {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding: 30px 22px;
+  border: 2px dashed #c8c8c8;
+  border-radius: 16px;
+  background: #fafafa;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.dressing-room-drop-zone:hover,
+.dressing-room-drop-zone.is-dragging,
+.dressing-room-drop-zone.has-file {
+  border-color: #d6a34f;
+  background: #fffaf0;
+}
+
+.dressing-room-drop-zone.is-dragging {
+  transform: scale(1.01);
+}
+
+.dressing-room-drop-zone input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dressing-room-drop-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  background: #111111;
+  color: #ffffff;
+}
+
+.dressing-room-drop-icon svg {
+  width: 23px;
+  height: 23px;
+  stroke-width: 1.8;
+}
+
+.dressing-room-drop-zone strong {
+  font-size: 0.9rem;
+}
+
+.dressing-room-drop-zone small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.dressing-room-import-feedback {
+  min-height: 18px;
+  color: #95691f;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.dressing-room-import-feedback.is-error {
+  color: #b42318;
+}
+
+.dressing-room-import-actions {
+  justify-content: flex-end;
+}
+
+body.dressing-room-modal-open {
+  overflow: hidden;
+}
+
+@media (max-width: 1180px) {
+  .dressing-room-tile-grid,
+  .dressing-room-preview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .dressing-room-header,
+  .dressing-room-library-head,
+  .dressing-room-detail-toolbar {
+    display: grid;
+    align-items: start;
+  }
+
+  .dressing-room-header-actions,
+  .dressing-room-library-head,
+  .dressing-room-detail-actions {
+    width: 100%;
+  }
+
+  .dressing-room-header-actions,
+  .dressing-room-detail-actions {
+    justify-content: space-between;
+  }
+
+  .dressing-room-detail-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .dressing-room-detail-actions .subtle-button {
+    width: 100%;
+  }
+
+  .dressing-room-tile-grid,
+  .dressing-room-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dressing-room-preview-grid {
+    max-width: 460px;
+    margin: 0 auto;
+  }
+
+  .dressing-room-import-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .dressing-room-import-actions .subtle-button {
+    width: 100%;
+  }
+}

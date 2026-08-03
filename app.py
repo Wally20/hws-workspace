@@ -31,8 +31,9 @@ import requests
 from django.conf import settings
 from django.core.mail import EmailMessage
 from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils.exceptions import InvalidFileException
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -94,6 +95,10 @@ CHECKLIST_COLOR_OPTIONS = (
 )
 CHECKLIST_COLOR_HEX = {option["value"]: option["hex"] for option in CHECKLIST_COLOR_OPTIONS}
 DEFAULT_CHECKLIST_TITLE = "Programma en controlepunten voor op het clipboard"
+DRESSING_ROOM_SIGN_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+DRESSING_ROOM_SIGN_MAX_GROUPS = 200
+DRESSING_ROOM_SIGN_MAX_PARTICIPANTS = 5000
+DRESSING_ROOM_SIGN_MAX_PARTICIPANTS_PER_GROUP = 112
 FOOTBALL_PLAYBOOK_CONTEXTS = {
     "voetbaldagen": {
         "playbookType": "voetbaldagen",
@@ -567,6 +572,14 @@ WORKSPACE_SEARCH_PAGES = (
         "section": "Draaiboeken",
         "description": "Maak gekleurde checklists bij een planning of het programma van een voetbaldag.",
         "keywords": ("checklist", "coordinator", "planning", "programma", "voetbaldag", "clipboard"),
+    },
+    {
+        "key": "kleedkamerbordjes",
+        "title": "Kleedkamerbordjes",
+        "path": "/kleedkamerbordjes",
+        "section": "Draaiboeken",
+        "description": "Maak per team of groep een A4-kleedkamerbordje vanuit een Excel-teamindeling.",
+        "keywords": ("kleedkamer", "bordje", "teamindeling", "groep", "excel", "pdf"),
     },
     {
         "key": "samenwerkende-amateurclubs",
@@ -3870,6 +3883,15 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS dressing_room_sign_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                source_filename TEXT NOT NULL,
+                groups_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS contracts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -4444,6 +4466,12 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_planning_documents_date
             ON planning_documents (planning_date DESC, updated_at DESC, id DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_dressing_room_sign_documents_updated
+            ON dressing_room_sign_documents (updated_at DESC, id DESC)
             """
         )
         connection.execute(
@@ -7817,6 +7845,306 @@ def save_checklist_document(document: Dict[str, Any]) -> Dict[str, Any]:
     if saved_document is None:
         raise RuntimeError("De checklist kon niet worden opgeslagen.")
     return saved_document
+
+
+def dressing_room_sign_cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.strftime("%d-%m-%Y %H:%M")
+    if isinstance(value, date):
+        return value.strftime("%d-%m-%Y")
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return re.sub(r"\s+", " ", str(value)).strip()
+
+
+def normalize_dressing_room_sign_header(value: Any) -> str:
+    text = dressing_room_sign_cell_text(value)
+    normalized = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", " ", normalized.casefold()).strip()
+
+
+def find_dressing_room_sign_columns(row: Tuple[Any, ...]) -> Optional[Dict[str, int]]:
+    group_headers = {
+        "team",
+        "groep",
+        "team groep",
+        "groep team",
+        "teamnaam",
+        "groepsnaam",
+        "team naam",
+        "groep naam",
+        "teamindeling",
+        "groepsindeling",
+        "poule",
+        "kleedkamer",
+    }
+    full_name_headers = {
+        "naam",
+        "volledige naam",
+        "naam deelnemer",
+        "deelnemer naam",
+        "deelnemersnaam",
+        "naam speler",
+        "speler naam",
+        "speler",
+        "klantnaam",
+    }
+    first_name_headers = {
+        "voornaam",
+        "voor naam",
+        "first name",
+        "firstname",
+        "voornaam deelnemer",
+        "voornaam speler",
+    }
+    last_name_headers = {
+        "achternaam",
+        "achter naam",
+        "last name",
+        "lastname",
+        "familienaam",
+        "achternaam deelnemer",
+        "achternaam speler",
+    }
+
+    columns: Dict[str, int] = {}
+    for column_index, value in enumerate(row):
+        header = normalize_dressing_room_sign_header(value)
+        if not header:
+            continue
+        if header in group_headers and "group" not in columns:
+            columns["group"] = column_index
+        elif header in full_name_headers and "full_name" not in columns:
+            columns["full_name"] = column_index
+        elif header in first_name_headers and "first_name" not in columns:
+            columns["first_name"] = column_index
+        elif header in last_name_headers and "last_name" not in columns:
+            columns["last_name"] = column_index
+
+    has_name = "full_name" in columns or (
+        "first_name" in columns and "last_name" in columns
+    )
+    return columns if "group" in columns and has_name else None
+
+
+def normalize_dressing_room_participant_name(full_name: Any, first_name: Any, last_name: Any) -> str:
+    if dressing_room_sign_cell_text(full_name):
+        name = dressing_room_sign_cell_text(full_name)
+        if name.count(",") == 1:
+            surname, given_name = (part.strip() for part in name.split(",", 1))
+            name = f"{given_name} {surname}".strip()
+    else:
+        name = " ".join(
+            part
+            for part in (
+                dressing_room_sign_cell_text(first_name),
+                dressing_room_sign_cell_text(last_name),
+            )
+            if part
+        )
+    return re.sub(r"\s+", " ", name).strip()[:140]
+
+
+def parse_dressing_room_sign_workbook(file_bytes: bytes, filename: str) -> List[Dict[str, Any]]:
+    extension = Path(str(filename or "")).suffix.casefold()
+    if extension not in {".xlsx", ".xlsm"}:
+        raise ValueError("Gebruik een Excel-bestand in .xlsx- of .xlsm-formaat.")
+    if not file_bytes:
+        raise ValueError("Het gekozen Excel-bestand is leeg.")
+    if len(file_bytes) > DRESSING_ROOM_SIGN_MAX_UPLOAD_BYTES:
+        raise ValueError("Het Excel-bestand is groter dan 10 MB.")
+
+    try:
+        workbook = load_workbook(
+            BytesIO(file_bytes),
+            read_only=True,
+            data_only=True,
+            keep_links=False,
+        )
+    except (InvalidFileException, zipfile.BadZipFile, KeyError, OSError, ValueError) as exc:
+        raise ValueError("Het Excel-bestand kon niet worden gelezen. Sla het opnieuw op als .xlsx en probeer nogmaals.") from exc
+
+    groups: List[Dict[str, Any]] = []
+    groups_by_key: Dict[str, Dict[str, Any]] = {}
+    recognized_sheets = 0
+    participant_count = 0
+    try:
+        for worksheet in workbook.worksheets:
+            max_column = min(max(int(worksheet.max_column or 1), 1), 80)
+            header_row_number = 0
+            columns: Optional[Dict[str, int]] = None
+            for row_number, row in enumerate(
+                worksheet.iter_rows(max_row=40, max_col=max_column, values_only=True),
+                start=1,
+            ):
+                columns = find_dressing_room_sign_columns(row)
+                if columns is not None:
+                    header_row_number = row_number
+                    break
+            if columns is None:
+                continue
+
+            recognized_sheets += 1
+            for row in worksheet.iter_rows(
+                min_row=header_row_number + 1,
+                max_col=max_column,
+                values_only=True,
+            ):
+                group_name = dressing_room_sign_cell_text(row[columns["group"]])[:100]
+                if not group_name:
+                    continue
+                participant_name = normalize_dressing_room_participant_name(
+                    row[columns["full_name"]] if "full_name" in columns else "",
+                    row[columns["first_name"]] if "first_name" in columns else "",
+                    row[columns["last_name"]] if "last_name" in columns else "",
+                )
+                if not participant_name:
+                    continue
+
+                group_key = re.sub(r"\s+", " ", group_name).casefold()
+                group = groups_by_key.get(group_key)
+                if group is None:
+                    if len(groups) >= DRESSING_ROOM_SIGN_MAX_GROUPS:
+                        raise ValueError("Het Excel-bestand bevat meer dan 200 teams of groepen.")
+                    group = {"name": group_name, "participants": []}
+                    groups_by_key[group_key] = group
+                    groups.append(group)
+                group["participants"].append(participant_name)
+                if len(group["participants"]) > DRESSING_ROOM_SIGN_MAX_PARTICIPANTS_PER_GROUP:
+                    raise ValueError(
+                        f"Team of groep ‘{group_name}’ bevat meer dan 112 deelnemers en past niet leesbaar op één A4."
+                    )
+                participant_count += 1
+                if participant_count > DRESSING_ROOM_SIGN_MAX_PARTICIPANTS:
+                    raise ValueError("Het Excel-bestand bevat meer dan 5.000 deelnemers.")
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(
+            "Het Excel-bestand kon niet volledig worden gelezen. Sla het opnieuw op als .xlsx en probeer nogmaals."
+        ) from exc
+    finally:
+        workbook.close()
+
+    if not recognized_sheets:
+        raise ValueError(
+            "Geen teamindeling gevonden. Gebruik kolommen ‘Naam’ en ‘Team’, of ‘Voornaam’, ‘Achternaam’ en ‘Groep’."
+        )
+    if not groups:
+        raise ValueError("Er zijn geen deelnemers gevonden met zowel een naam als een ingevuld team of groep.")
+    return groups
+
+
+def normalize_dressing_room_sign_groups(raw_groups: Any) -> List[Dict[str, Any]]:
+    groups = raw_groups if isinstance(raw_groups, list) else []
+    normalized_groups: List[Dict[str, Any]] = []
+    for raw_group in groups[:DRESSING_ROOM_SIGN_MAX_GROUPS]:
+        if not isinstance(raw_group, dict):
+            continue
+        group_name = dressing_room_sign_cell_text(raw_group.get("name"))[:100]
+        if not group_name:
+            continue
+        participants = [
+            dressing_room_sign_cell_text(name)[:140]
+            for name in (raw_group.get("participants") or [])[:DRESSING_ROOM_SIGN_MAX_PARTICIPANTS]
+            if dressing_room_sign_cell_text(name)
+        ]
+        if participants:
+            normalized_groups.append({"name": group_name, "participants": participants})
+    return normalized_groups
+
+
+def normalize_dressing_room_sign_document(row: Optional[sqlite3.Row]) -> Optional[Dict[str, Any]]:
+    if row is None:
+        return None
+    try:
+        raw_groups = json.loads(str(row["groups_json"] or "[]"))
+    except json.JSONDecodeError:
+        raw_groups = []
+    groups = normalize_dressing_room_sign_groups(raw_groups)
+    return {
+        "id": int(row["id"]),
+        "title": str(row["title"] or "Kleedkamerbordjes").strip(),
+        "sourceFilename": str(row["source_filename"] or "").strip(),
+        "groups": groups,
+        "groupCount": len(groups),
+        "participantCount": sum(len(group["participants"]) for group in groups),
+        "createdAt": str(row["created_at"] or "").strip(),
+        "updatedAt": str(row["updated_at"] or "").strip(),
+        "updatedAtLabel": format_datetime_display(str(row["updated_at"] or "").strip()),
+        "detailUrl": f"/kleedkamerbordjes/{int(row['id'])}",
+        "exportUrl": f"/kleedkamerbordjes/{int(row['id'])}/export-pdf",
+    }
+
+
+def load_dressing_room_sign_document(document_id: int) -> Optional[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT id, title, source_filename, groups_json, created_at, updated_at
+            FROM dressing_room_sign_documents
+            WHERE id = ?
+            """,
+            (document_id,),
+        ).fetchone()
+    return normalize_dressing_room_sign_document(row)
+
+
+def load_dressing_room_sign_documents() -> List[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, title, source_filename, groups_json, created_at, updated_at
+            FROM dressing_room_sign_documents
+            ORDER BY updated_at DESC, id DESC
+            """
+        ).fetchall()
+    return [
+        document
+        for row in rows
+        if (document := normalize_dressing_room_sign_document(row)) is not None
+    ]
+
+
+def save_dressing_room_sign_document(title: str, source_filename: str, groups: Any) -> Dict[str, Any]:
+    normalized_groups = normalize_dressing_room_sign_groups(groups)
+    if not normalized_groups:
+        raise ValueError("Er zijn geen geldige teams of groepen om op te slaan.")
+    normalized_title = re.sub(r"\s+", " ", str(title or "")).strip()[:180] or "Kleedkamerbordjes"
+    normalized_filename = Path(str(source_filename or "teamindeling.xlsx")).name[:255]
+    now = utcnow_iso()
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO dressing_room_sign_documents (
+                title, source_filename, groups_json, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                normalized_title,
+                normalized_filename,
+                json.dumps(normalized_groups, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+        document_id = int(cursor.lastrowid)
+    document = load_dressing_room_sign_document(document_id)
+    if document is None:
+        raise RuntimeError("De kleedkamerbordjes konden niet worden opgeslagen.")
+    return document
+
+
+def delete_dressing_room_sign_document(document_id: int) -> bool:
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            "DELETE FROM dressing_room_sign_documents WHERE id = ?",
+            (document_id,),
+        )
+    return cursor.rowcount > 0
 
 
 def get_checklist_sync_payload(document: Dict[str, Any]) -> Dict[str, Any]:
@@ -12337,6 +12665,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "draaiboeken",
             "voetbaldagen",
             "checklists",
+            "kleedkamerbordjes",
             "samenwerkende-amateurclubs",
             "management",
             "planning",
@@ -12361,7 +12690,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "trainers",
             "profile",
         }
-    visible_pages = {"materialen", "orders", "leads", "draaiboeken", "voetbaldagen", "checklists", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "profile"}
+    visible_pages = {"materialen", "orders", "leads", "draaiboeken", "voetbaldagen", "checklists", "kleedkamerbordjes", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "profile"}
     if is_trainer_user(user):
         visible_pages.update({"dashboard", "agenda"})
     return visible_pages
@@ -12803,6 +13132,168 @@ def create_materials_all_clubs_pdf(clubs: List[Dict[str, Any]], materials: List[
         create_materials_club_pdf(club, materials, _pdf=pdf)
     pdf.setTitle("Materialenkratten - alle clubs")
     pdf.setAuthor("HWS Voetbalschool")
+    pdf.save()
+    buffer.seek(0)
+    return buffer.read()
+
+
+def create_dressing_room_signs_pdf(document: Dict[str, Any]) -> bytes:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.pdfgen import canvas
+    except ImportError as exc:
+        raise RuntimeError("De PDF-library ontbreekt. Installeer de packages uit requirements.txt.") from exc
+
+    groups = normalize_dressing_room_sign_groups(document.get("groups"))
+    if not groups:
+        raise ValueError("Dit bestand bevat geen teams of groepen om te exporteren.")
+
+    font_root = os.path.join(os.path.dirname(__file__), "static", "assets", "fonts")
+    font_names = {
+        "regular": "DressingRoomPoppins",
+        "bold": "DressingRoomPoppinsBold",
+        "extra_bold": "DressingRoomPoppinsExtraBold",
+    }
+    font_files = {
+        "regular": "Poppins-Regular.ttf",
+        "bold": "Poppins-Bold.ttf",
+        "extra_bold": "Poppins-ExtraBold.ttf",
+    }
+    registered_fonts = set(pdfmetrics.getRegisteredFontNames())
+    for key, font_name in font_names.items():
+        if font_name not in registered_fonts:
+            pdfmetrics.registerFont(TTFont(font_name, os.path.join(font_root, font_files[key])))
+
+    buffer = BytesIO()
+    page_width, page_height = A4
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    document_title = str(document.get("title") or "Kleedkamerbordjes").strip()
+    pdf.setTitle(document_title)
+    pdf.setAuthor("HWS Voetbalschool")
+
+    black = colors.HexColor("#111111")
+    charcoal = colors.HexColor("#242424")
+    muted = colors.HexColor("#717171")
+    line = colors.HexColor("#dedede")
+    soft = colors.HexColor("#f4f4f4")
+    white = colors.white
+    gold = colors.HexColor("#d6a34f")
+    margin = 38
+    header_height = 218
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "assets", "hws-logo.png")
+
+    def fitted_text(text_value: Any, font_name: str, font_size: float, max_width: float) -> Tuple[str, float]:
+        text = dressing_room_sign_cell_text(text_value)
+        size = font_size
+        while size > 7 and pdfmetrics.stringWidth(text, font_name, size) > max_width:
+            size -= 0.5
+        if pdfmetrics.stringWidth(text, font_name, size) <= max_width:
+            return text, size
+        shortened = text
+        while len(shortened) > 2 and pdfmetrics.stringWidth(f"{shortened}…", font_name, size) > max_width:
+            shortened = shortened[:-1]
+        return f"{shortened.rstrip()}…", size
+
+    for group in groups:
+        participants = group["participants"]
+        pdf.setFillColor(black)
+        pdf.rect(0, page_height - header_height, page_width, header_height, fill=1, stroke=0)
+        pdf.setFillColor(gold)
+        pdf.rect(0, page_height - header_height - 6, page_width, 6, fill=1, stroke=0)
+
+        if os.path.exists(logo_path):
+            pdf.drawImage(
+                ImageReader(logo_path),
+                page_width - 139,
+                page_height - 130,
+                100,
+                100,
+                preserveAspectRatio=True,
+                mask="auto",
+                anchor="c",
+            )
+
+        pdf.setFillColor(gold)
+        pdf.setFont(font_names["bold"], 9)
+        pdf.drawString(margin, page_height - 47, "HWS VOETBALSCHOOL")
+        pdf.setFillColor(white)
+        pdf.setFont(font_names["extra_bold"], 25)
+        pdf.drawString(margin, page_height - 86, "KLEEDKAMER")
+        group_text, group_size = fitted_text(
+            str(group["name"]).upper(),
+            font_names["extra_bold"],
+            39,
+            page_width - (2 * margin),
+        )
+        pdf.setFont(font_names["extra_bold"], group_size)
+        pdf.drawString(margin, page_height - 153, group_text)
+        pdf.setFillColor(colors.HexColor("#c7c7c7"))
+        pdf.setFont(font_names["regular"], 8.5)
+        pdf.drawString(margin, page_height - 186, "Zoek je naam hieronder en controleer of je bij deze groep hoort.")
+
+        section_top = page_height - header_height - 42
+        pdf.setFillColor(black)
+        pdf.setFont(font_names["extra_bold"], 12)
+        pdf.drawString(margin, section_top, "DEELNEMERS")
+        pdf.setFillColor(muted)
+        pdf.setFont(font_names["bold"], 8)
+        pdf.drawRightString(page_width - margin, section_top, f"{len(participants)} deelnemers")
+
+        count = len(participants)
+        if count <= 18:
+            column_count = 1
+        elif count <= 40:
+            column_count = 2
+        elif count <= 72:
+            column_count = 3
+        else:
+            column_count = 4
+        rows_per_column = max(1, ceil(count / column_count))
+        list_top = section_top - 19
+        list_bottom = 72
+        available_height = list_top - list_bottom
+        column_gap = 14
+        column_width = (page_width - (2 * margin) - ((column_count - 1) * column_gap)) / column_count
+        row_height = min(29, available_height / rows_per_column)
+        name_size = min(10.5, max(6.5, row_height * 0.36))
+
+        for participant_index, participant_name in enumerate(participants):
+            column_index = participant_index // rows_per_column
+            row_index = participant_index % rows_per_column
+            x = margin + column_index * (column_width + column_gap)
+            y_top = list_top - (row_index * row_height)
+            if row_index % 2 == 0:
+                pdf.setFillColor(soft)
+                pdf.roundRect(x, y_top - row_height + 1, column_width, row_height - 2, 4, fill=1, stroke=0)
+            pdf.setFillColor(gold)
+            bullet_y = y_top - (row_height / 2)
+            pdf.circle(x + 10, bullet_y, 2.3, fill=1, stroke=0)
+            fitted_name, fitted_size = fitted_text(
+                participant_name,
+                font_names["bold"],
+                name_size,
+                column_width - 30,
+            )
+            pdf.setFillColor(charcoal)
+            pdf.setFont(font_names["bold"], fitted_size)
+            pdf.drawString(x + 20, bullet_y - (fitted_size * 0.34), fitted_name)
+
+        pdf.setStrokeColor(line)
+        pdf.setLineWidth(0.7)
+        pdf.line(margin, 56, page_width - margin, 56)
+        footer_title, footer_size = fitted_text(document_title, font_names["regular"], 7.3, page_width - 240)
+        pdf.setFillColor(muted)
+        pdf.setFont(font_names["regular"], footer_size)
+        pdf.drawString(margin, 39, footer_title)
+        pdf.setFillColor(black)
+        pdf.setFont(font_names["bold"], 7.3)
+        pdf.drawRightString(page_width - margin, 39, "hwsvoetbalschool.nl")
+        pdf.showPage()
+
     pdf.save()
     buffer.seek(0)
     return buffer.read()
@@ -21633,6 +22124,97 @@ def draaiboeken_page() -> str:
         return access_redirect
 
     return render_template("draaiboeken.html", active_page="draaiboeken")
+
+
+@app.route("/kleedkamerbordjes", methods=["GET", "POST"])
+def dressing_room_signs_page() -> str:
+    access_redirect = require_page_access("kleedkamerbordjes")
+    if access_redirect is not None:
+        return access_redirect
+
+    if request.method == "POST":
+        uploaded_file = request.files.get("team_assignment_file")
+        filename = str(getattr(uploaded_file, "filename", "") or "").strip()
+        if uploaded_file is None or not filename:
+            return redirect(url_for("dressing_room_signs_page", error="Kies eerst een Excel-bestand met de teamindeling."))
+        file_bytes = uploaded_file.read(DRESSING_ROOM_SIGN_MAX_UPLOAD_BYTES + 1)
+        try:
+            groups = parse_dressing_room_sign_workbook(file_bytes, filename)
+            submitted_title = str(request.form.get("title") or "").strip()
+            default_title = re.sub(r"[_-]+", " ", Path(filename).stem).strip() or "Kleedkamerbordjes"
+            document = save_dressing_room_sign_document(submitted_title or default_title, filename, groups)
+        except ValueError as exc:
+            return redirect(url_for("dressing_room_signs_page", error=str(exc)))
+
+        return redirect(
+            url_for(
+                "dressing_room_sign_detail_page",
+                document_id=document["id"],
+                success=(
+                    f"Kleedkamerbordjes opgeslagen: {document['participantCount']} deelnemers "
+                    f"verdeeld over {document['groupCount']} teams of groepen."
+                ),
+            )
+        )
+
+    return render_template(
+        "kleedkamerbordjes.html",
+        active_page="kleedkamerbordjes",
+        documents=load_dressing_room_sign_documents(),
+        selected_document=None,
+        success=request.args.get("success", "").strip(),
+        error=request.args.get("error", "").strip(),
+    )
+
+
+@app.route("/kleedkamerbordjes/<int:document_id>", methods=["GET", "POST"])
+def dressing_room_sign_detail_page(document_id: int) -> str:
+    access_redirect = require_page_access("kleedkamerbordjes")
+    if access_redirect is not None:
+        return access_redirect
+
+    document = load_dressing_room_sign_document(document_id)
+    if document is None:
+        return redirect(url_for("dressing_room_signs_page", error="Deze kleedkamerbordjes bestaan niet meer."))
+
+    if request.method == "POST" and str(request.form.get("action") or "").strip() == "delete":
+        delete_dressing_room_sign_document(document_id)
+        return redirect(url_for("dressing_room_signs_page", success="Kleedkamerbordjes verwijderd."))
+
+    return render_template(
+        "kleedkamerbordjes.html",
+        active_page="kleedkamerbordjes",
+        documents=[],
+        selected_document=document,
+        success=request.args.get("success", "").strip(),
+        error=request.args.get("error", "").strip(),
+    )
+
+
+@app.get("/kleedkamerbordjes/<int:document_id>/export-pdf")
+def dressing_room_signs_export_pdf(document_id: int):
+    access_redirect = require_page_access("kleedkamerbordjes")
+    if access_redirect is not None:
+        return access_redirect
+
+    document = load_dressing_room_sign_document(document_id)
+    if document is None:
+        return redirect(url_for("dressing_room_signs_page", error="Deze kleedkamerbordjes bestaan niet meer."))
+    try:
+        pdf_bytes = create_dressing_room_signs_pdf(document)
+    except (RuntimeError, ValueError) as exc:
+        return redirect(url_for("dressing_room_sign_detail_page", document_id=document_id, error=str(exc)))
+
+    filename = f"kleedkamerbordjes-{slugify_value(document.get('title') or 'teamindeling')}.pdf"
+    return (
+        pdf_bytes,
+        200,
+        {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 def prepare_checklist_document_view_data(document: Dict[str, Any]) -> Dict[str, Any]:

@@ -10,6 +10,7 @@ from importlib import import_module
 from unittest.mock import Mock, patch
 
 from django.conf import settings
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, SimpleTestCase
 from PIL import Image
 
@@ -28,6 +29,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             connection.execute("DELETE FROM registration_event_email_settings WHERE product_key LIKE 'id:999%'")
             connection.execute("DELETE FROM football_days_playbooks WHERE title LIKE 'Test draaiboek%'")
             connection.execute("DELETE FROM checklist_documents WHERE title LIKE 'Test %'")
+            connection.execute("DELETE FROM dressing_room_sign_documents WHERE title LIKE 'Test kleedkamer%'")
             connection.execute("DELETE FROM planning_documents WHERE title LIKE 'Test planning%'")
         super().tearDown()
 
@@ -222,6 +224,100 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
         self.assertEqual(pdf_bytes.count(b"/Type /Page\n"), 1)
         self.assertIn(b"/MediaBox [ 0 0 595.2756 841.8898 ]", pdf_bytes)
+
+    def test_dressing_room_sign_parser_reads_workspace_team_assignment_excel(self):
+        workbook = legacy.Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Teamindeling"
+        worksheet["A1"] = "Teamindeling testdag"
+        headers = ["Datum", "Ordernummer", "Naam", "E-mail", "Product", "SKU", "Deelnemer", "Team"]
+        for column_index, header in enumerate(headers, start=1):
+            worksheet.cell(row=4, column=column_index, value=header)
+        worksheet.cell(row=5, column=3, value="Noa de Vries")
+        worksheet.cell(row=5, column=4, value="noa@example.com")
+        worksheet.cell(row=5, column=8, value="Team Rood")
+        worksheet.cell(row=6, column=3, value="Liam Jansen")
+        worksheet.cell(row=6, column=4, value="liam@example.com")
+        worksheet.cell(row=6, column=8, value="Team Blauw")
+        worksheet.cell(row=7, column=3, value="Saar van Dijk")
+        worksheet.cell(row=7, column=8, value="Team Rood")
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        groups = legacy.parse_dressing_room_sign_workbook(buffer.getvalue(), "teamindeling.xlsx")
+
+        self.assertEqual([group["name"] for group in groups], ["Team Rood", "Team Blauw"])
+        self.assertEqual(groups[0]["participants"], ["Noa de Vries", "Saar van Dijk"])
+        self.assertEqual(groups[1]["participants"], ["Liam Jansen"])
+        self.assertNotIn("noa@example.com", json.dumps(groups))
+
+    def test_dressing_room_sign_parser_supports_separate_first_and_last_name_columns(self):
+        workbook = legacy.Workbook()
+        worksheet = workbook.active
+        worksheet.append(["Groep:", "Voornaam:", "Achternaam:"])
+        worksheet.append(["Groep 1", "Fleur", "van den Berg"])
+        worksheet.append(["Groep 2", "Mats", "De Jong"])
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        groups = legacy.parse_dressing_room_sign_workbook(buffer.getvalue(), "groepen.xlsm")
+
+        self.assertEqual(groups[0], {"name": "Groep 1", "participants": ["Fleur van den Berg"]})
+        self.assertEqual(groups[1], {"name": "Groep 2", "participants": ["Mats De Jong"]})
+
+    def test_dressing_room_sign_import_library_detail_and_pdf_flow(self):
+        workbook = legacy.Workbook()
+        worksheet = workbook.active
+        worksheet.append(["Naam", "Team"])
+        worksheet.append(["Noa de Vries", "Team Rood"])
+        worksheet.append(["Saar van Dijk", "Team Rood"])
+        worksheet.append(["Liam Jansen", "Team Blauw"])
+        buffer = BytesIO()
+        workbook.save(buffer)
+        upload = SimpleUploadedFile(
+            "teamindeling-test.xlsx",
+            buffer.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        client = self.build_authenticated_client()
+
+        draaiboeken_response = client.get("/draaiboeken", secure=True)
+        import_response = client.post(
+            "/kleedkamerbordjes",
+            {
+                "csrf_token": self.TEST_CSRF_TOKEN,
+                "title": "Test kleedkamerbordjes zomerkamp",
+                "team_assignment_file": upload,
+            },
+            secure=True,
+        )
+
+        self.assertEqual(import_response.status_code, 302)
+        self.assertRegex(import_response["Location"], r"^/kleedkamerbordjes/\d+\?success=")
+        document_id = int(import_response["Location"].split("/kleedkamerbordjes/", 1)[1].split("?", 1)[0])
+        document = legacy.load_dressing_room_sign_document(document_id)
+        overview_response = client.get("/kleedkamerbordjes", secure=True)
+        detail_response = client.get(f"/kleedkamerbordjes/{document_id}", secure=True)
+        pdf_response = client.get(f"/kleedkamerbordjes/{document_id}/export-pdf", secure=True)
+
+        self.assertContains(draaiboeken_response, 'href="/kleedkamerbordjes"')
+        self.assertContains(draaiboeken_response, "Kleedkamerbordjes")
+        self.assertIsNotNone(document)
+        self.assertEqual(document["groupCount"], 2)
+        self.assertEqual(document["participantCount"], 3)
+        self.assertEqual(document["groups"][0]["participants"], ["Noa de Vries", "Saar van Dijk"])
+        self.assertContains(overview_response, "Test kleedkamerbordjes zomerkamp")
+        self.assertContains(overview_response, "dressing-room-document-tile")
+        self.assertContains(overview_response, 'id="dressingRoomImportModal"')
+        self.assertContains(overview_response, "kleedkamerbordjes.js")
+        self.assertContains(detail_response, "Team Rood")
+        self.assertContains(detail_response, "Noa de Vries")
+        self.assertContains(detail_response, "Exporteer als PDF")
+        self.assertEqual(pdf_response.status_code, 200)
+        self.assertEqual(pdf_response["Content-Type"], "application/pdf")
+        self.assertIn("kleedkamerbordjes-test-kleedkamerbordjes-zomerkamp.pdf", pdf_response["Content-Disposition"])
+        self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
+        self.assertEqual(pdf_response.content.count(b"/Type /Page\n"), 2)
 
     def test_reimporting_program_preserves_matching_checklist_items(self):
         playbook = {
