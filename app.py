@@ -2065,6 +2065,7 @@ def build_registration_product_detail(
                         "email": email,
                         "status": str(order.get("status", "") or "-"),
                         "paymentStatus": str(order.get("paymentStatus", "") or "-"),
+                        "fulfillmentStatus": str(order.get("fulfillmentStatus", "") or "-"),
                         "displayDate": display_date,
                         "displayTime": display_time,
                         "quantity": 1,
@@ -2120,6 +2121,12 @@ def build_registration_product_detail(
     detail_entry["pendingEmailList"] = ", ".join(pending_emails)
     detail_entry["emailedOrderCount"] = emailed_order_count
     detail_entry["pendingOrderCount"] = len(detail_entry["orders"]) - emailed_order_count
+    detail_entry["processingParticipantCount"] = sum(
+        1
+        for order in detail_entry["orders"]
+        if str(order.get("fulfillmentStatus", "") or "").strip().upper()
+        == ECWID_PROCESSING_FULFILLMENT_STATUS
+    )
     return detail_entry
 
 
@@ -3202,6 +3209,10 @@ def build_registration_participant_rows(selected_product: Dict[str, Any]) -> Lis
     participants: List[Dict[str, Any]] = []
 
     for order in selected_product.get("orders", []):
+        fulfillment_status = str(order.get("fulfillmentStatus", "") or "").strip().upper()
+        if fulfillment_status != ECWID_PROCESSING_FULFILLMENT_STATUS:
+            continue
+
         details = order.get("registrationDetails", {}) if isinstance(order.get("registrationDetails"), dict) else {}
         quantity = max(int(order.get("quantity") or 0), 1)
         first_name = str(details.get("firstName", "") or "").strip()

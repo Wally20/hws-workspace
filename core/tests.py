@@ -2909,6 +2909,85 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Terug naar alle aanmeldingen", content)
         self.assertNotIn('id="registrationsProductSearch"', content)
 
+    def test_registration_team_assignment_export_only_contains_processing_orders(self):
+        catalog_payload = {
+            "items": [
+                {"id": "101", "name": "Meivakantie Camp", "sku": "MVC-1", "price": 79.0, "enabled": True},
+            ],
+            "source": "ecwid",
+        }
+        orders_payload = {
+            "items": [
+                {
+                    "id": "PROCESSING-1",
+                    "orderNumber": "PROCESSING-1",
+                    "createdAt": "2026-04-10T10:00:00+02:00",
+                    "paymentStatus": "PAID",
+                    "fulfillmentStatus": legacy.ECWID_PROCESSING_FULFILLMENT_STATUS,
+                    "customerName": "Puck Verwerkt",
+                    "email": "puck@example.com",
+                    "orderExtraFields": [
+                        {"title": "Voornaam", "value": "Puck"},
+                        {"title": "Achternaam", "value": "Verwerkt"},
+                    ],
+                    "items": [{"productId": 101, "name": "Meivakantie Camp", "quantity": 1, "price": 79.0}],
+                },
+                {
+                    "id": "RETURNED-1",
+                    "orderNumber": "RETURNED-1",
+                    "createdAt": "2026-04-11T10:00:00+02:00",
+                    "paymentStatus": "REFUNDED",
+                    "fulfillmentStatus": legacy.ECWID_RETURNED_FULFILLMENT_STATUS,
+                    "customerName": "Rik Geretourneerd",
+                    "email": "rik@example.com",
+                    "orderExtraFields": [
+                        {"title": "Voornaam", "value": "Rik"},
+                        {"title": "Achternaam", "value": "Geretourneerd"},
+                    ],
+                    "items": [{"productId": 101, "name": "Meivakantie Camp", "quantity": 1, "price": 79.0}],
+                },
+                {
+                    "id": "AWAITING-1",
+                    "orderNumber": "AWAITING-1",
+                    "createdAt": "2026-04-12T10:00:00+02:00",
+                    "paymentStatus": "PAID",
+                    "fulfillmentStatus": "AWAITING_PROCESSING",
+                    "customerName": "Wim Wachtend",
+                    "email": "wim@example.com",
+                    "orderExtraFields": [
+                        {"title": "Voornaam", "value": "Wim"},
+                        {"title": "Achternaam", "value": "Wachtend"},
+                    ],
+                    "items": [{"productId": 101, "name": "Meivakantie Camp", "quantity": 1, "price": 79.0}],
+                },
+            ],
+            "source": "ecwid",
+        }
+
+        with patch.object(legacy, "fetch_catalog_products", return_value=catalog_payload), patch.object(
+            legacy,
+            "fetch_ecwid_orders",
+            return_value=orders_payload,
+        ):
+            response = self.build_authenticated_client().post(
+                "/aanmeldingen/id:101/teamindeling-export",
+                {"csrf_token": self.TEST_CSRF_TOKEN, "group_count": "2"},
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        workbook = legacy.load_workbook(BytesIO(response.content), read_only=True, data_only=True)
+        worksheet = workbook.active
+        exported_names = [
+            (worksheet.cell(row=row_index, column=2).value, worksheet.cell(row=row_index, column=3).value)
+            for row_index in range(2, worksheet.max_row + 1)
+        ]
+        self.assertEqual(exported_names, [("Puck", "Verwerkt")])
+
     def test_registration_email_status_api_updates_and_clears_status(self):
         client = self.build_authenticated_client()
 
