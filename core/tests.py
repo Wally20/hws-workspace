@@ -386,6 +386,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         saved_document = legacy.load_trainers_information_document(document_id)
         self.assertEqual(empty_overview_response.status_code, 200)
+        self.assertContains(empty_overview_response, 'href="/draaiboeken"')
+        self.assertContains(empty_overview_response, "Terug naar draaiboeken")
         self.assertContains(empty_overview_response, "data-open-trainers-information-create")
         self.assertContains(empty_overview_response, 'id="trainersInformationCreateModal"')
         self.assertContains(empty_overview_response, "Nieuwe aanmaken")
@@ -428,18 +430,24 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(delete_response.status_code, 302)
         self.assertIsNone(legacy.load_trainers_information_document(document_id))
 
-    def test_football_days_overview_contains_trainers_information_tile(self):
+    def test_draaiboeken_overview_contains_trainers_information_tile(self):
         client = self.build_authenticated_client()
 
         with (
             patch.object(legacy, "require_page_access", return_value=None),
             patch.object(legacy, "load_football_days_playbooks", return_value=[]),
         ):
-            response = client.get("/voetbaldagen", secure=True)
+            draaiboeken_response = client.get("/draaiboeken", secure=True)
+            football_days_response = client.get("/voetbaldagen", secure=True)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'href="/voetbaldagen/trainers-informatie"')
-        self.assertContains(response, "Trainers Informatie")
+        self.assertEqual(draaiboeken_response.status_code, 200)
+        self.assertContains(
+            draaiboeken_response,
+            'class="summary-card training-home-tile" href="/voetbaldagen/trainers-informatie"',
+        )
+        self.assertContains(draaiboeken_response, "Trainers Informatie")
+        self.assertEqual(football_days_response.status_code, 200)
+        self.assertNotContains(football_days_response, "trainers-information-tile")
 
     def test_reimporting_program_preserves_matching_checklist_items(self):
         playbook = {

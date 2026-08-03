@@ -18,32 +18,6 @@
   {% endif %}
 
   <section class="football-playbook-grid">
-    {% if page_context.playbookType == "voetbaldagen" %}
-      <article class="summary-card old-function-tile football-playbook-tile trainers-information-tile">
-        <a href="/voetbaldagen/trainers-informatie" class="football-playbook-link trainers-information-tile-link">
-          <div class="feature-record-head">
-            <div>
-              <span class="trainers-information-tile-kicker">PDF-TOOL</span>
-              <h2>Trainers Informatie</h2>
-              <p class="feature-record-meta">Maak voor iedere groep een eigen A4 met het programma, de deelnemers en de vaste afspraken.</p>
-            </div>
-            <span class="trainers-information-tile-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h8l3 3V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"></path><path d="M15 3.5V7h3M9 11h6M9 15h6"></path></svg>
-            </span>
-          </div>
-          <div class="compact-stat-list">
-            <div class="compact-stat-row">
-              <span>Bronnen</span>
-              <span class="compact-stat-value">Voetbaldag + groepen</span>
-            </div>
-            <div class="compact-stat-row">
-              <span>Export</span>
-              <span class="compact-stat-value">1 A4 per groep</span>
-            </div>
-          </div>
-        </a>
-      </article>
-    {% endif %}
     {% for playbook in playbooks %}
       <article class="summary-card old-function-tile football-playbook-tile">
         <a href="{{ page_context.editPathPrefix }}/{{ playbook.id }}" class="football-playbook-link">
