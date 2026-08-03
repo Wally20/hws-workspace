@@ -12,80 +12,101 @@
       <div>
         <p class="trainers-information-kicker">VOETBALDAGEN</p>
         <h1>Trainers Informatie</h1>
-        <p class="welcome-line">Combineer het programma van een voetbaldag met de groepen uit Kleedkamerbordjes. De PDF bevat voor iedere groep één aparte A4.</p>
+        <p class="welcome-line">
+          {% if selected_document %}
+            Bekijk de ingeladen groepen en exporteer voor iedere groep een eigen A4.
+          {% else %}
+            Bewaar combinaties van een voetbaldag en groepsindeling als aparte tegels.
+          {% endif %}
+        </p>
       </div>
-      <a class="subtle-button" href="/voetbaldagen">Terug naar voetbaldagen</a>
+      <div class="trainers-information-header-actions">
+        <a class="subtle-button" href="{% if selected_document %}/voetbaldagen/trainers-informatie{% else %}/voetbaldagen{% endif %}">
+          {% if selected_document %}Terug naar overzicht{% else %}Terug naar voetbaldagen{% endif %}
+        </a>
+        <button
+          class="trainers-information-add-button"
+          type="button"
+          data-open-trainers-information-create
+          aria-label="Nieuwe Trainers Informatie maken"
+          aria-haspopup="dialog"
+          aria-controls="trainersInformationCreateModal"
+          aria-expanded="false"
+          title="Nieuwe Trainers Informatie maken"
+        >
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+        </button>
+      </div>
     </header>
 
+    {% if success %}
+      <div class="notice trainers-information-notice trainers-information-notice-success" role="status">{{ success }}</div>
+    {% endif %}
     {% if error %}
       <div class="notice trainers-information-notice" role="alert">{{ error }}</div>
     {% endif %}
 
-    <section class="summary-card trainers-information-builder" aria-labelledby="trainersInformationBuilderTitle">
-      <div class="trainers-information-builder-head">
-        <div>
-          <span>PDF samenstellen</span>
-          <h2 id="trainersInformationBuilderTitle">Laad het programma en de groepen</h2>
-          <p>De groepsindeling blijft afkomstig uit de opgeslagen kleedkamerbordjes; je hoeft geen deelnemers opnieuw in te voeren.</p>
-        </div>
-        <span class="trainers-information-format-pill">A4 · portret</span>
-      </div>
-
-      <form class="trainers-information-form" method="get" action="/voetbaldagen/trainers-informatie" data-trainers-information-form>
-        <label class="trainers-information-field">
-          <span>Programma van de voetbaldag</span>
-          <select name="playbook_id" required data-trainers-information-playbook>
-            <option value="">Kies een opgeslagen voetbaldag</option>
-            {% for playbook in playbooks %}
-              <option
-                value="{{ playbook.id }}"
-                data-program-count="{{ playbook.program|length }}"
-                {% if selected_playbook and selected_playbook.id == playbook.id %}selected{% endif %}
-              >{{ playbook.title }}{% if playbook.eventDate %} · {{ playbook.eventDate }}{% endif %}{% if playbook.location %} · {{ playbook.location }}{% endif %}</option>
-            {% endfor %}
-          </select>
-          {% if not playbooks %}
-            <small>Er zijn nog geen voetbaldagen opgeslagen. <a href="/voetbaldagen/nieuw">Maak eerst een voetbaldag.</a></small>
-          {% else %}
-            <small data-program-selection-help>Kies de dag waarvan het programma op iedere pagina moet komen.</small>
-          {% endif %}
-        </label>
-
-        <label class="trainers-information-field">
-          <span>Groepen uit Kleedkamerbordjes</span>
-          <select name="dressing_room_document_id" required data-trainers-information-groups>
-            <option value="">Kies een opgeslagen groepsindeling</option>
-            {% for document in dressing_room_documents %}
-              <option
-                value="{{ document.id }}"
-                data-group-count="{{ document.groupCount }}"
-                data-participant-count="{{ document.participantCount }}"
-                {% if selected_dressing_room_document and selected_dressing_room_document.id == document.id %}selected{% endif %}
-              >{{ document.title }} · {{ document.groupCount }} groep{% if document.groupCount != 1 %}en{% endif %}</option>
-            {% endfor %}
-          </select>
-          {% if not dressing_room_documents %}
-            <small>Er zijn nog geen groepsindelingen. <a href="/kleedkamerbordjes">Importeer eerst kleedkamerbordjes.</a></small>
-          {% else %}
-            <small data-group-selection-help>Elke ingeladen groep wordt één afzonderlijke A4-pagina.</small>
-          {% endif %}
-        </label>
-
-        <button class="refresh-button trainers-information-load-button" type="submit" {% if not playbooks or not dressing_room_documents %}disabled{% endif %} data-trainers-information-load>
-          Selectie laden
-        </button>
-      </form>
-    </section>
-
-    {% if selected_playbook and selected_dressing_room_document %}
-      <section class="trainers-information-result" aria-labelledby="trainersInformationPreviewTitle">
-        <div class="trainers-information-result-head">
+    {% if not selected_document %}
+      <section class="trainers-information-library" aria-labelledby="trainersInformationLibraryTitle">
+        <div class="trainers-information-library-head">
           <div>
-            <span class="trainers-information-kicker">KLAAR VOOR EXPORT</span>
-            <h2 id="trainersInformationPreviewTitle">{{ selected_dressing_room_document.groupCount }} A4-pagina{% if selected_dressing_room_document.groupCount != 1 %}'s{% endif %}</h2>
-            <p>Iedere pagina krijgt hetzelfde programma en dezelfde afspraken, met een eigen groep en deelnemerslijst.</p>
+            <h2 id="trainersInformationLibraryTitle">Opgeslagen Trainers Informatie</h2>
+            <p>Open een tegel om de inhoud te bekijken, te verwijderen of als PDF te exporteren.</p>
           </div>
-          <a class="refresh-button" href="{{ export_url }}" target="_blank" rel="noopener">Exporteer als PDF</a>
+          <span>{{ documents|length }} bestand{% if documents|length != 1 %}en{% endif %}</span>
+        </div>
+
+        {% if documents %}
+          <div class="trainers-information-tile-grid">
+            {% for document in documents %}
+              <a class="summary-card trainers-information-document-tile" href="{{ document.detailUrl }}">
+                <span class="trainers-information-document-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h8l3 3V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"></path><path d="M15 3.5V7h3M9 11h6M9 15h6"></path></svg>
+                </span>
+                <span class="trainers-information-document-copy">
+                  <strong>{{ document.title }}</strong>
+                  <small>{{ document.playbook.title }}</small>
+                </span>
+                <span class="trainers-information-document-stats">
+                  <span>{{ document.groupCount }} pagina{% if document.groupCount != 1 %}'s{% endif %}</span>
+                  <span>{{ document.participantCount }} deelnemers</span>
+                  <span>{{ document.updatedAtLabel }}</span>
+                </span>
+                <span class="trainers-information-document-arrow" aria-hidden="true">→</span>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="summary-card trainers-information-empty-state">
+            <span class="trainers-information-empty-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M7 3.5h8l3 3V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"></path><path d="M15 3.5V7h3M9 11h6M9 15h6"></path></svg>
+            </span>
+            <strong>Nog geen Trainers Informatie opgeslagen</strong>
+            <p>Klik op het plus-icoon rechtsboven en kies een voetbaldag en groepsindeling.</p>
+            <button class="subtle-button subtle-button-strong" type="button" data-open-trainers-information-create>Nieuwe aanmaken</button>
+          </div>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    {% if selected_document %}
+      {% set selected_playbook = selected_document.playbook %}
+      {% set selected_dressing_room_document = selected_document.dressingRoomDocument %}
+      <section class="trainers-information-result" aria-labelledby="trainersInformationPreviewTitle">
+        <div class="trainers-information-detail-toolbar">
+          <div>
+            <span class="trainers-information-kicker">OPGESLAGEN DOCUMENT</span>
+            <h2 id="trainersInformationPreviewTitle">{{ selected_document.title }}</h2>
+            <p>{{ selected_document.groupCount }} A4-pagina{% if selected_document.groupCount != 1 %}'s{% endif %} · {{ selected_document.participantCount }} deelnemers · opgeslagen {{ selected_document.updatedAtLabel }}</p>
+          </div>
+          <div class="trainers-information-detail-actions">
+            <form method="post" action="{{ selected_document.detailUrl }}" data-delete-trainers-information>
+              <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+              <input type="hidden" name="action" value="delete">
+              <button class="subtle-button trainers-information-delete-button" type="submit">Verwijderen</button>
+            </form>
+            <a class="refresh-button" href="{{ selected_document.exportUrl }}" target="_blank" rel="noopener">Exporteer als PDF</a>
+          </div>
         </div>
 
         <div class="trainers-information-preview-grid">
@@ -104,7 +125,7 @@
                   <span>{{ item.activity }}</span>
                 </li>
               {% else %}
-                <li><span>Er zijn nog geen programmaonderdelen ingevuld.</span></li>
+                <li><span>Er zijn geen programmaonderdelen opgeslagen.</span></li>
               {% endfor %}
             </ol>
           </article>
@@ -140,6 +161,64 @@
         </article>
       </section>
     {% endif %}
+
+    <div class="agenda-modal trainers-information-create-modal" id="trainersInformationCreateModal" hidden>
+      <div class="agenda-modal-backdrop" data-close-trainers-information-create></div>
+      <section class="agenda-modal-dialog trainers-information-create-dialog" role="dialog" aria-modal="true" aria-labelledby="trainersInformationCreateTitle">
+        <div class="agenda-modal-header">
+          <div>
+            <p class="trainers-information-kicker">NIEUW DOCUMENT</p>
+            <h2 id="trainersInformationCreateTitle">Trainers Informatie aanmaken</h2>
+          </div>
+          <button class="team-modal-close trainers-information-create-close" type="button" data-close-trainers-information-create aria-label="Sluiten">×</button>
+        </div>
+
+        <p class="trainers-information-create-description">Kies het programma en de groepsindeling. De inhoud wordt als een zelfstandig document opgeslagen en verschijnt daarna als aparte tegel.</p>
+
+        <form class="trainers-information-create-form" method="post" action="/voetbaldagen/trainers-informatie" data-trainers-information-form>
+          <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+          <label class="trainers-information-field">
+            <span>Naam van het document <small>optioneel</small></span>
+            <input type="text" name="title" maxlength="180" placeholder="Bijv. Trainersinformatie voetbaldag Voorst">
+          </label>
+
+          <label class="trainers-information-field">
+            <span>Programma van de voetbaldag</span>
+            <select name="playbook_id" required data-trainers-information-playbook>
+              <option value="">Kies een opgeslagen voetbaldag</option>
+              {% for playbook in playbooks %}
+                <option value="{{ playbook.id }}" data-program-count="{{ playbook.program|length }}">{{ playbook.title }}{% if playbook.eventDate %} · {{ playbook.eventDate }}{% endif %}{% if playbook.location %} · {{ playbook.location }}{% endif %}</option>
+              {% endfor %}
+            </select>
+            {% if not playbooks %}
+              <small>Er zijn nog geen voetbaldagen. <a href="/voetbaldagen/nieuw">Maak eerst een voetbaldag.</a></small>
+            {% else %}
+              <small data-program-selection-help>Kies het programma dat op iedere A4 moet komen.</small>
+            {% endif %}
+          </label>
+
+          <label class="trainers-information-field">
+            <span>Groepen uit Kleedkamerbordjes</span>
+            <select name="dressing_room_document_id" required data-trainers-information-groups>
+              <option value="">Kies een opgeslagen groepsindeling</option>
+              {% for document in dressing_room_documents %}
+                <option value="{{ document.id }}" data-group-count="{{ document.groupCount }}" data-participant-count="{{ document.participantCount }}">{{ document.title }} · {{ document.groupCount }} groep{% if document.groupCount != 1 %}en{% endif %}</option>
+              {% endfor %}
+            </select>
+            {% if not dressing_room_documents %}
+              <small>Er zijn nog geen groepsindelingen. <a href="/kleedkamerbordjes">Importeer eerst kleedkamerbordjes.</a></small>
+            {% else %}
+              <small data-group-selection-help>Iedere groep wordt één afzonderlijke A4-pagina.</small>
+            {% endif %}
+          </label>
+
+          <div class="trainers-information-create-actions">
+            <button class="subtle-button" type="button" data-close-trainers-information-create>Annuleren</button>
+            <button class="refresh-button" type="submit" {% if not playbooks or not dressing_room_documents %}disabled{% endif %} data-trainers-information-load>Opslaan en openen</button>
+          </div>
+        </form>
+      </section>
+    </div>
   </main>
 {% endblock %}
 

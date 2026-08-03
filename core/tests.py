@@ -32,6 +32,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             connection.execute("DELETE FROM football_days_playbooks WHERE title LIKE 'Test draaiboek%'")
             connection.execute("DELETE FROM checklist_documents WHERE title LIKE 'Test %'")
             connection.execute("DELETE FROM dressing_room_sign_documents WHERE title LIKE 'Test kleedkamer%'")
+            connection.execute("DELETE FROM trainers_information_documents WHERE title LIKE 'Test trainersinformatie%'")
             connection.execute("DELETE FROM planning_documents WHERE title LIKE 'Test planning%'")
         super().tearDown()
 
@@ -354,31 +355,78 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             patch.object(legacy, "load_football_days_playbook", return_value=playbook),
             patch.object(legacy, "load_dressing_room_sign_document", return_value=dressing_room_document),
         ):
-            page_response = client.get(
-                "/voetbaldagen/trainers-informatie?playbook_id=942&dressing_room_document_id=943",
+            empty_overview_response = client.get("/voetbaldagen/trainers-informatie", secure=True)
+            create_response = client.post(
+                "/voetbaldagen/trainers-informatie",
+                {
+                    "csrf_token": self.TEST_CSRF_TOKEN,
+                    "title": "Test trainersinformatie zomerkamp",
+                    "playbook_id": "942",
+                    "dressing_room_document_id": "943",
+                },
                 secure=True,
+            )
+            self.assertEqual(create_response.status_code, 302)
+            self.assertRegex(
+                create_response["Location"],
+                r"^/voetbaldagen/trainers-informatie/\d+\?success=",
+            )
+            document_id = int(
+                create_response["Location"]
+                .split("/voetbaldagen/trainers-informatie/", 1)[1]
+                .split("?", 1)[0]
+            )
+            overview_response = client.get("/voetbaldagen/trainers-informatie", secure=True)
+            detail_response = client.get(
+                f"/voetbaldagen/trainers-informatie/{document_id}", secure=True
             )
             pdf_response = client.get(
-                "/voetbaldagen/trainers-informatie/export-pdf?playbook_id=942&dressing_room_document_id=943",
-                secure=True,
+                f"/voetbaldagen/trainers-informatie/{document_id}/export-pdf", secure=True
             )
 
-        self.assertEqual(page_response.status_code, 200)
-        self.assertContains(page_response, "Trainers Informatie")
-        self.assertContains(page_response, "We behandelen elkaar met respect.")
-        self.assertContains(page_response, "Na iedere pauze ruimen we samen alles netjes op")
-        self.assertContains(page_response, "3 A4-pagina's")
-        self.assertContains(page_response, 'src="/static/trainers-informatie.js?')
-        self.assertContains(page_response, 'href="/static/trainers-informatie.css?')
+        saved_document = legacy.load_trainers_information_document(document_id)
+        self.assertEqual(empty_overview_response.status_code, 200)
+        self.assertContains(empty_overview_response, "data-open-trainers-information-create")
+        self.assertContains(empty_overview_response, 'id="trainersInformationCreateModal"')
+        self.assertContains(empty_overview_response, "Nieuwe aanmaken")
+        self.assertIsNotNone(saved_document)
+        self.assertEqual(saved_document["title"], "Test trainersinformatie zomerkamp")
+        self.assertEqual(saved_document["groupCount"], 3)
+        self.assertEqual(saved_document["participantCount"], 5)
+        self.assertEqual(saved_document["programCount"], 3)
+        self.assertEqual(saved_document["playbook"]["title"], playbook["title"])
+        self.assertEqual(overview_response.status_code, 200)
+        self.assertContains(overview_response, "Test trainersinformatie zomerkamp")
+        self.assertContains(
+            overview_response,
+            f'href="/voetbaldagen/trainers-informatie/{document_id}"',
+        )
+        self.assertContains(overview_response, "trainers-information-document-tile")
+        self.assertContains(detail_response, "We behandelen elkaar met respect.")
+        self.assertContains(detail_response, "Na iedere pauze ruimen we samen alles netjes op")
+        self.assertContains(detail_response, "3 A4-pagina's")
+        self.assertContains(detail_response, "Team Rood")
+        self.assertContains(detail_response, "Exporteer als PDF")
+        self.assertContains(detail_response, "data-delete-trainers-information")
+        self.assertContains(detail_response, 'src="/static/trainers-informatie.js?')
+        self.assertContains(detail_response, 'href="/static/trainers-informatie.css?')
         self.assertEqual(pdf_response.status_code, 200)
         self.assertEqual(pdf_response["Content-Type"], "application/pdf")
         self.assertIn(
-            "trainers-informatie-test-draaiboek-trainersinformatie",
+            "trainers-informatie-test-trainersinformatie-zomerkamp.pdf",
             pdf_response["Content-Disposition"],
         )
         self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
         self.assertEqual(pdf_response.content.count(b"/Type /Page\n"), 3)
         self.assertIn(b"/MediaBox [ 0 0 595.2756 841.8898 ]", pdf_response.content)
+
+        delete_response = client.post(
+            f"/voetbaldagen/trainers-informatie/{document_id}",
+            {"csrf_token": self.TEST_CSRF_TOKEN, "action": "delete"},
+            secure=True,
+        )
+        self.assertEqual(delete_response.status_code, 302)
+        self.assertIsNone(legacy.load_trainers_information_document(document_id))
 
     def test_football_days_overview_contains_trainers_information_tile(self):
         client = self.build_authenticated_client()

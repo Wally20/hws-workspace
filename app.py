@@ -3915,6 +3915,17 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS trainers_information_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                playbook_id INTEGER,
+                dressing_room_document_id INTEGER,
+                playbook_json TEXT NOT NULL DEFAULT '{}',
+                dressing_room_document_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS contracts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -4500,6 +4511,12 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_dressing_room_sign_documents_updated
             ON dressing_room_sign_documents (updated_at DESC, id DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_trainers_information_documents_updated
+            ON trainers_information_documents (updated_at DESC, id DESC)
             """
         )
         connection.execute(
@@ -8273,6 +8290,167 @@ def delete_dressing_room_sign_document(document_id: int) -> bool:
     with get_db_connection() as connection:
         cursor = connection.execute(
             "DELETE FROM dressing_room_sign_documents WHERE id = ?",
+            (document_id,),
+        )
+    return cursor.rowcount > 0
+
+
+def build_trainers_information_playbook_snapshot(playbook: Dict[str, Any]) -> Dict[str, Any]:
+    program = []
+    for item in playbook.get("program") if isinstance(playbook.get("program"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        activity = re.sub(r"\s+", " ", str(item.get("activity") or "")).strip()
+        if not activity:
+            continue
+        program.append(
+            {
+                "startTime": str(item.get("startTime") or "").strip()[:20],
+                "endTime": str(item.get("endTime") or "").strip()[:20],
+                "activity": activity[:240],
+            }
+        )
+    return {
+        "id": parse_non_negative_int(playbook.get("id")),
+        "title": re.sub(r"\s+", " ", str(playbook.get("title") or "Voetbaldag")).strip()[:180],
+        "eventDate": str(playbook.get("eventDate") or "").strip()[:40],
+        "location": re.sub(r"\s+", " ", str(playbook.get("location") or "")).strip()[:180],
+        "program": program[:100],
+    }
+
+
+def build_trainers_information_dressing_room_snapshot(document: Dict[str, Any]) -> Dict[str, Any]:
+    groups = normalize_dressing_room_sign_groups(document.get("groups"))
+    return {
+        "id": parse_non_negative_int(document.get("id")),
+        "title": re.sub(
+            r"\s+", " ", str(document.get("title") or "Groepsindeling")
+        ).strip()[:180],
+        "sourceFilename": Path(str(document.get("sourceFilename") or "")).name[:255],
+        "groups": groups,
+        "groupCount": len(groups),
+        "participantCount": sum(len(group["participants"]) for group in groups),
+    }
+
+
+def normalize_trainers_information_document(row: Optional[sqlite3.Row]) -> Optional[Dict[str, Any]]:
+    if row is None:
+        return None
+    try:
+        raw_playbook = json.loads(str(row["playbook_json"] or "{}"))
+    except json.JSONDecodeError:
+        raw_playbook = {}
+    try:
+        raw_dressing_room_document = json.loads(
+            str(row["dressing_room_document_json"] or "{}")
+        )
+    except json.JSONDecodeError:
+        raw_dressing_room_document = {}
+    playbook = build_trainers_information_playbook_snapshot(
+        raw_playbook if isinstance(raw_playbook, dict) else {}
+    )
+    dressing_room_document = build_trainers_information_dressing_room_snapshot(
+        raw_dressing_room_document if isinstance(raw_dressing_room_document, dict) else {}
+    )
+    document_id = int(row["id"])
+    return {
+        "id": document_id,
+        "title": str(row["title"] or "Trainers Informatie").strip(),
+        "playbookId": parse_non_negative_int(row["playbook_id"]),
+        "dressingRoomDocumentId": parse_non_negative_int(row["dressing_room_document_id"]),
+        "playbook": playbook,
+        "dressingRoomDocument": dressing_room_document,
+        "programCount": len(playbook["program"]),
+        "groupCount": dressing_room_document["groupCount"],
+        "participantCount": dressing_room_document["participantCount"],
+        "createdAt": str(row["created_at"] or "").strip(),
+        "updatedAt": str(row["updated_at"] or "").strip(),
+        "updatedAtLabel": format_datetime_display(str(row["updated_at"] or "").strip()),
+        "detailUrl": f"/voetbaldagen/trainers-informatie/{document_id}",
+        "exportUrl": f"/voetbaldagen/trainers-informatie/{document_id}/export-pdf",
+    }
+
+
+def load_trainers_information_document(document_id: int) -> Optional[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT id, title, playbook_id, dressing_room_document_id, playbook_json,
+                   dressing_room_document_json, created_at, updated_at
+            FROM trainers_information_documents
+            WHERE id = ?
+            """,
+            (document_id,),
+        ).fetchone()
+    return normalize_trainers_information_document(row)
+
+
+def load_trainers_information_documents() -> List[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, title, playbook_id, dressing_room_document_id, playbook_json,
+                   dressing_room_document_json, created_at, updated_at
+            FROM trainers_information_documents
+            ORDER BY updated_at DESC, id DESC
+            """
+        ).fetchall()
+    return [
+        document
+        for row in rows
+        if (document := normalize_trainers_information_document(row)) is not None
+    ]
+
+
+def save_trainers_information_document(
+    title: str,
+    playbook: Dict[str, Any],
+    dressing_room_document: Dict[str, Any],
+) -> Dict[str, Any]:
+    playbook_snapshot = build_trainers_information_playbook_snapshot(playbook)
+    dressing_room_snapshot = build_trainers_information_dressing_room_snapshot(
+        dressing_room_document
+    )
+    if not dressing_room_snapshot["groups"]:
+        raise ValueError("De gekozen kleedkamerbordjes bevatten geen teams of groepen.")
+    default_title = " · ".join(
+        value
+        for value in (playbook_snapshot["title"], dressing_room_snapshot["title"])
+        if value
+    )
+    normalized_title = re.sub(r"\s+", " ", str(title or "")).strip()[:180]
+    normalized_title = normalized_title or default_title[:180] or "Trainers Informatie"
+    now = utcnow_iso()
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO trainers_information_documents (
+                title, playbook_id, dressing_room_document_id, playbook_json,
+                dressing_room_document_json, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                normalized_title,
+                playbook_snapshot["id"] or None,
+                dressing_room_snapshot["id"] or None,
+                json.dumps(playbook_snapshot, ensure_ascii=False),
+                json.dumps(dressing_room_snapshot, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+        document_id = int(cursor.lastrowid)
+    document = load_trainers_information_document(document_id)
+    if document is None:
+        raise RuntimeError("De Trainers Informatie kon niet worden opgeslagen.")
+    return document
+
+
+def delete_trainers_information_document(document_id: int) -> bool:
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            "DELETE FROM trainers_information_documents WHERE id = ?",
             (document_id,),
         )
     return cursor.rowcount > 0
@@ -22641,52 +22819,137 @@ def football_days_page() -> str:
     return render_football_playbook_overview("voetbaldagen")
 
 
-@app.get("/voetbaldagen/trainers-informatie")
+def render_trainers_information_page(
+    selected_document: Optional[Dict[str, Any]] = None,
+) -> str:
+    return render_template(
+        "trainers_informatie.html",
+        active_page="voetbaldagen",
+        documents=[] if selected_document else load_trainers_information_documents(),
+        selected_document=selected_document,
+        playbooks=load_football_days_playbooks("voetbaldagen"),
+        dressing_room_documents=load_dressing_room_sign_documents(),
+        trainers_information_rules=list(TRAINERS_INFORMATION_RULES),
+        success=request.args.get("success", "").strip(),
+        error=request.args.get("error", "").strip(),
+    )
+
+
+@app.route("/voetbaldagen/trainers-informatie", methods=["GET", "POST"])
 def trainers_information_page() -> str:
     access_redirect = require_page_access("voetbaldagen")
     if access_redirect is not None:
         return access_redirect
 
-    playbooks = load_football_days_playbooks("voetbaldagen")
-    dressing_room_documents = load_dressing_room_sign_documents()
-    playbook_id = request.args.get("playbook_id", type=int)
-    dressing_room_document_id = request.args.get("dressing_room_document_id", type=int)
-    selected_playbook = next(
-        (playbook for playbook in playbooks if playbook["id"] == playbook_id),
-        None,
-    )
-    selected_dressing_room_document = next(
-        (
-            document
-            for document in dressing_room_documents
-            if document["id"] == dressing_room_document_id
-        ),
-        None,
-    )
-    error = request.args.get("error", "").strip()
-    if playbook_id and selected_playbook is None:
-        error = "De gekozen voetbaldag bestaat niet meer."
-    elif dressing_room_document_id and selected_dressing_room_document is None:
-        error = "De gekozen kleedkamerbordjes bestaan niet meer."
-
-    export_url = ""
-    if selected_playbook is not None and selected_dressing_room_document is not None:
-        export_url = url_for(
-            "trainers_information_export_pdf",
-            playbook_id=selected_playbook["id"],
-            dressing_room_document_id=selected_dressing_room_document["id"],
+    if request.method == "POST":
+        playbook_id = request.form.get("playbook_id", type=int)
+        dressing_room_document_id = request.form.get("dressing_room_document_id", type=int)
+        playbook = load_football_days_playbook(int(playbook_id or 0), "voetbaldagen")
+        dressing_room_document = load_dressing_room_sign_document(
+            int(dressing_room_document_id or 0)
+        )
+        if playbook is None:
+            return redirect(
+                url_for(
+                    "trainers_information_page",
+                    create="1",
+                    error="Kies eerst een bestaande voetbaldag.",
+                )
+            )
+        if dressing_room_document is None:
+            return redirect(
+                url_for(
+                    "trainers_information_page",
+                    create="1",
+                    error="Kies eerst opgeslagen kleedkamerbordjes.",
+                )
+            )
+        try:
+            document = save_trainers_information_document(
+                str(request.form.get("title") or ""),
+                playbook,
+                dressing_room_document,
+            )
+        except (RuntimeError, ValueError) as exc:
+            return redirect(
+                url_for(
+                    "trainers_information_page",
+                    create="1",
+                    error=str(exc),
+                )
+            )
+        return redirect(
+            url_for(
+                "trainers_information_detail_page",
+                document_id=document["id"],
+                success="Trainers Informatie opgeslagen.",
+            )
         )
 
-    return render_template(
-        "trainers_informatie.html",
-        active_page="voetbaldagen",
-        playbooks=playbooks,
-        dressing_room_documents=dressing_room_documents,
-        selected_playbook=selected_playbook,
-        selected_dressing_room_document=selected_dressing_room_document,
-        trainers_information_rules=list(TRAINERS_INFORMATION_RULES),
-        export_url=export_url,
-        error=error,
+    return render_trainers_information_page()
+
+
+@app.route("/voetbaldagen/trainers-informatie/<int:document_id>", methods=["GET", "POST"])
+def trainers_information_detail_page(document_id: int) -> str:
+    access_redirect = require_page_access("voetbaldagen")
+    if access_redirect is not None:
+        return access_redirect
+
+    document = load_trainers_information_document(document_id)
+    if document is None:
+        return redirect(
+            url_for(
+                "trainers_information_page",
+                error="Deze opgeslagen Trainers Informatie bestaat niet meer.",
+            )
+        )
+    if request.method == "POST" and str(request.form.get("action") or "").strip() == "delete":
+        delete_trainers_information_document(document_id)
+        return redirect(
+            url_for(
+                "trainers_information_page",
+                success="Trainers Informatie verwijderd.",
+            )
+        )
+    return render_trainers_information_page(document)
+
+
+@app.get("/voetbaldagen/trainers-informatie/<int:document_id>/export-pdf")
+def trainers_information_document_export_pdf(document_id: int):
+    access_redirect = require_page_access("voetbaldagen")
+    if access_redirect is not None:
+        return access_redirect
+
+    document = load_trainers_information_document(document_id)
+    if document is None:
+        return redirect(
+            url_for(
+                "trainers_information_page",
+                error="Deze opgeslagen Trainers Informatie bestaat niet meer.",
+            )
+        )
+    try:
+        pdf_bytes = create_trainers_information_pdf(
+            document["playbook"],
+            document["dressingRoomDocument"],
+        )
+    except (RuntimeError, ValueError) as exc:
+        return redirect(
+            url_for(
+                "trainers_information_detail_page",
+                document_id=document_id,
+                error=str(exc),
+            )
+        )
+    filename = f"trainers-informatie-{slugify_value(document.get('title') or 'voetbaldag')}.pdf"
+    return (
+        pdf_bytes,
+        200,
+        {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
     )
 
 
