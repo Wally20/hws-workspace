@@ -8507,6 +8507,13 @@ def synchronize_existing_checklist_document(
     return save_checklist_document(synchronized_document)
 
 
+def is_ecwid_order_returned(order: Dict[str, Any]) -> bool:
+    return (
+        str(order.get("fulfillmentStatus") or "").strip().upper()
+        == ECWID_RETURNED_FULFILLMENT_STATUS
+    )
+
+
 def count_ecwid_product_registrations(
     orders: List[Dict[str, Any]],
     product_id: str,
@@ -8522,6 +8529,8 @@ def count_ecwid_product_registrations(
     if normalized_product_id:
         id_count = 0
         for order in orders:
+            if is_ecwid_order_returned(order):
+                continue
             for item in order.get("items", []):
                 if str(item.get("productId") or "").strip() == normalized_product_id:
                     id_count += max(int(item.get("quantity") or 0), 0)
@@ -8530,6 +8539,8 @@ def count_ecwid_product_registrations(
 
     registration_count = 0
     for order in orders:
+        if is_ecwid_order_returned(order):
+            continue
         for item in order.get("items", []):
             item_name = normalize_match_text(item.get("name", ""))
             item_sku = normalize_match_text(item.get("sku", ""))
@@ -8835,7 +8846,7 @@ def normalize_football_days_export_payload(payload: Dict[str, Any], playbook_typ
         include_staff_setup_tasks = True
     if product_id or product_name or product_sku:
         try:
-            orders_payload = fetch_ecwid_orders()
+            orders_payload = fetch_ecwid_orders(force_refresh=True)
             registration_count = str(
                 count_ecwid_product_registrations(
                     orders_payload.get("items", []),

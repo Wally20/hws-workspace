@@ -2329,6 +2329,70 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn('value="Meivakantie Camp"', content)
         self.assertIn('id="footballRegistrationCount">5</strong>', content)
 
+    def test_football_days_registration_count_excludes_returned_orders(self):
+        orders = [
+            {
+                "paymentStatus": "PAID",
+                "fulfillmentStatus": legacy.ECWID_PROCESSING_FULFILLMENT_STATUS,
+                "items": [{"productId": 101, "name": "SC Terschelling SummerCamp", "sku": "SCT-1", "quantity": 71}],
+            },
+            {
+                "paymentStatus": "REFUNDED",
+                "fulfillmentStatus": legacy.ECWID_RETURNED_FULFILLMENT_STATUS,
+                "items": [{"productId": 101, "name": "SC Terschelling SummerCamp", "sku": "SCT-1", "quantity": 2}],
+            },
+            {
+                "paymentStatus": "PARTIALLY_REFUNDED",
+                "fulfillmentStatus": legacy.ECWID_PROCESSING_FULFILLMENT_STATUS,
+                "items": [{"productId": 101, "name": "SC Terschelling SummerCamp", "sku": "SCT-1", "quantity": 2}],
+            },
+        ]
+
+        self.assertEqual(
+            legacy.count_ecwid_product_registrations(orders, "101", "SC Terschelling SummerCamp", "SCT-1"),
+            73,
+        )
+        self.assertEqual(
+            legacy.count_ecwid_product_registrations(orders, "", "SC Terschelling SummerCamp", "SCT-1"),
+            73,
+        )
+
+    def test_football_days_pdf_uses_fresh_registration_count_without_returns(self):
+        orders_payload = {
+            "items": [
+                {
+                    "paymentStatus": "PAID",
+                    "fulfillmentStatus": legacy.ECWID_PROCESSING_FULFILLMENT_STATUS,
+                    "items": [{"productId": 101, "quantity": 71}],
+                },
+                {
+                    "paymentStatus": "REFUNDED",
+                    "fulfillmentStatus": legacy.ECWID_RETURNED_FULFILLMENT_STATUS,
+                    "items": [{"productId": 101, "quantity": 2}],
+                },
+                {
+                    "paymentStatus": "PARTIALLY_REFUNDED",
+                    "fulfillmentStatus": legacy.ECWID_PROCESSING_FULFILLMENT_STATUS,
+                    "items": [{"productId": 101, "quantity": 2}],
+                },
+            ]
+        }
+
+        with patch.object(legacy, "fetch_ecwid_orders", return_value=orders_payload) as fetch_orders:
+            export_data = legacy.normalize_football_days_export_payload(
+                {
+                    "title": "Draaiboek Voetbaldagen",
+                    "productId": "101",
+                    "productName": "SC Terschelling SummerCamp",
+                    "productSku": "SCT-1",
+                    "clubName": "SC Terschelling",
+                }
+            )
+
+        fetch_orders.assert_called_once_with(force_refresh=True)
+        self.assertEqual(export_data["registrationCount"], "73")
+        self.assertEqual(export_data["coverMeta"], "SC TERSCHELLING | 73 AANMELDINGEN")
+
     def test_football_days_overview_defers_registration_count_fetch(self):
         legacy.save_football_days_playbook(
             {
