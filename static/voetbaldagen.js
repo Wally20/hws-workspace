@@ -208,8 +208,9 @@
       : [];
 
   const exerciseMatchesAge = (exercise, age) => {
+    const normalizedAge = normalizeAgeGroup(age);
     const ageGroups = getExerciseAgeGroups(exercise);
-    return Boolean(ageGroups.length) && (!age || ageGroups.includes(normalizeAgeGroup(age)));
+    return !normalizedAge || ageGroups.includes(normalizedAge);
   };
 
   const exerciseMatchesAnyAge = (exercise, ages) => {
@@ -1326,13 +1327,12 @@
         );
         return !queryParts.length || queryParts.every((part) => haystack.includes(part));
       });
-    const visibleMatches = matches.slice(0, 80);
     fieldExerciseList.innerHTML = "";
     if (fieldExerciseSearchFeedback) {
       const hasFilters = Boolean(queryParts.length || categoryFilter || kindFilter || ageFilter || durationFilter);
       fieldExerciseSearchFeedback.textContent = hasFilters
         ? `${matches.length} oefeningen gevonden`
-        : `${exerciseLibrary.filter((exercise) => getExerciseAgeGroups(exercise).length).length} oefeningen met leeftijd beschikbaar`;
+        : `${exerciseLibrary.length} oefeningen beschikbaar`;
     }
     if (!matches.length) {
       const empty = document.createElement("p");
@@ -1341,7 +1341,8 @@
       fieldExerciseList.append(empty);
       return;
     }
-    visibleMatches.forEach((exercise) => {
+    const exerciseOptions = document.createDocumentFragment();
+    matches.forEach((exercise) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "football-field-exercise-option";
@@ -1369,8 +1370,9 @@
       button.querySelector(".football-field-exercise-copy span").textContent = [exercise.category, exercise.trainingExercise, getExerciseAgeGroups(exercise).join(", "), getExerciseDurationLabel(exercise)]
         .filter(Boolean)
         .join(" - ") || "Oefening";
-      fieldExerciseList.append(button);
+      exerciseOptions.append(button);
     });
+    fieldExerciseList.append(exerciseOptions);
     if (sameExerciseExportInput) {
       sameExerciseExportInput.disabled = !selectedFieldExercise && !String(fieldExerciseSearchInput?.value || "").trim();
     }
