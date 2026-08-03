@@ -3537,6 +3537,48 @@ textarea:focus {
   padding: 22px;
 }
 
+.trainers-information-tile {
+  border-color: rgba(214, 163, 79, 0.58);
+  background: linear-gradient(145deg, #fffaf2 0%, #ffffff 70%);
+}
+
+.trainers-information-tile::before {
+  background: #d6a34f;
+}
+
+.trainers-information-tile-link .feature-record-head {
+  align-items: flex-start;
+}
+
+.trainers-information-tile-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: #9a6922;
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.trainers-information-tile-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  border-radius: 13px;
+  background: #d6a34f;
+  color: #111111;
+}
+
+.trainers-information-tile-icon svg {
+  width: 25px;
+  height: 25px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .football-playbook-link {
   display: grid;
   gap: 16px;

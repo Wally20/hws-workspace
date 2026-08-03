@@ -99,6 +99,20 @@ DRESSING_ROOM_SIGN_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 DRESSING_ROOM_SIGN_MAX_GROUPS = 200
 DRESSING_ROOM_SIGN_MAX_PARTICIPANTS = 5000
 DRESSING_ROOM_SIGN_MAX_PARTICIPANTS_PER_GROUP = 112
+TRAINERS_INFORMATION_RULES = (
+    "We behandelen elkaar met respect.",
+    "Schelden, slaan, schoppen en duwen is niet toegestaan.",
+    (
+        "Wanneer de trainer fluit om een oefening te beëindigen, telt de trainer af van 10 naar 0. "
+        "In die tijd verzamelen de deelnemers alle ballen en hesjes en doen ze die in de ballenzak."
+    ),
+    (
+        "Bij het doordraaien en op weg van en naar de kantine lopen de deelnemers altijd "
+        "twee aan twee achter de trainer."
+    ),
+    "In de kantine houden we rekening met anderen: we praten rustig en niet te hard.",
+    "Na iedere pauze ruimen we samen alles netjes op en laten we de kantine schoon achter.",
+)
 FOOTBALL_PLAYBOOK_CONTEXTS = {
     "voetbaldagen": {
         "playbookType": "voetbaldagen",
@@ -564,6 +578,14 @@ WORKSPACE_SEARCH_PAGES = (
         "section": "Draaiboeken",
         "description": "Maak direct een nieuw draaiboek voor een voetbaldag.",
         "keywords": ("nieuw", "maken", "draaiboek", "voetbaldag"),
+    },
+    {
+        "key": "voetbaldagen",
+        "title": "Trainers Informatie",
+        "path": "/voetbaldagen/trainers-informatie",
+        "section": "Draaiboeken",
+        "description": "Maak per groep een A4 met het programma en de afspraken voor trainers.",
+        "keywords": ("trainer", "informatie", "groep", "programma", "afspraken", "pdf"),
     },
     {
         "key": "checklists",
@@ -13409,6 +13431,398 @@ def create_dressing_room_signs_pdf(document: Dict[str, Any]) -> bytes:
     return buffer.read()
 
 
+def create_trainers_information_pdf(
+    playbook: Dict[str, Any],
+    dressing_room_document: Dict[str, Any],
+) -> bytes:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.pdfgen import canvas
+    except ImportError as exc:
+        raise RuntimeError("De PDF-library ontbreekt. Installeer de packages uit requirements.txt.") from exc
+
+    groups = normalize_dressing_room_sign_groups(dressing_room_document.get("groups"))
+    if not groups:
+        raise ValueError("De gekozen kleedkamerbordjes bevatten geen teams of groepen.")
+
+    raw_program = playbook.get("program") if isinstance(playbook.get("program"), list) else []
+    program = []
+    for item in raw_program:
+        if not isinstance(item, dict):
+            continue
+        activity = re.sub(r"\s+", " ", str(item.get("activity") or "")).strip()
+        if not activity:
+            continue
+        program.append(
+            {
+                "startTime": str(item.get("startTime") or "").strip()[:20],
+                "endTime": str(item.get("endTime") or "").strip()[:20],
+                "activity": activity[:240],
+            }
+        )
+
+    font_root = os.path.join(os.path.dirname(__file__), "static", "assets", "fonts")
+    font_names = {
+        "regular": "TrainersInformationPoppins",
+        "bold": "TrainersInformationPoppinsBold",
+        "extra_bold": "TrainersInformationPoppinsExtraBold",
+    }
+    font_files = {
+        "regular": "Poppins-Regular.ttf",
+        "bold": "Poppins-Bold.ttf",
+        "extra_bold": "Poppins-ExtraBold.ttf",
+    }
+    registered_fonts = set(pdfmetrics.getRegisteredFontNames())
+    for key, font_name in font_names.items():
+        if font_name not in registered_fonts:
+            pdfmetrics.registerFont(TTFont(font_name, os.path.join(font_root, font_files[key])))
+
+    buffer = BytesIO()
+    page_width, page_height = A4
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    playbook_title = re.sub(r"\s+", " ", str(playbook.get("title") or "Voetbaldag")).strip()
+    document_title = re.sub(
+        r"\s+", " ", str(dressing_room_document.get("title") or "Groepsindeling")
+    ).strip()
+    event_date = format_football_days_date(str(playbook.get("eventDate") or "").strip())
+    location = re.sub(r"\s+", " ", str(playbook.get("location") or "")).strip()
+    pdf.setTitle(f"Trainers Informatie - {playbook_title}")
+    pdf.setAuthor("HWS Voetbalschool")
+
+    black = colors.HexColor("#111111")
+    charcoal = colors.HexColor("#282828")
+    muted = colors.HexColor("#707070")
+    line = colors.HexColor("#dddddd")
+    soft = colors.HexColor("#f4f4f4")
+    white = colors.white
+    gold = colors.HexColor("#d6a34f")
+    margin = 32
+    header_height = 108
+    footer_y = 34
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "assets", "hws-logo.png")
+
+    def fit_text(text_value: Any, font_name: str, font_size: float, max_width: float) -> str:
+        text = re.sub(r"\s+", " ", str(text_value or "")).strip()
+        if pdfmetrics.stringWidth(text, font_name, font_size) <= max_width:
+            return text
+        shortened = text
+        while len(shortened) > 2 and pdfmetrics.stringWidth(
+            f"{shortened}…", font_name, font_size
+        ) > max_width:
+            shortened = shortened[:-1]
+        return f"{shortened.rstrip()}…"
+
+    def wrap_text(text_value: Any, font_name: str, font_size: float, max_width: float) -> List[str]:
+        words = re.sub(r"\s+", " ", str(text_value or "")).strip().split()
+        if not words:
+            return [""]
+        lines: List[str] = []
+        current = ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if pdfmetrics.stringWidth(candidate, font_name, font_size) <= max_width:
+                current = candidate
+                continue
+            if current:
+                lines.append(current)
+                current = ""
+            remaining = word
+            while remaining and pdfmetrics.stringWidth(remaining, font_name, font_size) > max_width:
+                split_at = len(remaining)
+                while split_at > 1 and pdfmetrics.stringWidth(
+                    remaining[:split_at], font_name, font_size
+                ) > max_width:
+                    split_at -= 1
+                lines.append(remaining[:split_at])
+                remaining = remaining[split_at:]
+            current = remaining
+        if current:
+            lines.append(current)
+        return lines or [""]
+
+    for page_index, group in enumerate(groups, start=1):
+        participants = list(group.get("participants") or [])
+        pdf.setFillColor(white)
+        pdf.rect(0, 0, page_width, page_height, fill=1, stroke=0)
+        pdf.setFillColor(black)
+        pdf.rect(0, page_height - header_height, page_width, header_height, fill=1, stroke=0)
+        pdf.setFillColor(gold)
+        pdf.rect(0, page_height - header_height - 5, page_width, 5, fill=1, stroke=0)
+
+        if os.path.exists(logo_path):
+            pdf.drawImage(
+                ImageReader(logo_path),
+                page_width - 92,
+                page_height - 94,
+                62,
+                62,
+                preserveAspectRatio=True,
+                mask="auto",
+                anchor="c",
+            )
+
+        pdf.setFillColor(gold)
+        pdf.setFont(font_names["bold"], 8.2)
+        pdf.drawString(margin, page_height - 27, "HWS VOETBALSCHOOL")
+        pdf.setFillColor(white)
+        pdf.setFont(font_names["extra_bold"], 20)
+        pdf.drawString(margin, page_height - 59, "TRAINERS INFORMATIE")
+        header_meta = "  •  ".join(value for value in (playbook_title, event_date, location) if value)
+        pdf.setFillColor(colors.HexColor("#cfcfcf"))
+        pdf.setFont(font_names["bold"], 7.2)
+        pdf.drawString(
+            margin,
+            page_height - 82,
+            fit_text(header_meta, font_names["bold"], 7.2, page_width - margin - 118),
+        )
+
+        group_top = page_height - header_height - 25
+        group_height = 48
+        pdf.setFillColor(soft)
+        pdf.setStrokeColor(line)
+        pdf.setLineWidth(0.7)
+        pdf.roundRect(
+            margin,
+            group_top - group_height,
+            page_width - (2 * margin),
+            group_height,
+            7,
+            fill=1,
+            stroke=1,
+        )
+        pdf.setFillColor(gold)
+        pdf.roundRect(margin, group_top - group_height, 6, group_height, 3, fill=1, stroke=0)
+        pdf.setFillColor(muted)
+        pdf.setFont(font_names["extra_bold"], 6.3)
+        pdf.drawString(margin + 18, group_top - 15, "GROEP")
+        pdf.setFillColor(black)
+        pdf.setFont(font_names["extra_bold"], 15)
+        pdf.drawString(
+            margin + 18,
+            group_top - 35,
+            fit_text(str(group.get("name") or "Groep").upper(), font_names["extra_bold"], 15, 355),
+        )
+        pdf.setFillColor(muted)
+        pdf.setFont(font_names["bold"], 7.2)
+        pdf.drawRightString(
+            page_width - margin - 16,
+            group_top - 29,
+            f"{len(participants)} deelnemer{'s' if len(participants) != 1 else ''}",
+        )
+
+        if len(participants) <= 12:
+            participant_columns = 2
+        elif len(participants) <= 30:
+            participant_columns = 3
+        elif len(participants) <= 64:
+            participant_columns = 4
+        else:
+            participant_columns = 5
+        participant_rows = max(1, ceil(len(participants) / participant_columns))
+        participant_height = min(132, max(48, 27 + (participant_rows * 10.5)))
+        participant_top = group_top - group_height - 15
+        pdf.setFillColor(black)
+        pdf.setFont(font_names["extra_bold"], 8.2)
+        pdf.drawString(margin, participant_top, "DEELNEMERS")
+        names_top = participant_top - 16
+        names_height = participant_height - 24
+        participant_gap = 8
+        participant_width = (
+            page_width - (2 * margin) - ((participant_columns - 1) * participant_gap)
+        ) / participant_columns
+        participant_row_height = names_height / participant_rows
+        participant_font_size = max(4.8, min(7.5, participant_row_height * 0.56))
+        for participant_index, participant in enumerate(participants):
+            column_index = participant_index // participant_rows
+            row_index = participant_index % participant_rows
+            x = margin + (column_index * (participant_width + participant_gap))
+            center_y = names_top - (row_index * participant_row_height) - (participant_row_height / 2)
+            if row_index % 2 == 0:
+                pdf.setFillColor(soft)
+                pdf.roundRect(
+                    x,
+                    center_y - (participant_row_height / 2) + 0.7,
+                    participant_width,
+                    max(4, participant_row_height - 1.4),
+                    2.5,
+                    fill=1,
+                    stroke=0,
+                )
+            pdf.setFillColor(gold)
+            pdf.circle(x + 5, center_y, 1.5, fill=1, stroke=0)
+            pdf.setFillColor(charcoal)
+            pdf.setFont(font_names["bold"], participant_font_size)
+            pdf.drawString(
+                x + 10,
+                center_y - (participant_font_size * 0.34),
+                fit_text(participant, font_names["bold"], participant_font_size, participant_width - 13),
+            )
+
+        main_top = participant_top - participant_height - 6
+        main_bottom = 57
+        column_gap = 16
+        column_width = (page_width - (2 * margin) - column_gap) / 2
+        program_x = margin
+        rules_x = margin + column_width + column_gap
+        section_header_height = 29
+
+        for section_x, section_title in ((program_x, "PROGRAMMA"), (rules_x, "AFSPRAKEN")):
+            pdf.setFillColor(black)
+            pdf.roundRect(
+                section_x,
+                main_top - section_header_height,
+                column_width,
+                section_header_height,
+                5,
+                fill=1,
+                stroke=0,
+            )
+            pdf.setFillColor(white)
+            pdf.setFont(font_names["extra_bold"], 8.2)
+            pdf.drawString(section_x + 11, main_top - 18.5, section_title)
+
+        content_top = main_top - section_header_height - 6
+        content_height = content_top - main_bottom
+        display_program = program or [
+            {"startTime": "", "endTime": "", "activity": "Nog geen programma toegevoegd"}
+        ]
+        program_font_size = 7.5
+
+        def program_row_data(font_size: float) -> List[Dict[str, Any]]:
+            leading = font_size * 1.18
+            rows = []
+            for item in display_program:
+                activity_lines = wrap_text(
+                    item["activity"], font_names["bold"], font_size, column_width - 24
+                )[:2]
+                rows.append(
+                    {
+                        "item": item,
+                        "lines": activity_lines,
+                        "height": max(20, 17 + (len(activity_lines) * leading)),
+                    }
+                )
+            return rows
+
+        program_rows = program_row_data(program_font_size)
+        while sum(row["height"] + 4 for row in program_rows) > content_height and program_font_size > 5.1:
+            program_font_size -= 0.3
+            program_rows = program_row_data(program_font_size)
+        if sum(row["height"] + 3 for row in program_rows) > content_height:
+            compact_height = max(8, (content_height - (3 * len(program_rows))) / len(program_rows))
+            for row in program_rows:
+                row["lines"] = [
+                    fit_text(
+                        row["item"]["activity"],
+                        font_names["bold"],
+                        4.8,
+                        column_width - 24,
+                    )
+                ]
+                row["height"] = compact_height
+            program_font_size = 4.8
+        program_leading = program_font_size * 1.18
+        cursor_top = content_top
+        for row_index, row in enumerate(program_rows):
+            row_height = row["height"]
+            if row_index % 2 == 0:
+                pdf.setFillColor(soft)
+                pdf.roundRect(
+                    program_x,
+                    cursor_top - row_height,
+                    column_width,
+                    row_height,
+                    4,
+                    fill=1,
+                    stroke=0,
+                )
+            time_label = " – ".join(
+                value
+                for value in (row["item"].get("startTime"), row["item"].get("endTime"))
+                if value
+            ) or "PROGRAMMA"
+            pdf.setFillColor(gold)
+            pdf.setFont(font_names["extra_bold"], max(4.6, program_font_size - 0.4))
+            pdf.drawString(program_x + 9, cursor_top - 9, time_label)
+            pdf.setFillColor(charcoal)
+            pdf.setFont(font_names["bold"], program_font_size)
+            text_y = cursor_top - 18
+            for activity_line in row["lines"]:
+                pdf.drawString(program_x + 9, text_y, activity_line)
+                text_y -= program_leading
+            cursor_top -= row_height + 4
+
+        rule_font_size = 7.2
+
+        def rule_rows_for_size(font_size: float) -> List[Dict[str, Any]]:
+            leading = font_size * 1.28
+            rows = []
+            for rule in TRAINERS_INFORMATION_RULES:
+                lines = wrap_text(rule, font_names["bold"], font_size, column_width - 47)
+                rows.append({"lines": lines, "height": max(27, 13 + (len(lines) * leading))})
+            return rows
+
+        rule_rows = rule_rows_for_size(rule_font_size)
+        while sum(row["height"] + 5 for row in rule_rows) > content_height and rule_font_size > 5.4:
+            rule_font_size -= 0.3
+            rule_rows = rule_rows_for_size(rule_font_size)
+        rule_leading = rule_font_size * 1.28
+        rule_cursor_top = content_top
+        for rule_index, rule_row in enumerate(rule_rows, start=1):
+            rule_height = rule_row["height"]
+            pdf.setFillColor(soft)
+            pdf.roundRect(
+                rules_x,
+                rule_cursor_top - rule_height,
+                column_width,
+                rule_height,
+                4,
+                fill=1,
+                stroke=0,
+            )
+            number_y = rule_cursor_top - 13
+            pdf.setFillColor(gold)
+            pdf.circle(rules_x + 16, number_y, 8, fill=1, stroke=0)
+            pdf.setFillColor(black)
+            pdf.setFont(font_names["extra_bold"], 6.3)
+            pdf.drawCentredString(rules_x + 16, number_y - 2.2, str(rule_index))
+            pdf.setFillColor(charcoal)
+            pdf.setFont(font_names["bold"], rule_font_size)
+            rule_y = rule_cursor_top - 10
+            for rule_line in rule_row["lines"]:
+                pdf.drawString(rules_x + 33, rule_y, rule_line)
+                rule_y -= rule_leading
+            rule_cursor_top -= rule_height + 5
+
+        pdf.setStrokeColor(line)
+        pdf.setLineWidth(0.6)
+        pdf.line(margin, footer_y, page_width - margin, footer_y)
+        footer_title = f"{document_title}  •  {group.get('name') or 'Groep'}"
+        pdf.setFillColor(muted)
+        pdf.setFont(font_names["regular"], 6.5)
+        pdf.drawString(
+            margin,
+            20,
+            fit_text(footer_title, font_names["regular"], 6.5, page_width - 220),
+        )
+        pdf.setFillColor(black)
+        pdf.setFont(font_names["bold"], 6.5)
+        pdf.drawRightString(
+            page_width - margin,
+            20,
+            f"Pagina {page_index} / {len(groups)}  •  hwsvoetbalschool.nl",
+        )
+        pdf.showPage()
+
+    pdf.save()
+    buffer.seek(0)
+    return buffer.read()
+
+
 def create_checklist_pdf(document: Dict[str, Any]) -> bytes:
     try:
         from reportlab.lib import colors
@@ -22225,6 +22639,115 @@ def api_save_training():
 @app.get("/voetbaldagen")
 def football_days_page() -> str:
     return render_football_playbook_overview("voetbaldagen")
+
+
+@app.get("/voetbaldagen/trainers-informatie")
+def trainers_information_page() -> str:
+    access_redirect = require_page_access("voetbaldagen")
+    if access_redirect is not None:
+        return access_redirect
+
+    playbooks = load_football_days_playbooks("voetbaldagen")
+    dressing_room_documents = load_dressing_room_sign_documents()
+    playbook_id = request.args.get("playbook_id", type=int)
+    dressing_room_document_id = request.args.get("dressing_room_document_id", type=int)
+    selected_playbook = next(
+        (playbook for playbook in playbooks if playbook["id"] == playbook_id),
+        None,
+    )
+    selected_dressing_room_document = next(
+        (
+            document
+            for document in dressing_room_documents
+            if document["id"] == dressing_room_document_id
+        ),
+        None,
+    )
+    error = request.args.get("error", "").strip()
+    if playbook_id and selected_playbook is None:
+        error = "De gekozen voetbaldag bestaat niet meer."
+    elif dressing_room_document_id and selected_dressing_room_document is None:
+        error = "De gekozen kleedkamerbordjes bestaan niet meer."
+
+    export_url = ""
+    if selected_playbook is not None and selected_dressing_room_document is not None:
+        export_url = url_for(
+            "trainers_information_export_pdf",
+            playbook_id=selected_playbook["id"],
+            dressing_room_document_id=selected_dressing_room_document["id"],
+        )
+
+    return render_template(
+        "trainers_informatie.html",
+        active_page="voetbaldagen",
+        playbooks=playbooks,
+        dressing_room_documents=dressing_room_documents,
+        selected_playbook=selected_playbook,
+        selected_dressing_room_document=selected_dressing_room_document,
+        trainers_information_rules=list(TRAINERS_INFORMATION_RULES),
+        export_url=export_url,
+        error=error,
+    )
+
+
+@app.get("/voetbaldagen/trainers-informatie/export-pdf")
+def trainers_information_export_pdf():
+    access_redirect = require_page_access("voetbaldagen")
+    if access_redirect is not None:
+        return access_redirect
+
+    playbook_id = request.args.get("playbook_id", type=int)
+    dressing_room_document_id = request.args.get("dressing_room_document_id", type=int)
+    if not playbook_id or not dressing_room_document_id:
+        return redirect(
+            url_for(
+                "trainers_information_page",
+                error="Kies eerst een voetbaldag en een bestand met kleedkamerbordjes.",
+            )
+        )
+
+    playbook = load_football_days_playbook(playbook_id, "voetbaldagen")
+    dressing_room_document = load_dressing_room_sign_document(dressing_room_document_id)
+    if playbook is None:
+        return redirect(
+            url_for(
+                "trainers_information_page",
+                error="De gekozen voetbaldag bestaat niet meer.",
+            )
+        )
+    if dressing_room_document is None:
+        return redirect(
+            url_for(
+                "trainers_information_page",
+                error="De gekozen kleedkamerbordjes bestaan niet meer.",
+            )
+        )
+
+    try:
+        pdf_bytes = create_trainers_information_pdf(playbook, dressing_room_document)
+    except (RuntimeError, ValueError) as exc:
+        return redirect(
+            url_for(
+                "trainers_information_page",
+                playbook_id=playbook_id,
+                dressing_room_document_id=dressing_room_document_id,
+                error=str(exc),
+            )
+        )
+
+    filename = (
+        f"trainers-informatie-{slugify_value(playbook.get('title') or 'voetbaldag')}-"
+        f"{slugify_value(dressing_room_document.get('title') or 'groepen')}.pdf"
+    )
+    return (
+        pdf_bytes,
+        200,
+        {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.get("/draaiboeken")

@@ -65,6 +65,16 @@ urlpatterns = [
     ),
     path("voetbaldagen", views.football_days_page, name="football_days_page"),
     path("voetbaldagen/nieuw", views.football_days_new_page, name="football_days_new_page"),
+    path(
+        "voetbaldagen/trainers-informatie",
+        views.trainers_information_page,
+        name="trainers_information_page",
+    ),
+    path(
+        "voetbaldagen/trainers-informatie/export-pdf",
+        views.trainers_information_export_pdf,
+        name="trainers_information_export_pdf",
+    ),
     path("voetbaldagen/<int:playbook_id>", views.football_days_edit_page, name="football_days_edit_page"),
     path("samenwerkende-amateurclubs", views.amateur_clubs_page, name="amateur_clubs_page"),
     path("samenwerkende-amateurclubs/nieuw", views.amateur_clubs_new_page, name="amateur_clubs_new_page"),

@@ -321,6 +321,78 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
         self.assertEqual(pdf_response.content.count(b"/Type /Page\n"), 2)
 
+    def test_trainers_information_page_and_pdf_use_one_a4_per_group(self):
+        playbook = {
+            "id": 942,
+            "title": "Test draaiboek trainersinformatie",
+            "eventDate": "2026-08-16",
+            "location": "VV Test",
+            "program": [
+                {"startTime": "09:00", "endTime": "09:30", "activity": "Ontvangst"},
+                {"startTime": "09:30", "endTime": "10:15", "activity": "Techniektraining"},
+                {"startTime": "10:15", "endTime": "10:30", "activity": "Pauze"},
+            ],
+        }
+        dressing_room_document = {
+            "id": 943,
+            "title": "Test kleedkamer trainersinformatie",
+            "sourceFilename": "test.xlsx",
+            "groups": [
+                {"name": "Team Rood", "participants": ["Noa de Vries", "Saar van Dijk"]},
+                {"name": "Team Blauw", "participants": ["Liam Jansen"]},
+                {"name": "Team Goud", "participants": ["Mila de Boer", "Sem Smit"]},
+            ],
+            "groupCount": 3,
+            "participantCount": 5,
+        }
+        client = self.build_authenticated_client()
+
+        with (
+            patch.object(legacy, "require_page_access", return_value=None),
+            patch.object(legacy, "load_football_days_playbooks", return_value=[playbook]),
+            patch.object(legacy, "load_dressing_room_sign_documents", return_value=[dressing_room_document]),
+            patch.object(legacy, "load_football_days_playbook", return_value=playbook),
+            patch.object(legacy, "load_dressing_room_sign_document", return_value=dressing_room_document),
+        ):
+            page_response = client.get(
+                "/voetbaldagen/trainers-informatie?playbook_id=942&dressing_room_document_id=943",
+                secure=True,
+            )
+            pdf_response = client.get(
+                "/voetbaldagen/trainers-informatie/export-pdf?playbook_id=942&dressing_room_document_id=943",
+                secure=True,
+            )
+
+        self.assertEqual(page_response.status_code, 200)
+        self.assertContains(page_response, "Trainers Informatie")
+        self.assertContains(page_response, "We behandelen elkaar met respect.")
+        self.assertContains(page_response, "Na iedere pauze ruimen we samen alles netjes op")
+        self.assertContains(page_response, "3 A4-pagina's")
+        self.assertContains(page_response, 'src="/static/trainers-informatie.js?')
+        self.assertContains(page_response, 'href="/static/trainers-informatie.css?')
+        self.assertEqual(pdf_response.status_code, 200)
+        self.assertEqual(pdf_response["Content-Type"], "application/pdf")
+        self.assertIn(
+            "trainers-informatie-test-draaiboek-trainersinformatie",
+            pdf_response["Content-Disposition"],
+        )
+        self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
+        self.assertEqual(pdf_response.content.count(b"/Type /Page\n"), 3)
+        self.assertIn(b"/MediaBox [ 0 0 595.2756 841.8898 ]", pdf_response.content)
+
+    def test_football_days_overview_contains_trainers_information_tile(self):
+        client = self.build_authenticated_client()
+
+        with (
+            patch.object(legacy, "require_page_access", return_value=None),
+            patch.object(legacy, "load_football_days_playbooks", return_value=[]),
+        ):
+            response = client.get("/voetbaldagen", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'href="/voetbaldagen/trainers-informatie"')
+        self.assertContains(response, "Trainers Informatie")
+
     def test_reimporting_program_preserves_matching_checklist_items(self):
         playbook = {
             "id": 42,

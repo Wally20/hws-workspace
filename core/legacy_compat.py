@@ -57,6 +57,8 @@ ENDPOINTS = {
     "football_days_page": "football_days_page",
     "football_days_new_page": "football_days_new_page",
     "football_days_edit_page": "football_days_edit_page",
+    "trainers_information_page": "trainers_information_page",
+    "trainers_information_export_pdf": "trainers_information_export_pdf",
     "amateur_clubs_page": "amateur_clubs_page",
     "amateur_clubs_new_page": "amateur_clubs_new_page",
     "amateur_clubs_duplicate_page": "amateur_clubs_duplicate_page",

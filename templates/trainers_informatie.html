@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block title %}Trainers Informatie | HWS Voetbalschool Workspace{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="/static/trainers-informatie.css?v={{ asset_version }}">
+{% endblock %}
+
+{% block content %}
+  <main class="trainers-information-page">
+    <header class="page-header trainers-information-header">
+      <div>
+        <p class="trainers-information-kicker">VOETBALDAGEN</p>
+        <h1>Trainers Informatie</h1>
+        <p class="welcome-line">Combineer het programma van een voetbaldag met de groepen uit Kleedkamerbordjes. De PDF bevat voor iedere groep één aparte A4.</p>
+      </div>
+      <a class="subtle-button" href="/voetbaldagen">Terug naar voetbaldagen</a>
+    </header>
+
+    {% if error %}
+      <div class="notice trainers-information-notice" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <section class="summary-card trainers-information-builder" aria-labelledby="trainersInformationBuilderTitle">
+      <div class="trainers-information-builder-head">
+        <div>
+          <span>PDF samenstellen</span>
+          <h2 id="trainersInformationBuilderTitle">Laad het programma en de groepen</h2>
+          <p>De groepsindeling blijft afkomstig uit de opgeslagen kleedkamerbordjes; je hoeft geen deelnemers opnieuw in te voeren.</p>
+        </div>
+        <span class="trainers-information-format-pill">A4 · portret</span>
+      </div>
+
+      <form class="trainers-information-form" method="get" action="/voetbaldagen/trainers-informatie" data-trainers-information-form>
+        <label class="trainers-information-field">
+          <span>Programma van de voetbaldag</span>
+          <select name="playbook_id" required data-trainers-information-playbook>
+            <option value="">Kies een opgeslagen voetbaldag</option>
+            {% for playbook in playbooks %}
+              <option
+                value="{{ playbook.id }}"
+                data-program-count="{{ playbook.program|length }}"
+                {% if selected_playbook and selected_playbook.id == playbook.id %}selected{% endif %}
+              >{{ playbook.title }}{% if playbook.eventDate %} · {{ playbook.eventDate }}{% endif %}{% if playbook.location %} · {{ playbook.location }}{% endif %}</option>
+            {% endfor %}
+          </select>
+          {% if not playbooks %}
+            <small>Er zijn nog geen voetbaldagen opgeslagen. <a href="/voetbaldagen/nieuw">Maak eerst een voetbaldag.</a></small>
+          {% else %}
+            <small data-program-selection-help>Kies de dag waarvan het programma op iedere pagina moet komen.</small>
+          {% endif %}
+        </label>
+
+        <label class="trainers-information-field">
+          <span>Groepen uit Kleedkamerbordjes</span>
+          <select name="dressing_room_document_id" required data-trainers-information-groups>
+            <option value="">Kies een opgeslagen groepsindeling</option>
+            {% for document in dressing_room_documents %}
+              <option
+                value="{{ document.id }}"
+                data-group-count="{{ document.groupCount }}"
+                data-participant-count="{{ document.participantCount }}"
+                {% if selected_dressing_room_document and selected_dressing_room_document.id == document.id %}selected{% endif %}
+              >{{ document.title }} · {{ document.groupCount }} groep{% if document.groupCount != 1 %}en{% endif %}</option>
+            {% endfor %}
+          </select>
+          {% if not dressing_room_documents %}
+            <small>Er zijn nog geen groepsindelingen. <a href="/kleedkamerbordjes">Importeer eerst kleedkamerbordjes.</a></small>
+          {% else %}
+            <small data-group-selection-help>Elke ingeladen groep wordt één afzonderlijke A4-pagina.</small>
+          {% endif %}
+        </label>
+
+        <button class="refresh-button trainers-information-load-button" type="submit" {% if not playbooks or not dressing_room_documents %}disabled{% endif %} data-trainers-information-load>
+          Selectie laden
+        </button>
+      </form>
+    </section>
+
+    {% if selected_playbook and selected_dressing_room_document %}
+      <section class="trainers-information-result" aria-labelledby="trainersInformationPreviewTitle">
+        <div class="trainers-information-result-head">
+          <div>
+            <span class="trainers-information-kicker">KLAAR VOOR EXPORT</span>
+            <h2 id="trainersInformationPreviewTitle">{{ selected_dressing_room_document.groupCount }} A4-pagina{% if selected_dressing_room_document.groupCount != 1 %}'s{% endif %}</h2>
+            <p>Iedere pagina krijgt hetzelfde programma en dezelfde afspraken, met een eigen groep en deelnemerslijst.</p>
+          </div>
+          <a class="refresh-button" href="{{ export_url }}" target="_blank" rel="noopener">Exporteer als PDF</a>
+        </div>
+
+        <div class="trainers-information-preview-grid">
+          <article class="summary-card trainers-information-preview-card trainers-information-program-preview">
+            <div class="trainers-information-preview-card-head">
+              <div>
+                <span>Programma</span>
+                <h3>{{ selected_playbook.title }}</h3>
+              </div>
+              <strong>{{ selected_playbook.program|length }} onderdelen</strong>
+            </div>
+            <ol class="trainers-information-program-list">
+              {% for item in selected_playbook.program %}
+                <li>
+                  <time>{{ item.startTime or "—" }}{% if item.endTime %} – {{ item.endTime }}{% endif %}</time>
+                  <span>{{ item.activity }}</span>
+                </li>
+              {% else %}
+                <li><span>Er zijn nog geen programmaonderdelen ingevuld.</span></li>
+              {% endfor %}
+            </ol>
+          </article>
+
+          <article class="summary-card trainers-information-preview-card">
+            <div class="trainers-information-preview-card-head">
+              <div>
+                <span>Groepen</span>
+                <h3>{{ selected_dressing_room_document.title }}</h3>
+              </div>
+              <strong>{{ selected_dressing_room_document.participantCount }} deelnemers</strong>
+            </div>
+            <div class="trainers-information-group-list">
+              {% for group in selected_dressing_room_document.groups %}
+                <div><span>{{ group.name }}</span><strong>{{ group.participants|length }}</strong></div>
+              {% endfor %}
+            </div>
+          </article>
+        </div>
+
+        <article class="summary-card trainers-information-rules-preview">
+          <div class="trainers-information-preview-card-head">
+            <div>
+              <span>Standaard op iedere pagina</span>
+              <h3>Afspraken voor deelnemers</h3>
+            </div>
+          </div>
+          <ol>
+            {% for rule in trainers_information_rules %}
+              <li><span>{{ loop.index }}</span><p>{{ rule }}</p></li>
+            {% endfor %}
+          </ol>
+        </article>
+      </section>
+    {% endif %}
+  </main>
+{% endblock %}
+
+{% block scripts %}
+  <script nonce="{{ csp_nonce }}" src="/static/trainers-informatie.js?v={{ asset_version }}" defer></script>
+{% endblock %}
