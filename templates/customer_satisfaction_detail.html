@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}{{ selected_product.name }} | Klanttevredenheid | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="page-back-link"><a href="{{ back_url }}">Terug naar klanttevredenheid</a></p>
+      <h1>{{ selected_product.name }}</h1>
+      <p class="welcome-line">
+        {{ selected_product.reviewCount }} keer ingevuld{% if selected_product.sku %} · {{ selected_product.sku }}{% endif %}
+      </p>
+    </div>
+  </header>
+
+  <section class="customer-satisfaction-summary customer-satisfaction-summary-detail" aria-label="Gemiddelde productscores">
+    <article class="summary-card customer-satisfaction-summary-card customer-satisfaction-summary-card-primary">
+      <p class="summary-label">Gemiddelde score</p>
+      <p class="summary-value">{% if selected_product.averageScore is not none %}{{ "{:.1f}".format(selected_product.averageScore) }}{% else %}-{% endif %}</p>
+      <p class="customer-satisfaction-score-caption">van 5 sterren</p>
+    </article>
+    <article class="summary-card customer-satisfaction-summary-card">
+      <p class="summary-label">Algemene beoordeling</p>
+      <p class="summary-value">{% if selected_product.overallAverage is not none %}{{ "{:.1f}".format(selected_product.overallAverage) }}{% else %}-{% endif %}</p>
+      <p class="customer-satisfaction-score-caption">van 5 sterren</p>
+    </article>
+    <article class="summary-card customer-satisfaction-summary-card">
+      <p class="summary-label">Inhoud</p>
+      <p class="summary-value">{% if selected_product.contentAverage is not none %}{{ "{:.1f}".format(selected_product.contentAverage) }}{% else %}-{% endif %}</p>
+      <p class="customer-satisfaction-score-caption">van 5 sterren</p>
+    </article>
+    <article class="summary-card customer-satisfaction-summary-card">
+      <p class="summary-label">Trainer</p>
+      <p class="summary-value">{% if selected_product.trainerAverage is not none %}{{ "{:.1f}".format(selected_product.trainerAverage) }}{% else %}-{% endif %}</p>
+      <p class="customer-satisfaction-score-caption">van 5 sterren</p>
+    </article>
+  </section>
+
+  <section class="orders-panel customer-satisfaction-reviews-panel">
+    <div class="section-head">
+      <div>
+        <h2>Ingevulde reviews</h2>
+        <p class="section-subtitle">De antwoorden zijn anoniem opgeslagen.</p>
+      </div>
+    </div>
+
+    <div class="customer-satisfaction-review-list">
+      {% for review in reviews %}
+        <article class="customer-satisfaction-review-card">
+          <header>
+            <div>
+              <p class="customer-satisfaction-review-group">Groep {{ review.groupName }}</p>
+              <p class="customer-satisfaction-review-date">{{ review.submittedLabel }}</p>
+            </div>
+            <span class="customer-satisfaction-review-average">
+              {{ "{:.1f}".format((review.overallScore + review.contentScore + review.trainerScore) / 3) }} ★
+            </span>
+          </header>
+          <div class="customer-satisfaction-review-answers">
+            <section>
+              <div><h3>Algemene beoordeling</h3><span>{{ review.overallScore }} / 5</span></div>
+              <p>{{ review.overallComment or "Geen toelichting achtergelaten." }}</p>
+            </section>
+            <section>
+              <div><h3>Inhoud</h3><span>{{ review.contentScore }} / 5</span></div>
+              <p>{{ review.contentComment or "Geen toelichting achtergelaten." }}</p>
+            </section>
+            <section>
+              <div><h3>Trainer</h3><span>{{ review.trainerScore }} / 5</span></div>
+              <p>{{ review.trainerComment or "Geen toelichting achtergelaten." }}</p>
+            </section>
+          </div>
+          {% if review.otherFeedback %}
+            <div class="customer-satisfaction-other-feedback">
+              <h3>Overige feedback</h3>
+              <p>{{ review.otherFeedback }}</p>
+            </div>
+          {% endif %}
+        </article>
+      {% else %}
+        <div class="empty-state">Voor dit product is nog geen review ingevuld.</div>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

@@ -30,6 +30,10 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             connection.execute("DELETE FROM registration_email_reminder_statuses")
             connection.execute("DELETE FROM registration_event_statuses")
             connection.execute("DELETE FROM registration_event_email_settings WHERE product_key LIKE 'id:999%'")
+            connection.execute("DELETE FROM customer_satisfaction_reviews WHERE product_key LIKE 'id:999%'")
+            connection.execute("DELETE FROM customer_satisfaction_email_statuses WHERE product_key LIKE 'id:999%'")
+            connection.execute("DELETE FROM customer_satisfaction_email_settings WHERE product_key LIKE 'id:999%'")
+            connection.execute("DELETE FROM customer_satisfaction_surveys WHERE product_key LIKE 'id:999%'")
             connection.execute("DELETE FROM football_days_playbooks WHERE title LIKE 'Test draaiboek%'")
             connection.execute("DELETE FROM checklist_documents WHERE title LIKE 'Test %'")
             connection.execute("DELETE FROM dressing_room_sign_documents WHERE title LIKE 'Test kleedkamer%'")
@@ -2588,6 +2592,267 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("Meivakantie Camp", content)
         self.assertIn("Zomercamp", content)
         self.assertIn('id="registrationsProductSearch"', content)
+
+    def test_customer_satisfaction_management_pages_show_totals_product_scores_and_reviews(self):
+        catalog_payload = {
+            "items": [
+                {
+                    "id": "9991",
+                    "name": "VV Voorst Voetbaldag",
+                    "sku": "Woensdag 8 mei",
+                    "price": 79.0,
+                    "enabled": True,
+                },
+                {"id": "9992", "name": "Product zonder reviews", "sku": "", "price": 0, "enabled": True},
+            ],
+            "source": "ecwid",
+            "cachedAt": 0.0,
+        }
+        legacy.get_or_create_customer_satisfaction_survey(
+            "id:9991",
+            "VV Voorst Voetbaldag",
+            "Woensdag 8 mei",
+        )
+        legacy.save_customer_satisfaction_review(
+            "id:9991",
+            {
+                "group_name": "3",
+                "overall_score": "5",
+                "overall_comment": "Erg leuk.",
+                "content_score": "4",
+                "content_comment": "Veel afwisseling.",
+                "trainer_score": "5",
+                "trainer_comment": "Duidelijke uitleg.",
+                "other_feedback": "Volgend jaar weer.",
+            },
+        )
+        legacy.save_customer_satisfaction_review(
+            "id:9991",
+            {
+                "group_name": "4",
+                "overall_score": "3",
+                "content_score": "4",
+                "trainer_score": "5",
+            },
+        )
+
+        with patch.object(legacy, "fetch_catalog_products", return_value=catalog_payload):
+            overview_response = self.build_authenticated_client().get(
+                "/management/klanttevredenheid",
+                secure=True,
+            )
+            detail_response = self.build_authenticated_client().get(
+                "/management/klanttevredenheid/id:9991",
+                secure=True,
+            )
+
+        self.assertEqual(overview_response.status_code, 200)
+        self.assertContains(overview_response, "Totaal ingevuld")
+        self.assertContains(overview_response, ">2</p>", html=False)
+        self.assertContains(overview_response, "VV Voorst Voetbaldag")
+        self.assertContains(overview_response, "Product zonder reviews")
+        self.assertContains(overview_response, "4.3")
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "Groep 3")
+        self.assertContains(detail_response, "Erg leuk.")
+        self.assertContains(detail_response, "Volgend jaar weer.")
+
+    def test_customer_satisfaction_form_is_public_and_saves_anonymous_review(self):
+        survey = legacy.get_or_create_customer_satisfaction_survey(
+            "id:9993",
+            "SV Harfsen Voetbaldag",
+            "Woensdag 30 april",
+        )
+        client = Client()
+        form_url = f"/klanttevredenheid/invullen/{survey['publicToken']}"
+        get_response = client.get(form_url, secure=True)
+        csrf_token = self.extract_csrf_token(get_response)
+
+        post_response = client.post(
+            form_url,
+            {
+                "csrf_token": csrf_token,
+                "group_name": "Groep 2",
+                "overall_score": "5",
+                "overall_comment": "Superdag.",
+                "content_score": "4",
+                "content_comment": "Leuke oefeningen.",
+                "trainer_score": "5",
+                "trainer_comment": "Heel enthousiast.",
+                "other_feedback": "Meer penalty's.",
+            },
+            secure=True,
+        )
+
+        self.assertEqual(get_response.status_code, 200)
+        self.assertContains(get_response, "volledig anoniem")
+        self.assertEqual(post_response.status_code, 302)
+        self.assertIn("bedankt=1", post_response["Location"])
+        reviews = legacy.load_customer_satisfaction_product_reviews("id:9993")
+        self.assertEqual(len(reviews), 1)
+        self.assertEqual(reviews[0]["groupName"], "Groep 2")
+        self.assertEqual(reviews[0]["overallScore"], 5)
+        with legacy.get_db_connection() as connection:
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(customer_satisfaction_reviews)").fetchall()
+            }
+        self.assertNotIn("email", columns)
+        self.assertNotIn("customer_name", columns)
+
+    def test_event_completion_emails_every_recipient_before_marking_ecwid_delivered(self):
+        client = self.build_authenticated_client()
+        catalog_payload = {
+            "items": [
+                {
+                    "id": "9994",
+                    "name": "VV Gorssel Voetbaldag",
+                    "sku": "Woensdag 26 februari",
+                    "price": 79.0,
+                    "enabled": True,
+                }
+            ],
+            "source": "ecwid",
+        }
+        orders = [
+            {
+                "id": "SAT-ORDER-1",
+                "orderNumber": "SAT-ORDER-1",
+                "createdAt": "2026-02-01T10:00:00+00:00",
+                "email": "ouder1@example.com",
+                "customerName": "Ouder Een",
+                "paymentStatus": "PAID",
+                "items": [{"productId": 9994, "name": "VV Gorssel Voetbaldag", "quantity": 1, "sku": "Woensdag 26 februari"}],
+            },
+            {
+                "id": "SAT-ORDER-2",
+                "orderNumber": "SAT-ORDER-2",
+                "createdAt": "2026-02-01T11:00:00+00:00",
+                "email": "ouder2@example.com",
+                "customerName": "Ouder Twee",
+                "paymentStatus": "PAID",
+                "items": [{"productId": 9994, "name": "VV Gorssel Voetbaldag", "quantity": 1, "sku": "Woensdag 26 februari"}],
+            },
+        ]
+        orders_payload = {"items": orders, "source": "ecwid", "cachedAt": 0.0}
+        call_order = []
+
+        def record_email(*args, **kwargs):
+            call_order.append("email")
+
+        def record_ecwid(order_ids):
+            call_order.append("ecwid")
+            return {"orderIds": order_ids, "syncedOrderIds": order_ids, "failedOrderIds": []}
+
+        with patch.dict(
+            os.environ,
+            {"ECWID_STORE_ID": "87654321", "ECWID_SECRET_TOKEN": "secret_abcdefghijklmnopqrstuvwxyz123456"},
+            clear=False,
+        ), patch.object(legacy, "registration_auto_email_is_configured", return_value=True), patch.object(
+            legacy, "fetch_catalog_products", return_value=catalog_payload
+        ), patch.object(legacy, "fetch_ecwid_orders", return_value=orders_payload), patch.object(
+            legacy, "send_customer_satisfaction_email_message", side_effect=record_email
+        ) as mocked_send, patch.object(
+            legacy, "sync_registration_event_orders_to_delivered", side_effect=record_ecwid
+        ) as mocked_sync:
+            response = client.post(
+                "/api/registrations/event-completed",
+                data=json.dumps(
+                    {
+                        "productKey": "id:9994",
+                        "feedbackSubject": "Jouw mening over {event_naam}",
+                        "feedbackBody": "Beste ouder/verzorger en deelnemer,\n\nVul de vragenlijst in:\n{feedback_url}",
+                    }
+                ),
+                content_type="application/json",
+                HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mocked_send.call_count, 2)
+        mocked_sync.assert_called_once()
+        self.assertCountEqual(mocked_sync.call_args.args[0], ["SAT-ORDER-1", "SAT-ORDER-2"])
+        self.assertEqual(call_order, ["email", "email", "ecwid"])
+        self.assertTrue(legacy.is_registration_event_completed("id:9994"))
+        self.assertEqual(response.json()["emailResult"]["sentRecipientCount"], 2)
+        self.assertIn("/klanttevredenheid/invullen/", response.json()["feedbackUrl"])
+
+    def test_event_completion_does_not_update_ecwid_when_a_feedback_email_fails(self):
+        client = self.build_authenticated_client()
+        catalog_payload = {
+            "items": [{"id": "9995", "name": "Test Voetbaldag", "sku": "Zaterdag 1 augustus", "enabled": True}],
+            "source": "ecwid",
+        }
+        orders = [
+            {
+                "id": "SAT-FAIL-1",
+                "email": "mislukt@example.com",
+                "customerName": "Test",
+                "items": [{"productId": 9995, "name": "Test Voetbaldag", "quantity": 1, "sku": "Zaterdag 1 augustus"}],
+            }
+        ]
+        with patch.dict(
+            os.environ,
+            {"ECWID_STORE_ID": "87654321", "ECWID_SECRET_TOKEN": "secret_abcdefghijklmnopqrstuvwxyz123456"},
+            clear=False,
+        ), patch.object(legacy, "registration_auto_email_is_configured", return_value=True), patch.object(
+            legacy, "fetch_catalog_products", return_value=catalog_payload
+        ), patch.object(legacy, "fetch_ecwid_orders", return_value={"items": orders}), patch.object(
+            legacy, "send_customer_satisfaction_email_message", side_effect=RuntimeError("SMTP niet bereikbaar")
+        ), patch.object(legacy, "sync_registration_event_orders_to_delivered") as mocked_sync:
+            response = client.post(
+                "/api/registrations/event-completed",
+                data=json.dumps({"productKey": "id:9995"}),
+                content_type="application/json",
+                HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()["emailResult"]["failedRecipientCount"], 1)
+        mocked_sync.assert_not_called()
+        self.assertFalse(legacy.is_registration_event_completed("id:9995"))
+
+    def test_customer_satisfaction_test_email_only_sends_to_requested_address(self):
+        client = self.build_authenticated_client()
+        catalog_payload = {
+            "items": [
+                {
+                    "id": "9996",
+                    "name": "ABS SummerCamp",
+                    "sku": "Donderdag 23 en vrijdag 24 juli",
+                    "enabled": True,
+                }
+            ],
+            "source": "ecwid",
+        }
+        orders_payload = {"items": [], "source": "ecwid"}
+        with patch.object(legacy, "registration_auto_email_is_configured", return_value=True), patch.object(
+            legacy, "fetch_catalog_products", return_value=catalog_payload
+        ), patch.object(legacy, "fetch_ecwid_orders", return_value=orders_payload), patch.object(
+            legacy, "send_customer_satisfaction_email_message"
+        ) as mocked_send:
+            response = client.post(
+                "/api/klanttevredenheid/test-email",
+                data=json.dumps(
+                    {
+                        "productKey": "id:9996",
+                        "recipient": "david.van.walstijn@gmail.com",
+                        "feedbackSubject": "Test feedback {event_naam}",
+                        "feedbackBody": "Beste ouder/verzorger en deelnemer,\n\n{feedback_url}",
+                    }
+                ),
+                content_type="application/json",
+                HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_send.assert_called_once()
+        self.assertEqual(mocked_send.call_args.args[0], "david.van.walstijn@gmail.com")
+        self.assertEqual(mocked_send.call_args.args[1], "Test feedback ABS SummerCamp")
+        self.assertIn("/klanttevredenheid/invullen/", mocked_send.call_args.args[2])
 
     def test_registration_email_status_updates_ecwid_to_processing(self):
         client = self.build_authenticated_client()

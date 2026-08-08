@@ -163,9 +163,10 @@
         class="team-primary-button"
         id="completeRegistrationEventButton"
         data-product-key="{{ selected_product.productKey }}"
+        title="Na afhandeling: Event afgerond"
         {% if selected_product.eventCompleted or selected_product.eventCanceled %}disabled{% endif %}
       >
-        Event afgerond
+        Event afhandelen
       </button>
       <button
         type="button"
@@ -287,6 +288,66 @@
       {% endfor %}
     </div>
   </section>
+
+  <div class="customer-satisfaction-email-modal" id="customerSatisfactionEmailModal" hidden>
+    <button
+      type="button"
+      class="customer-satisfaction-email-modal-backdrop"
+      data-customer-satisfaction-modal-close
+      aria-label="Feedbackmail sluiten"
+    ></button>
+    <section class="customer-satisfaction-email-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="customerSatisfactionEmailModalTitle">
+      <header class="customer-satisfaction-email-modal-head">
+        <div>
+          <p class="page-kicker">Laatste controle</p>
+          <h2 id="customerSatisfactionEmailModalTitle">Feedbackmail en event afhandelen</h2>
+          <p>
+            Controleer en pas de mail aan. Na bevestigen ontvangen alle deelnemers deze mail en worden
+            {{ selected_product.orderCount }} Ecwid-bestellingen op geleverd gezet.
+          </p>
+        </div>
+        <button type="button" class="team-modal-close" data-customer-satisfaction-modal-close aria-label="Sluiten">×</button>
+      </header>
+
+      <div class="customer-satisfaction-email-modal-content">
+        <label class="field">
+          <span>Onderwerp</span>
+          <input
+            type="text"
+            id="customerSatisfactionEmailSubjectInput"
+            value="{{ selected_product.customerSatisfactionEmailSubject }}"
+            maxlength="300"
+          >
+        </label>
+        <label class="field">
+          <span>Mailtekst</span>
+          <textarea id="customerSatisfactionEmailBodyInput" rows="16" maxlength="20000">{{ selected_product.customerSatisfactionEmailBody }}</textarea>
+        </label>
+        <p class="orders-toolbar-text">
+          De tekst blijft bij dit product opgeslagen en is bij een volgende poging opnieuw aan te passen.
+          Vragenlijst: <a href="{{ selected_product.customerSatisfactionUrl }}" target="_blank" rel="noopener">open de anonieme vragenlijst</a>.
+        </p>
+
+        <div class="customer-satisfaction-test-email-row">
+          <label class="field">
+            <span>Testmail sturen naar</span>
+            <input type="email" id="customerSatisfactionTestRecipientInput" value="david.van.walstijn@gmail.com">
+          </label>
+          <button type="button" class="subtle-button subtle-button-strong" id="sendCustomerSatisfactionTestEmailButton">
+            Stuur testmail
+          </button>
+        </div>
+        <span class="registrations-copy-feedback" id="customerSatisfactionEmailFeedback" aria-live="polite"></span>
+      </div>
+
+      <footer class="customer-satisfaction-email-modal-actions">
+        <button type="button" class="subtle-button" data-customer-satisfaction-modal-close>Annuleren</button>
+        <button type="button" class="team-primary-button" id="confirmCompleteRegistrationEventButton">
+          Feedbackmail versturen en event afhandelen
+        </button>
+      </footer>
+    </section>
+  </div>
 
   <script type="application/json" id="registrationEmailTemplatesJson">{{ email_templates|tojson }}</script>
   <script src="../static/registrations.js?v={{ asset_version }}" defer></script>

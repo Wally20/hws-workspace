@@ -26,6 +26,9 @@ ENDPOINTS = {
     "registrations_detail_page": "registrations_detail_page",
     "export_registration_team_assignment": "export_registration_team_assignment",
     "management_page": "management_page",
+    "customer_satisfaction_page": "customer_satisfaction_page",
+    "customer_satisfaction_product_page": "customer_satisfaction_product_page",
+    "customer_satisfaction_form_page": "customer_satisfaction_form_page",
     "planning_page": "planning_page",
     "planning_edit_page": "planning_edit_page",
     "api_management_page": "api_management_page",
@@ -127,6 +130,8 @@ PATH_KWARGS = {
     "overeenkomsten_export_pdf": {"contract_id"},
     "overeenkomsten_export_docx": {"contract_id"},
     "content_album_page": {"album_id"},
+    "customer_satisfaction_product_page": {"product_key"},
+    "customer_satisfaction_form_page": {"survey_token"},
 }
 
 

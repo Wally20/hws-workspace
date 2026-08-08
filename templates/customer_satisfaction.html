@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Klanttevredenheid | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="page-back-link"><a href="/management">Terug naar management</a></p>
+      <h1>Klanttevredenheid</h1>
+      <p class="welcome-line">Alle anoniem ingevulde reviews en scores per product.</p>
+    </div>
+  </header>
+
+  <section class="customer-satisfaction-summary" aria-label="Gemiddelde scores van alle reviews">
+    <article class="summary-card customer-satisfaction-summary-card customer-satisfaction-summary-card-primary">
+      <p class="summary-label">Gemiddelde score</p>
+      <p class="summary-value">{% if totals.averageScore is not none %}{{ "{:.1f}".format(totals.averageScore) }}{% else %}-{% endif %}</p>
+      <p class="customer-satisfaction-score-caption">van 5 sterren</p>
+    </article>
+    <article class="summary-card customer-satisfaction-summary-card">
+      <p class="summary-label">Algemene beoordeling</p>
+      <p class="summary-value">{% if totals.overallAverage is not none %}{{ "{:.1f}".format(totals.overallAverage) }}{% else %}-{% endif %}</p>
+      <p class="customer-satisfaction-score-caption">van 5 sterren</p>
+    </article>
+    <article class="summary-card customer-satisfaction-summary-card">
+      <p class="summary-label">Inhoud</p>
+      <p class="summary-value">{% if totals.contentAverage is not none %}{{ "{:.1f}".format(totals.contentAverage) }}{% else %}-{% endif %}</p>
+      <p class="customer-satisfaction-score-caption">van 5 sterren</p>
+    </article>
+    <article class="summary-card customer-satisfaction-summary-card">
+      <p class="summary-label">Trainer</p>
+      <p class="summary-value">{% if totals.trainerAverage is not none %}{{ "{:.1f}".format(totals.trainerAverage) }}{% else %}-{% endif %}</p>
+      <p class="customer-satisfaction-score-caption">van 5 sterren</p>
+    </article>
+    <article class="summary-card customer-satisfaction-summary-card customer-satisfaction-summary-card-count">
+      <p class="summary-label">Totaal ingevuld</p>
+      <p class="summary-value">{{ totals.reviewCount }}</p>
+      <p class="customer-satisfaction-score-caption">review{% if totals.reviewCount != 1 %}s{% endif %}</p>
+    </article>
+  </section>
+
+  {% if message %}
+    <section class="notice">{{ message }}</section>
+  {% endif %}
+
+  <section class="registrations-overview-panel customer-satisfaction-products-panel">
+    <div class="section-head">
+      <div>
+        <h2>Scores per product</h2>
+        <p class="section-subtitle">{{ total_products }} producten · klik op een tegel om alle scores en opmerkingen te bekijken.</p>
+      </div>
+      <p class="orders-toolbar-text">Laatst bijgewerkt: {{ last_updated }}</p>
+    </div>
+
+    <label class="field registrations-search-field registrations-search-field-wide">
+      <span>Zoek product</span>
+      <input type="search" id="customerSatisfactionProductSearch" placeholder="Zoek op productnaam of datum" autocomplete="off">
+    </label>
+
+    <div class="customer-satisfaction-product-grid" id="customerSatisfactionProductList">
+      {% for product in products %}
+        <a
+          href="{{ product.detailUrl }}"
+          class="customer-satisfaction-product-card{% if product.reviewCount %} has-reviews{% endif %}"
+          data-customer-satisfaction-product
+          data-search="{{ product.searchText }}"
+        >
+          <div class="customer-satisfaction-product-card-head">
+            <div>
+              <h3>{{ product.name }}</h3>
+              {% if product.sku %}<p>{{ product.sku }}</p>{% endif %}
+            </div>
+            <span class="customer-satisfaction-review-count">{{ product.reviewCount }}× ingevuld</span>
+          </div>
+          <div class="customer-satisfaction-product-score">
+            <strong>{% if product.averageScore is not none %}{{ "{:.1f}".format(product.averageScore) }}{% else %}-{% endif %}</strong>
+            <span aria-hidden="true">★</span>
+            <small>gemiddeld</small>
+          </div>
+          <dl class="customer-satisfaction-product-breakdown">
+            <div><dt>Algemeen</dt><dd>{% if product.overallAverage is not none %}{{ "{:.1f}".format(product.overallAverage) }}{% else %}-{% endif %}</dd></div>
+            <div><dt>Inhoud</dt><dd>{% if product.contentAverage is not none %}{{ "{:.1f}".format(product.contentAverage) }}{% else %}-{% endif %}</dd></div>
+            <div><dt>Trainer</dt><dd>{% if product.trainerAverage is not none %}{{ "{:.1f}".format(product.trainerAverage) }}{% else %}-{% endif %}</dd></div>
+          </dl>
+        </a>
+      {% else %}
+        <div class="empty-state">Er zijn nog geen producten om te tonen.</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <script src="/static/customer-satisfaction.js?v={{ asset_version }}" defer></script>
+{% endblock %}

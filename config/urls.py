@@ -11,6 +11,21 @@ urlpatterns = [
     path("logout", views.logout_page, name="logout_page"),
     path("", views.index, name="index"),
     path("management", views.management_page, name="management_page"),
+    path(
+        "management/klanttevredenheid",
+        views.customer_satisfaction_page,
+        name="customer_satisfaction_page",
+    ),
+    path(
+        "management/klanttevredenheid/<path:product_key>",
+        views.customer_satisfaction_product_page,
+        name="customer_satisfaction_product_page",
+    ),
+    path(
+        "klanttevredenheid/invullen/<str:survey_token>",
+        views.customer_satisfaction_form_page,
+        name="customer_satisfaction_form_page",
+    ),
     path("planning", views.planning_page, name="planning_page"),
     path("planning/<int:planning_id>", views.planning_edit_page, name="planning_edit_page"),
     path("management/api", views.api_management_page, name="api_management_page"),
@@ -205,6 +220,11 @@ urlpatterns = [
         "api/registrations/event-completed",
         views.api_complete_registration_event,
         name="api_complete_registration_event",
+    ),
+    path(
+        "api/klanttevredenheid/test-email",
+        views.api_send_customer_satisfaction_test_email,
+        name="api_send_customer_satisfaction_test_email",
     ),
     path(
         "api/registrations/event-canceled",

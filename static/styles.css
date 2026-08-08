@@ -8730,6 +8730,772 @@ a.spaarpot-year-row:hover {
   letter-spacing: 0.04em;
 }
 
+.customer-satisfaction-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.customer-satisfaction-summary-card {
+  min-width: 0;
+  padding: 22px;
+  overflow: hidden;
+}
+
+.customer-satisfaction-summary-card .summary-value {
+  margin: 16px 0 6px;
+  font-size: clamp(2rem, 3vw, 3rem);
+}
+
+.customer-satisfaction-summary-card-primary {
+  background: #111111;
+  color: #ffffff;
+  border-color: #111111;
+}
+
+.customer-satisfaction-summary-card-primary .summary-label,
+.customer-satisfaction-summary-card-primary .summary-value,
+.customer-satisfaction-summary-card-primary .customer-satisfaction-score-caption {
+  color: #ffffff;
+}
+
+.customer-satisfaction-summary-card-count {
+  background: #f2c230;
+  border-color: #d7a900;
+}
+
+.customer-satisfaction-score-caption {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.customer-satisfaction-products-panel,
+.customer-satisfaction-reviews-panel {
+  display: grid;
+  gap: 20px;
+}
+
+.customer-satisfaction-product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.customer-satisfaction-product-card {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+  padding: 20px;
+  border: 2px solid rgba(17, 17, 17, 0.14);
+  border-radius: 20px;
+  background: linear-gradient(145deg, #ffffff, #f8fafc);
+  color: var(--text);
+  text-decoration: none;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.06);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.customer-satisfaction-product-card.has-reviews {
+  border-color: #111111;
+  box-shadow: 0 0 0 3px rgba(242, 194, 48, 0.9), 0 16px 30px rgba(15, 23, 42, 0.08);
+}
+
+.customer-satisfaction-product-card:hover,
+.customer-satisfaction-product-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: #111111;
+  box-shadow: 0 0 0 3px rgba(242, 194, 48, 0.9), 0 18px 34px rgba(15, 23, 42, 0.12);
+}
+
+.customer-satisfaction-product-card[hidden] {
+  display: none;
+}
+
+.customer-satisfaction-product-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.customer-satisfaction-product-card h3,
+.customer-satisfaction-product-card p {
+  margin: 0;
+}
+
+.customer-satisfaction-product-card h3 {
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.customer-satisfaction-product-card p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.customer-satisfaction-review-count {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.07);
+  font-size: 0.72rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.customer-satisfaction-product-card.has-reviews .customer-satisfaction-review-count {
+  background: #f2c230;
+}
+
+.customer-satisfaction-product-score {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.customer-satisfaction-product-score strong {
+  font-size: 2.4rem;
+  line-height: 1;
+}
+
+.customer-satisfaction-product-score > span {
+  color: #e0aa00;
+  font-size: 1.4rem;
+}
+
+.customer-satisfaction-product-score small {
+  color: var(--muted);
+}
+
+.customer-satisfaction-product-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.customer-satisfaction-product-breakdown div {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(17, 17, 17, 0.045);
+}
+
+.customer-satisfaction-product-breakdown dt {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.customer-satisfaction-product-breakdown dd {
+  margin: 0;
+  font-weight: 800;
+}
+
+.customer-satisfaction-summary-detail {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.customer-satisfaction-review-list {
+  display: grid;
+  gap: 16px;
+}
+
+.customer-satisfaction-review-card {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: #ffffff;
+}
+
+.customer-satisfaction-review-card > header,
+.customer-satisfaction-review-answers section > div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.customer-satisfaction-review-card > header {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.customer-satisfaction-review-group,
+.customer-satisfaction-review-date,
+.customer-satisfaction-review-answers h3,
+.customer-satisfaction-review-answers p,
+.customer-satisfaction-other-feedback h3,
+.customer-satisfaction-other-feedback p {
+  margin: 0;
+}
+
+.customer-satisfaction-review-group {
+  font-weight: 800;
+}
+
+.customer-satisfaction-review-date {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.customer-satisfaction-review-average {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #f2c230;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.customer-satisfaction-review-answers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.customer-satisfaction-review-answers section,
+.customer-satisfaction-other-feedback {
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--surface-soft);
+}
+
+.customer-satisfaction-review-answers h3,
+.customer-satisfaction-other-feedback h3 {
+  font-size: 0.82rem;
+}
+
+.customer-satisfaction-review-answers section > div span {
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.customer-satisfaction-review-answers p,
+.customer-satisfaction-other-feedback p {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  white-space: pre-wrap;
+}
+
+.customer-satisfaction-other-feedback {
+  margin-top: 12px;
+}
+
+.customer-satisfaction-public-body {
+  min-height: 100vh;
+  margin: 0;
+  padding: 28px 16px;
+  background:
+    radial-gradient(circle at top left, rgba(242, 194, 48, 0.22), transparent 34%),
+    linear-gradient(160deg, #f6f7f8 0%, #ffffff 55%, #f3f4f6 100%);
+  color: #111111;
+  font-family: "Poppins", Arial, sans-serif;
+}
+
+.customer-satisfaction-form-shell {
+  width: min(820px, 100%);
+  margin: 0 auto;
+}
+
+.customer-satisfaction-form-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.customer-satisfaction-form-brand img {
+  width: 58px;
+  height: 58px;
+  object-fit: contain;
+}
+
+.customer-satisfaction-form-brand div {
+  display: grid;
+}
+
+.customer-satisfaction-form-brand span {
+  color: #6b7280;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.customer-satisfaction-form-brand strong {
+  font-size: 1rem;
+}
+
+.customer-satisfaction-form-intro,
+.customer-satisfaction-form,
+.customer-satisfaction-thank-you {
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.1);
+}
+
+.customer-satisfaction-form-intro {
+  padding: clamp(24px, 5vw, 44px);
+  border-radius: 28px 28px 0 0;
+  background: #111111;
+  color: #ffffff;
+}
+
+.customer-satisfaction-form-intro .page-kicker {
+  color: #f2c230;
+}
+
+.customer-satisfaction-form-intro h1,
+.customer-satisfaction-form-intro p {
+  margin: 0;
+}
+
+.customer-satisfaction-form-intro h1 {
+  margin-top: 8px;
+  font-size: clamp(1.8rem, 5vw, 3.2rem);
+  line-height: 1.1;
+}
+
+.customer-satisfaction-form-intro > p:not(.page-kicker) {
+  max-width: 650px;
+  margin-top: 16px;
+  color: rgba(255, 255, 255, 0.76);
+  line-height: 1.65;
+}
+
+.customer-satisfaction-form-scale {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.customer-satisfaction-form-scale span {
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.customer-satisfaction-form {
+  display: grid;
+  gap: 18px;
+  padding: clamp(18px, 4vw, 36px);
+  border-top: 0;
+  border-radius: 0 0 28px 28px;
+}
+
+.customer-satisfaction-form-error {
+  padding: 14px 18px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-weight: 700;
+}
+
+.customer-satisfaction-form-question {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  padding: 20px;
+  border: 1px solid rgba(17, 17, 17, 0.09);
+  border-radius: 18px;
+  background: #ffffff;
+}
+
+fieldset.customer-satisfaction-form-question {
+  min-width: 0;
+}
+
+.customer-satisfaction-form-question legend {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+}
+
+.customer-satisfaction-form-question > strong,
+.customer-satisfaction-form-question legend strong {
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.customer-satisfaction-question-number {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #111111;
+  color: #f2c230;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.customer-satisfaction-group-question {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.customer-satisfaction-group-question input {
+  grid-column: 1 / -1;
+}
+
+.customer-satisfaction-form-question input[type="text"],
+.customer-satisfaction-form-question textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid rgba(17, 17, 17, 0.18);
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #111111;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.customer-satisfaction-form-question textarea {
+  resize: vertical;
+}
+
+.customer-satisfaction-form-question input:focus,
+.customer-satisfaction-form-question textarea:focus {
+  outline: 3px solid rgba(242, 194, 48, 0.35);
+  border-color: #111111;
+}
+
+.customer-satisfaction-star-rating {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(48px, 1fr));
+  gap: 8px;
+}
+
+.customer-satisfaction-star-rating label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  min-height: 70px;
+  border: 2px solid rgba(17, 17, 17, 0.1);
+  border-radius: 14px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.customer-satisfaction-star-rating input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.customer-satisfaction-star-rating span {
+  color: #cbd5e1;
+  font-size: 1.65rem;
+  line-height: 1;
+}
+
+.customer-satisfaction-star-rating small {
+  color: #6b7280;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.customer-satisfaction-star-rating label:has(input:checked) {
+  border-color: #111111;
+  background: #fff8d8;
+  box-shadow: 0 0 0 2px #f2c230;
+}
+
+.customer-satisfaction-star-rating label:has(input:checked) span {
+  color: #e0aa00;
+}
+
+.customer-satisfaction-star-rating label:focus-within {
+  outline: 3px solid rgba(242, 194, 48, 0.4);
+}
+
+.customer-satisfaction-comment-field {
+  display: grid;
+  gap: 8px;
+}
+
+.customer-satisfaction-comment-field > span {
+  color: #374151;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.customer-satisfaction-comment-field small {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.customer-satisfaction-honeypot {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.customer-satisfaction-submit-button {
+  min-height: 56px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 15px;
+  background: #f2c230;
+  color: #111111;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 14px 26px rgba(198, 151, 0, 0.22);
+}
+
+.customer-satisfaction-submit-button:hover,
+.customer-satisfaction-submit-button:focus-visible {
+  background: #ffd64f;
+}
+
+.customer-satisfaction-privacy-note {
+  margin: -4px 0 0;
+  color: #6b7280;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.customer-satisfaction-thank-you {
+  display: grid;
+  justify-items: center;
+  padding: clamp(36px, 8vw, 72px);
+  border-radius: 28px;
+  text-align: center;
+}
+
+.customer-satisfaction-thank-you-icon {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 18px;
+  border-radius: 50%;
+  background: #f2c230;
+  font-size: 2rem;
+  font-weight: 800;
+}
+
+.customer-satisfaction-thank-you h1,
+.customer-satisfaction-thank-you p {
+  margin: 0;
+}
+
+.customer-satisfaction-thank-you h1 {
+  margin-top: 6px;
+}
+
+.customer-satisfaction-thank-you > p:last-child {
+  max-width: 540px;
+  margin-top: 14px;
+  color: #6b7280;
+  line-height: 1.65;
+}
+
+body.customer-satisfaction-email-modal-open {
+  overflow: hidden;
+}
+
+.customer-satisfaction-email-modal[hidden] {
+  display: none;
+}
+
+.customer-satisfaction-email-modal {
+  position: fixed;
+  z-index: 1500;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.customer-satisfaction-email-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(8, 12, 20, 0.72);
+  backdrop-filter: blur(4px);
+  cursor: default;
+}
+
+.customer-satisfaction-email-modal-dialog {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(860px, 100%);
+  max-height: min(92vh, 900px);
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.customer-satisfaction-email-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 24px 26px;
+  border-bottom: 1px solid var(--line);
+  background: #111111;
+  color: #ffffff;
+}
+
+.customer-satisfaction-email-modal-head .page-kicker {
+  color: #f2c230;
+}
+
+.customer-satisfaction-email-modal-head h2,
+.customer-satisfaction-email-modal-head p {
+  margin: 0;
+}
+
+.customer-satisfaction-email-modal-head h2 {
+  margin-top: 5px;
+  font-size: clamp(1.35rem, 3vw, 2rem);
+}
+
+.customer-satisfaction-email-modal-head div > p:last-child {
+  max-width: 680px;
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.customer-satisfaction-email-modal-head .team-modal-close {
+  flex: 0 0 auto;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.customer-satisfaction-email-modal-content {
+  display: grid;
+  gap: 16px;
+  padding: 22px 26px;
+  overflow: auto;
+}
+
+.customer-satisfaction-email-modal-content textarea {
+  min-height: 330px;
+}
+
+.customer-satisfaction-email-modal-content a {
+  color: #111111;
+  font-weight: 800;
+}
+
+.customer-satisfaction-test-email-row {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--surface-soft);
+}
+
+.customer-satisfaction-test-email-row .field {
+  flex: 1 1 300px;
+}
+
+.customer-satisfaction-email-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 18px 26px;
+  border-top: 1px solid var(--line);
+  background: #ffffff;
+}
+
+@media (max-width: 1050px) {
+  .customer-satisfaction-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .customer-satisfaction-summary-detail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .customer-satisfaction-summary,
+  .customer-satisfaction-summary-detail,
+  .customer-satisfaction-review-answers {
+    grid-template-columns: 1fr;
+  }
+
+  .customer-satisfaction-product-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .customer-satisfaction-product-card-head {
+    display: grid;
+  }
+
+  .customer-satisfaction-review-count {
+    justify-self: start;
+  }
+
+  .customer-satisfaction-public-body {
+    padding: 18px 10px;
+  }
+
+  .customer-satisfaction-star-rating {
+    gap: 5px;
+  }
+
+  .customer-satisfaction-star-rating label {
+    min-height: 62px;
+  }
+
+  .customer-satisfaction-star-rating span {
+    font-size: 1.35rem;
+  }
+
+  .customer-satisfaction-email-modal {
+    padding: 8px;
+  }
+
+  .customer-satisfaction-email-modal-dialog {
+    max-height: 96vh;
+    border-radius: 18px;
+  }
+
+  .customer-satisfaction-email-modal-head,
+  .customer-satisfaction-email-modal-content,
+  .customer-satisfaction-email-modal-actions {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .customer-satisfaction-test-email-row,
+  .customer-satisfaction-email-modal-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .leads-page-panel {
   display: grid;
   gap: 20px;

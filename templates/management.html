@@ -25,6 +25,13 @@
       </a>
     {% endif %}
 
+    {% if 'customer-satisfaction' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/management/klanttevredenheid">
+        <span class="panel-title">Klanttevredenheid</span>
+        <span class="feature-list-subtitle">Bekijk alle ingevulde reviews en gemiddelde scores per product.</span>
+      </a>
+    {% endif %}
+
     {% if 'materialen' in visible_pages %}
       <a class="summary-card training-home-tile" href="/materialen">
         <span class="panel-title">Materialen</span>

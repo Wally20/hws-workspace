@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#111111">
+    <title>Klanttevredenheid | {{ survey.productName }} | HWS Voetbalschool</title>
+    <link rel="icon" type="image/png" href="/static/assets/hws-logo.png">
+    <link rel="stylesheet" href="/static/styles.css?v={{ asset_version }}">
+  </head>
+  <body class="customer-satisfaction-public-body">
+    <main class="customer-satisfaction-form-shell">
+      <header class="customer-satisfaction-form-brand">
+        <img src="/static/assets/hws-logo.png" alt="HWS Voetbalschool">
+        <div>
+          <span>Jouw mening telt</span>
+          <strong>HWS Voetbalschool</strong>
+        </div>
+      </header>
+
+      {% if submitted %}
+        <section class="customer-satisfaction-thank-you">
+          <div class="customer-satisfaction-thank-you-icon" aria-hidden="true">✓</div>
+          <p class="page-kicker">Bedankt!</p>
+          <h1>Jouw feedback is ontvangen.</h1>
+          <p>
+            Met jouw antwoorden kunnen we {{ survey.eventArticle }} {{ survey.eventType }} blijven verbeteren.
+            Fijne dag en hopelijk tot de volgende keer!
+          </p>
+        </section>
+      {% else %}
+        <header class="customer-satisfaction-form-intro">
+          <p class="page-kicker">Korte vragenlijst · ongeveer 5 minuten</p>
+          <h1>Hoe heb jij {{ survey.productName }} ervaren?</h1>
+          <p>
+            Vul de vragen bij voorkeur samen met je ouder/verzorger in. De vragenlijst is volledig anoniem:
+            we vragen niet naar je naam of e-mailadres.
+          </p>
+          <div class="customer-satisfaction-form-scale">
+            <span>1 ster = heel matig</span>
+            <span>5 sterren = heel goed</span>
+          </div>
+        </header>
+
+        {% if form_error %}
+          <div class="customer-satisfaction-form-error" role="alert">{{ form_error }}</div>
+        {% endif %}
+
+        <form method="post" class="customer-satisfaction-form">
+          <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+          <label class="customer-satisfaction-form-question customer-satisfaction-group-question">
+            <span class="customer-satisfaction-question-number">01</span>
+            <strong>In welke groep zat jij?</strong>
+            <input
+              type="text"
+              name="group_name"
+              value="{{ form_values.group_name }}"
+              maxlength="120"
+              placeholder="Bijvoorbeeld: groep 3"
+              autocomplete="off"
+              required
+            >
+          </label>
+
+          {% set rating_questions = [
+            ('overall', '02', 'Hoeveel sterren geef jij ' ~ survey.eventArticle ~ ' ' ~ survey.eventType ~ ' in het algemeen?'),
+            ('content', '03', 'Hoeveel sterren geef jij de inhoud van ' ~ survey.eventArticle ~ ' ' ~ survey.eventType ~ '? Denk aan het programma, de oefenstof, de activiteiten en de prijzen.'),
+            ('trainer', '04', 'Hoeveel sterren geef jij de trainer van jouw groep?')
+          ] %}
+          {% for field_name, question_number, question_text in rating_questions %}
+            <fieldset class="customer-satisfaction-form-question">
+              <legend>
+                <span class="customer-satisfaction-question-number">{{ question_number }}</span>
+                <strong>{{ question_text }}</strong>
+              </legend>
+              <div class="customer-satisfaction-star-rating" aria-label="Kies 1 tot en met 5 sterren">
+                {% for score in range(1, 6) %}
+                  <label>
+                    <input
+                      type="radio"
+                      name="{{ field_name }}_score"
+                      value="{{ score }}"
+                      {% if form_values[field_name ~ '_score']|string == score|string %}checked{% endif %}
+                      required
+                    >
+                    <span aria-hidden="true">★</span>
+                    <small>{{ score }}</small>
+                  </label>
+                {% endfor %}
+              </div>
+              <label class="customer-satisfaction-comment-field">
+                <span>Wil je toelichten waarom je deze score geeft? <small>(niet verplicht)</small></span>
+                <textarea name="{{ field_name }}_comment" rows="3" maxlength="2000" placeholder="Typ hier je toelichting...">{{ form_values[field_name ~ '_comment'] }}</textarea>
+              </label>
+            </fieldset>
+          {% endfor %}
+
+          <label class="customer-satisfaction-form-question">
+            <span class="customer-satisfaction-question-number">05</span>
+            <strong>Heb je verder nog opmerkingen, verbeterpunten of andere feedback voor ons?</strong>
+            <textarea name="other_feedback" rows="5" maxlength="4000" placeholder="Alles wat je nog met ons wilt delen...">{{ form_values.other_feedback }}</textarea>
+          </label>
+
+          <label class="customer-satisfaction-honeypot" aria-hidden="true">
+            Website
+            <input type="text" name="website" tabindex="-1" autocomplete="off">
+          </label>
+
+          <button type="submit" class="customer-satisfaction-submit-button">Feedback versturen</button>
+          <p class="customer-satisfaction-privacy-note">Je antwoorden worden anoniem opgeslagen.</p>
+        </form>
+      {% endif %}
+    </main>
+  </body>
+</html>

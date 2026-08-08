@@ -30,7 +30,7 @@ from zoneinfo import ZoneInfo
 import requests
 from django.conf import settings
 from django.core.mail import EmailMessage
-from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils.exceptions import InvalidFileException
@@ -531,6 +531,7 @@ SECURITY_HEADERS = {
 RATE_LIMIT_RULES = (
     (re.compile(r"^/login$"), 5, 300, "login"),
     (re.compile(r"^/uitnodiging/[^/]+$"), 5, 600, "invite"),
+    (re.compile(r"^/klanttevredenheid/invullen/[^/]+$"), 10, 300, "customer-satisfaction"),
     (re.compile(r"^/api/v1/agenda/(?:events|calendar\.ics)$"), 120, 300, "agenda-api"),
     (re.compile(r"^/api/dashboard-events$"), 20, 300, "dashboard-events"),
     (re.compile(r"^/content(?:/\d+)?$"), 20, 300, "content"),
@@ -642,6 +643,14 @@ WORKSPACE_SEARCH_PAGES = (
         "section": "Management",
         "description": "Beheer de beveiligde koppeling met de HWS-agenda.",
         "keywords": ("api", "agenda", "koppeling", "token", "ics", "integratie"),
+    },
+    {
+        "key": "customer-satisfaction",
+        "title": "Klanttevredenheid",
+        "path": "/management/klanttevredenheid",
+        "section": "Management",
+        "description": "Bekijk reviews en gemiddelde scores per product.",
+        "keywords": ("klanttevredenheid", "reviews", "feedback", "scores", "sterren"),
     },
     {
         "key": "begroting",
@@ -1407,6 +1416,7 @@ def is_public_path(path: str) -> bool:
         path.startswith("/static/")
         or path in {"/login", "/manifest.webmanifest", "/service-worker.js"}
         or path.startswith("/uitnodiging/")
+        or path.startswith("/klanttevredenheid/invullen/")
         or is_external_agenda_api_path(path)
     )
 
@@ -2923,6 +2933,659 @@ def send_registration_product_emails(product_key: str, orders: List[Dict[str, An
     return result
 
 
+def infer_customer_satisfaction_event_type(product_name: str) -> Dict[str, str]:
+    normalized_name = normalize_match_text(product_name)
+    if "techniektraining" in normalized_name:
+        return {"singular": "techniektraining", "plural": "techniektrainingen"}
+    if "summercamp" in normalized_name or "summer camp" in normalized_name:
+        return {"singular": "SummerCamp", "plural": "SummerCamps"}
+    if "voetbaldag" in normalized_name:
+        return {"singular": "voetbaldag", "plural": "voetbaldagen"}
+    if "voetbalkamp" in normalized_name or re.search(r"\bcamp\b", normalized_name):
+        return {"singular": "voetbalkamp", "plural": "voetbalkampen"}
+    return {"singular": "voetbalevent", "plural": "voetbalevents"}
+
+
+def get_customer_satisfaction_event_language(event_type: str) -> Dict[str, str]:
+    normalized_event_type = str(event_type or "").strip().casefold()
+    if normalized_event_type in {"voetbalkamp", "voetbalevent"}:
+        return {"article": "het", "demonstrative": "dit"}
+    return {"article": "de", "demonstrative": "deze"}
+
+
+def looks_like_customer_satisfaction_event_date(value: Any) -> bool:
+    normalized_value = normalize_match_text(value)
+    if not normalized_value or normalized_value.startswith("locatie"):
+        return False
+    date_words = {
+        "maandag",
+        "dinsdag",
+        "woensdag",
+        "donderdag",
+        "vrijdag",
+        "zaterdag",
+        "zondag",
+        "januari",
+        "februari",
+        "maart",
+        "april",
+        "mei",
+        "juni",
+        "juli",
+        "augustus",
+        "september",
+        "oktober",
+        "november",
+        "december",
+        "vakantie",
+    }
+    return bool(
+        re.search(r"\b\d{4}-\d{2}-\d{2}\b", normalized_value)
+        or any(word in normalized_value for word in date_words)
+    )
+
+
+def build_customer_satisfaction_event_details(
+    product_key: str,
+    product_name: str,
+    product_sku: str,
+) -> Dict[str, str]:
+    name_parts = [part.strip() for part in str(product_name or "").split("|") if part.strip()]
+    event_name = name_parts[0] if name_parts else str(product_name or "").strip()
+    date_candidates = name_parts[1:] + [str(product_sku or "").strip()]
+    event_date_label = next(
+        (candidate for candidate in date_candidates if looks_like_customer_satisfaction_event_date(candidate)),
+        "",
+    )
+    if not event_date_label:
+        registration_settings = load_registration_event_email_settings(product_key)
+        event_date_label = format_registration_event_dates_label(
+            registration_settings.get("eventDate", ""),
+            registration_settings.get("eventDate2", ""),
+        )
+    event_types = infer_customer_satisfaction_event_type(event_name)
+    return {
+        "eventName": event_name or "het HWS Voetbalevent",
+        "eventDateLabel": event_date_label,
+        "eventType": event_types["singular"],
+        "eventTypePlural": event_types["plural"],
+    }
+
+
+def normalize_customer_satisfaction_survey(row: sqlite3.Row) -> Dict[str, str]:
+    event_type = str(row["event_type"] or "voetbalevent").strip() or "voetbalevent"
+    event_language = get_customer_satisfaction_event_language(event_type)
+    return {
+        "productKey": str(row["product_key"] or "").strip(),
+        "publicToken": str(row["public_token"] or "").strip(),
+        "productName": str(row["product_name"] or "").strip(),
+        "productSku": str(row["product_sku"] or "").strip(),
+        "eventType": event_type,
+        "eventArticle": event_language["article"],
+        "eventDemonstrative": event_language["demonstrative"],
+        "eventDateLabel": str(row["event_date_label"] or "").strip(),
+        "createdAt": str(row["created_at"] or "").strip(),
+        "updatedAt": str(row["updated_at"] or "").strip(),
+    }
+
+
+def get_customer_satisfaction_survey(product_key: str) -> Optional[Dict[str, str]]:
+    normalized_product_key = str(product_key or "").strip()
+    if not normalized_product_key:
+        return None
+    with get_db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT product_key, public_token, product_name, product_sku, event_type,
+                   event_date_label, created_at, updated_at
+            FROM customer_satisfaction_surveys
+            WHERE product_key = ?
+            """,
+            (normalized_product_key,),
+        ).fetchone()
+    return normalize_customer_satisfaction_survey(row) if row is not None else None
+
+
+def get_customer_satisfaction_survey_by_token(public_token: str) -> Optional[Dict[str, str]]:
+    normalized_token = str(public_token or "").strip()
+    if not normalized_token:
+        return None
+    with get_db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT product_key, public_token, product_name, product_sku, event_type,
+                   event_date_label, created_at, updated_at
+            FROM customer_satisfaction_surveys
+            WHERE public_token = ?
+            """,
+            (normalized_token,),
+        ).fetchone()
+    return normalize_customer_satisfaction_survey(row) if row is not None else None
+
+
+def get_or_create_customer_satisfaction_survey(
+    product_key: str,
+    product_name: str,
+    product_sku: str,
+) -> Dict[str, str]:
+    normalized_product_key = str(product_key or "").strip()
+    if not normalized_product_key:
+        raise ValueError("Product ontbreekt.")
+    normalized_product_name = str(product_name or "").strip()[:300] or "Naamloos product"
+    normalized_product_sku = str(product_sku or "").strip()[:300]
+    event_details = build_customer_satisfaction_event_details(
+        normalized_product_key,
+        normalized_product_name,
+        normalized_product_sku,
+    )
+    now = utcnow_iso()
+    existing_survey = get_customer_satisfaction_survey(normalized_product_key)
+    public_token = existing_survey["publicToken"] if existing_survey else secrets.token_urlsafe(24)
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO customer_satisfaction_surveys
+                (product_key, public_token, product_name, product_sku, event_type,
+                 event_date_label, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(product_key) DO UPDATE SET
+                product_name = excluded.product_name,
+                product_sku = excluded.product_sku,
+                event_type = excluded.event_type,
+                event_date_label = excluded.event_date_label,
+                updated_at = excluded.updated_at
+            """,
+            (
+                normalized_product_key,
+                public_token,
+                normalized_product_name,
+                normalized_product_sku,
+                event_details["eventType"],
+                event_details["eventDateLabel"],
+                now,
+                now,
+            ),
+        )
+    survey = get_customer_satisfaction_survey(normalized_product_key)
+    if survey is None:
+        raise RuntimeError("De vragenlijst kon niet worden aangemaakt.")
+    return survey
+
+
+def build_customer_satisfaction_public_url(survey: Dict[str, str]) -> str:
+    return url_for(
+        "customer_satisfaction_form_page",
+        survey_token=survey.get("publicToken", ""),
+        _external=True,
+    )
+
+
+def load_customer_satisfaction_email_settings(product_key: str) -> Dict[str, str]:
+    normalized_product_key = str(product_key or "").strip()
+    with get_db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT product_key, email_subject, email_body, updated_at
+            FROM customer_satisfaction_email_settings
+            WHERE product_key = ?
+            """,
+            (normalized_product_key,),
+        ).fetchone()
+    if row is None:
+        return {"productKey": normalized_product_key, "emailSubject": "", "emailBody": "", "updatedAt": ""}
+    return {
+        "productKey": str(row["product_key"] or "").strip(),
+        "emailSubject": str(row["email_subject"] or "").strip(),
+        "emailBody": str(row["email_body"] or "").strip(),
+        "updatedAt": str(row["updated_at"] or "").strip(),
+    }
+
+
+def save_customer_satisfaction_email_settings(product_key: str, subject: Any, body: Any) -> Dict[str, str]:
+    normalized_product_key = str(product_key or "").strip()
+    normalized_subject = str(subject or "").strip()[:300]
+    normalized_body = str(body or "").strip()
+    if not normalized_product_key:
+        raise ValueError("Product ontbreekt.")
+    if not normalized_subject:
+        raise ValueError("Vul een onderwerp voor de feedbackmail in.")
+    if not normalized_body:
+        raise ValueError("Vul de tekst van de feedbackmail in.")
+    if len(normalized_body) > 20000:
+        raise ValueError("De feedbackmail is te lang.")
+    with get_db_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO customer_satisfaction_email_settings
+                (product_key, email_subject, email_body, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(product_key) DO UPDATE SET
+                email_subject = excluded.email_subject,
+                email_body = excluded.email_body,
+                updated_at = excluded.updated_at
+            """,
+            (normalized_product_key, normalized_subject, normalized_body, utcnow_iso()),
+        )
+    return load_customer_satisfaction_email_settings(normalized_product_key)
+
+
+def build_default_customer_satisfaction_email(
+    survey: Dict[str, str],
+    feedback_url: str,
+) -> Dict[str, str]:
+    event_name = survey.get("productName", "") or "het HWS Voetbalevent"
+    event_type = survey.get("eventType", "") or "voetbalevent"
+    event_demonstrative = survey.get("eventDemonstrative", "") or "dit"
+    event_type_plural = infer_customer_satisfaction_event_type(event_name)["plural"]
+    event_date_label = survey.get("eventDateLabel", "")
+    event_intro = (
+        f"Op {event_date_label} vond {event_name} plaats."
+        if event_date_label
+        else f"Onlangs vond {event_name} plaats."
+    )
+    return {
+        "emailSubject": f"Hoe heb jij {event_name} ervaren?",
+        "emailBody": "\n".join(
+            [
+                "Beste ouder/verzorger en deelnemer,",
+                "",
+                f"{event_intro} Wij hopen dat jullie met veel plezier terugkijken op {event_demonstrative} {event_type}!",
+                "",
+                "**Jouw feedback helpt ons verder**",
+                (
+                    f"Om onze {event_type_plural} te blijven verbeteren, vragen we jullie om samen een korte "
+                    f"vragenlijst over {event_demonstrative} {event_type} in te vullen. Dit duurt ongeveer 5 minuten en kan volledig "
+                    f"anoniem. Met jullie feedback maken we de volgende {event_type} nóg beter."
+                ),
+                "",
+                "Vul de vragenlijst hier in:",
+                feedback_url,
+                "",
+                "Alvast heel erg bedankt voor jullie tijd en feedback.",
+                "",
+                "Fijne dag verder en hopelijk tot de volgende keer!",
+            ]
+        ),
+    }
+
+
+def prepare_customer_satisfaction_email(product: Dict[str, Any]) -> Dict[str, str]:
+    survey = get_or_create_customer_satisfaction_survey(
+        product.get("productKey", ""),
+        product.get("name", ""),
+        product.get("sku", ""),
+    )
+    feedback_url = build_customer_satisfaction_public_url(survey)
+    defaults = build_default_customer_satisfaction_email(survey, feedback_url)
+    saved_settings = load_customer_satisfaction_email_settings(survey["productKey"])
+    return {
+        **survey,
+        "feedbackUrl": feedback_url,
+        "emailSubject": saved_settings.get("emailSubject", "") or defaults["emailSubject"],
+        "emailBody": saved_settings.get("emailBody", "") or defaults["emailBody"],
+    }
+
+
+def render_customer_satisfaction_email_template(
+    template: str,
+    survey: Dict[str, str],
+    feedback_url: str,
+    order: Optional[Dict[str, Any]] = None,
+) -> str:
+    current_order = order or {}
+    customer_name = str(current_order.get("customerName", "") or "ouder/verzorger").strip()
+    event_name = survey.get("productName", "") or "het HWS Voetbalevent"
+    event_type = survey.get("eventType", "") or "voetbalevent"
+    replacements = {
+        "klant_naam": customer_name,
+        "product_naam": event_name,
+        "event_naam": event_name,
+        "event_datum": survey.get("eventDateLabel", ""),
+        "event_type": event_type,
+        "event_type_meervoud": infer_customer_satisfaction_event_type(event_name)["plural"],
+        "feedback_url": feedback_url,
+    }
+    rendered = str(template or "")
+    for key, value in replacements.items():
+        rendered = rendered.replace("{" + key + "}", str(value or ""))
+    return rendered
+
+
+def ensure_customer_satisfaction_email_has_link(body: str, feedback_url: str) -> str:
+    normalized_body = str(body or "").strip()
+    if "{feedback_url}" not in normalized_body and feedback_url not in normalized_body:
+        normalized_body = f"{normalized_body}\n\nVul de vragenlijst hier in:\n{feedback_url}".strip()
+    return normalized_body
+
+
+def send_customer_satisfaction_email_message(
+    recipient_email: str,
+    subject: str,
+    body: str,
+    feedback_url: str,
+) -> None:
+    from_name = get_env("REGISTRATION_EMAIL_FROM_NAME") or "HWS Voetbalschool"
+    from_email = settings.DEFAULT_FROM_EMAIL
+    sender = f"{from_name} <{from_email}>" if from_name else from_email
+    reply_to = parse_email_list(get_env("REGISTRATION_EMAIL_REPLY_TO"))
+    rendered_html = render_registration_email_html(body)
+    escaped_url = html.escape(feedback_url)
+    if escaped_url and escaped_url in rendered_html:
+        rendered_html = rendered_html.replace(
+            escaped_url,
+            (
+                f'<a href="{escaped_url}" style="color:#111111;font-weight:700;word-break:break-all;">'
+                f"{escaped_url}</a>"
+            ),
+        )
+    email_message = EmailMessage(
+        subject=subject,
+        body=rendered_html,
+        from_email=sender,
+        to=[recipient_email],
+        reply_to=reply_to or None,
+    )
+    email_message.content_subtype = "html"
+    email_message.send(fail_silently=False)
+
+
+def load_customer_satisfaction_emailed_recipients(product_key: str) -> Set[str]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT recipient_email
+            FROM customer_satisfaction_email_statuses
+            WHERE product_key = ?
+            """,
+            (str(product_key or "").strip(),),
+        ).fetchall()
+    return {str(row["recipient_email"] or "").strip().lower() for row in rows if str(row["recipient_email"] or "").strip()}
+
+
+def mark_customer_satisfaction_email_sent(product_key: str, order_ids: List[str], recipient_email: str) -> None:
+    normalized_order_ids = normalize_registration_email_status_order_ids(order_ids)
+    if not normalized_order_ids:
+        return
+    with get_db_connection() as connection:
+        connection.executemany(
+            """
+            INSERT INTO customer_satisfaction_email_statuses
+                (product_key, order_id, recipient_email, sent_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(product_key, order_id) DO UPDATE SET
+                recipient_email = excluded.recipient_email,
+                sent_at = excluded.sent_at
+            """,
+            [
+                (str(product_key or "").strip(), order_id, recipient_email.strip(), utcnow_iso())
+                for order_id in normalized_order_ids
+            ],
+        )
+
+
+def send_customer_satisfaction_product_emails(
+    product_key: str,
+    orders: List[Dict[str, Any]],
+    survey: Dict[str, str],
+    subject_template: str,
+    body_template: str,
+    feedback_url: str,
+) -> Dict[str, Any]:
+    normalized_product_key = str(product_key or "").strip()
+    recipients: Dict[str, Dict[str, Any]] = {}
+    for order in orders:
+        matching_item = next(
+            (item for item in order.get("items", []) if build_order_item_product_key(item) == normalized_product_key),
+            None,
+        )
+        if matching_item is None:
+            continue
+        recipient_email = str(order.get("email", "") or "").strip()
+        order_id = str(order.get("id", "") or "").strip()
+        if not order_id or not is_valid_email_address(recipient_email):
+            continue
+        recipient_key = recipient_email.lower()
+        recipient = recipients.setdefault(
+            recipient_key,
+            {"email": recipient_email, "orderIds": [], "order": order},
+        )
+        if order_id not in recipient["orderIds"]:
+            recipient["orderIds"].append(order_id)
+
+    already_emailed = load_customer_satisfaction_emailed_recipients(normalized_product_key)
+    sent_recipients: List[str] = []
+    skipped_recipients: List[str] = []
+    failed_recipients: List[str] = []
+    sent_order_ids: Set[str] = set()
+
+    for recipient_key, recipient in recipients.items():
+        if recipient_key in already_emailed:
+            skipped_recipients.append(recipient["email"])
+            continue
+        subject = render_customer_satisfaction_email_template(
+            subject_template,
+            survey,
+            feedback_url,
+            recipient["order"],
+        )
+        body = render_customer_satisfaction_email_template(
+            body_template,
+            survey,
+            feedback_url,
+            recipient["order"],
+        )
+        try:
+            send_customer_satisfaction_email_message(recipient["email"], subject, body, feedback_url)
+        except Exception as exc:
+            failed_recipients.append(recipient["email"])
+            app.logger.warning("Feedbackmail mislukt voor product %s: %s", normalized_product_key, exc)
+            continue
+        mark_customer_satisfaction_email_sent(
+            normalized_product_key,
+            recipient["orderIds"],
+            recipient["email"],
+        )
+        sent_recipients.append(recipient["email"])
+        sent_order_ids.update(recipient["orderIds"])
+
+    return {
+        "recipientCount": len(recipients),
+        "sentRecipientCount": len(sent_recipients),
+        "skippedRecipientCount": len(skipped_recipients),
+        "failedRecipientCount": len(failed_recipients),
+        "sentOrderIds": sorted(sent_order_ids),
+    }
+
+
+def normalize_customer_satisfaction_score(value: Any) -> int:
+    try:
+        score = int(str(value or "").strip())
+    except (TypeError, ValueError):
+        score = 0
+    if score < 1 or score > 5:
+        raise ValueError("Geef voor iedere vraag een score van 1 tot en met 5 sterren.")
+    return score
+
+
+def save_customer_satisfaction_review(product_key: str, form_values: Dict[str, Any]) -> int:
+    normalized_product_key = str(product_key or "").strip()
+    group_name = str(form_values.get("group_name", "") or "").strip()[:120]
+    if not group_name:
+        raise ValueError("Vul in welke groep je zat.")
+    overall_score = normalize_customer_satisfaction_score(form_values.get("overall_score"))
+    content_score = normalize_customer_satisfaction_score(form_values.get("content_score"))
+    trainer_score = normalize_customer_satisfaction_score(form_values.get("trainer_score"))
+    values = {
+        "overall_comment": str(form_values.get("overall_comment", "") or "").strip()[:2000],
+        "content_comment": str(form_values.get("content_comment", "") or "").strip()[:2000],
+        "trainer_comment": str(form_values.get("trainer_comment", "") or "").strip()[:2000],
+        "other_feedback": str(form_values.get("other_feedback", "") or "").strip()[:4000],
+    }
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO customer_satisfaction_reviews
+                (product_key, group_name, overall_score, overall_comment, content_score,
+                 content_comment, trainer_score, trainer_comment, other_feedback, submitted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                normalized_product_key,
+                group_name,
+                overall_score,
+                values["overall_comment"],
+                content_score,
+                values["content_comment"],
+                trainer_score,
+                values["trainer_comment"],
+                values["other_feedback"],
+                utcnow_iso(),
+            ),
+        )
+        return int(cursor.lastrowid)
+
+
+def load_customer_satisfaction_statistics() -> Dict[str, Any]:
+    with get_db_connection() as connection:
+        aggregate = connection.execute(
+            """
+            SELECT COUNT(*) AS review_count,
+                   AVG((overall_score + content_score + trainer_score) / 3.0) AS average_score,
+                   AVG(overall_score) AS overall_average,
+                   AVG(content_score) AS content_average,
+                   AVG(trainer_score) AS trainer_average
+            FROM customer_satisfaction_reviews
+            """
+        ).fetchone()
+        product_rows = connection.execute(
+            """
+            SELECT product_key, COUNT(*) AS review_count,
+                   AVG((overall_score + content_score + trainer_score) / 3.0) AS average_score,
+                   AVG(overall_score) AS overall_average,
+                   AVG(content_score) AS content_average,
+                   AVG(trainer_score) AS trainer_average,
+                   MAX(submitted_at) AS latest_submission
+            FROM customer_satisfaction_reviews
+            GROUP BY product_key
+            """
+        ).fetchall()
+
+    def normalize_average(value: Any) -> Optional[float]:
+        return round(float(value), 1) if value is not None else None
+
+    totals = {
+        "reviewCount": int(aggregate["review_count"] or 0),
+        "averageScore": normalize_average(aggregate["average_score"]),
+        "overallAverage": normalize_average(aggregate["overall_average"]),
+        "contentAverage": normalize_average(aggregate["content_average"]),
+        "trainerAverage": normalize_average(aggregate["trainer_average"]),
+    }
+    by_product = {
+        str(row["product_key"] or "").strip(): {
+            "reviewCount": int(row["review_count"] or 0),
+            "averageScore": normalize_average(row["average_score"]),
+            "overallAverage": normalize_average(row["overall_average"]),
+            "contentAverage": normalize_average(row["content_average"]),
+            "trainerAverage": normalize_average(row["trainer_average"]),
+            "latestSubmission": str(row["latest_submission"] or "").strip(),
+        }
+        for row in product_rows
+        if str(row["product_key"] or "").strip()
+    }
+    return {"totals": totals, "byProduct": by_product}
+
+
+def load_customer_satisfaction_survey_products() -> List[Dict[str, str]]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT product_key, product_name, product_sku
+            FROM customer_satisfaction_surveys
+            ORDER BY product_name COLLATE NOCASE
+            """
+        ).fetchall()
+    return [
+        {
+            "productKey": str(row["product_key"] or "").strip(),
+            "name": str(row["product_name"] or "").strip() or "Naamloos product",
+            "sku": str(row["product_sku"] or "").strip(),
+        }
+        for row in rows
+        if str(row["product_key"] or "").strip()
+    ]
+
+
+def build_customer_satisfaction_overview_products(products: List[Dict[str, Any]]) -> Dict[str, Any]:
+    statistics = load_customer_satisfaction_statistics()
+    products_by_key: Dict[str, Dict[str, str]] = {}
+    for product in products:
+        normalized_product = normalize_product(product)
+        product_key = build_catalog_product_key(normalized_product)
+        products_by_key[product_key] = {
+            "productKey": product_key,
+            "name": normalized_product["name"],
+            "sku": normalized_product["sku"],
+        }
+    for stored_product in load_customer_satisfaction_survey_products():
+        products_by_key.setdefault(stored_product["productKey"], stored_product)
+
+    overview_products: List[Dict[str, Any]] = []
+    for product_key, product in products_by_key.items():
+        product_statistics = statistics["byProduct"].get(
+            product_key,
+            {
+                "reviewCount": 0,
+                "averageScore": None,
+                "overallAverage": None,
+                "contentAverage": None,
+                "trainerAverage": None,
+                "latestSubmission": "",
+            },
+        )
+        overview_products.append(
+            {
+                **product,
+                **product_statistics,
+                "detailUrl": url_for("customer_satisfaction_product_page", product_key=product_key),
+                "searchText": f"{product['name']} {product['sku']}".lower(),
+            }
+        )
+    overview_products.sort(key=lambda item: (-item["reviewCount"], item["name"].casefold(), item["sku"].casefold()))
+    return {"totals": statistics["totals"], "products": overview_products}
+
+
+def load_customer_satisfaction_product_reviews(product_key: str) -> List[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, group_name, overall_score, overall_comment, content_score,
+                   content_comment, trainer_score, trainer_comment, other_feedback, submitted_at
+            FROM customer_satisfaction_reviews
+            WHERE product_key = ?
+            ORDER BY submitted_at DESC, id DESC
+            """,
+            (str(product_key or "").strip(),),
+        ).fetchall()
+    reviews: List[Dict[str, Any]] = []
+    for row in rows:
+        submitted_at = parse_iso_datetime(str(row["submitted_at"] or ""))
+        reviews.append(
+            {
+                "id": int(row["id"]),
+                "groupName": str(row["group_name"] or "").strip(),
+                "overallScore": int(row["overall_score"]),
+                "overallComment": str(row["overall_comment"] or "").strip(),
+                "contentScore": int(row["content_score"]),
+                "contentComment": str(row["content_comment"] or "").strip(),
+                "trainerScore": int(row["trainer_score"]),
+                "trainerComment": str(row["trainer_comment"] or "").strip(),
+                "otherFeedback": str(row["other_feedback"] or "").strip(),
+                "submittedLabel": submitted_at.strftime("%d-%m-%Y om %H:%M") if submitted_at else "",
+            }
+        )
+    return reviews
+
+
 def load_completed_registration_event_keys() -> Set[str]:
     with get_db_connection() as connection:
         rows = connection.execute(
@@ -4140,6 +4803,55 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_registration_event_email_settings_updated_at
             ON registration_event_email_settings (updated_at);
+
+            CREATE TABLE IF NOT EXISTS customer_satisfaction_surveys (
+                product_key TEXT PRIMARY KEY,
+                public_token TEXT NOT NULL UNIQUE,
+                product_name TEXT NOT NULL DEFAULT '',
+                product_sku TEXT NOT NULL DEFAULT '',
+                event_type TEXT NOT NULL DEFAULT 'voetbalevent',
+                event_date_label TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_satisfaction_surveys_token
+            ON customer_satisfaction_surveys (public_token);
+
+            CREATE TABLE IF NOT EXISTS customer_satisfaction_reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_key TEXT NOT NULL,
+                group_name TEXT NOT NULL DEFAULT '',
+                overall_score INTEGER NOT NULL,
+                overall_comment TEXT NOT NULL DEFAULT '',
+                content_score INTEGER NOT NULL,
+                content_comment TEXT NOT NULL DEFAULT '',
+                trainer_score INTEGER NOT NULL,
+                trainer_comment TEXT NOT NULL DEFAULT '',
+                other_feedback TEXT NOT NULL DEFAULT '',
+                submitted_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_customer_satisfaction_reviews_product
+            ON customer_satisfaction_reviews (product_key, submitted_at);
+
+            CREATE TABLE IF NOT EXISTS customer_satisfaction_email_settings (
+                product_key TEXT PRIMARY KEY,
+                email_subject TEXT NOT NULL DEFAULT '',
+                email_body TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS customer_satisfaction_email_statuses (
+                product_key TEXT NOT NULL,
+                order_id TEXT NOT NULL,
+                recipient_email TEXT NOT NULL DEFAULT '',
+                sent_at TEXT NOT NULL,
+                PRIMARY KEY (product_key, order_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_customer_satisfaction_email_statuses_recipient
+            ON customer_satisfaction_email_statuses (product_key, recipient_email);
 
             CREATE TABLE IF NOT EXISTS spaarpot_manual_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -13007,6 +13719,7 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
             "management",
             "planning",
             "api",
+            "customer-satisfaction",
             "materialen",
             "orders",
             "leads",
@@ -20842,6 +21555,87 @@ def management_page() -> str:
     return render_template("management.html", active_page="management")
 
 
+@app.get("/management/klanttevredenheid")
+def customer_satisfaction_page() -> str:
+    access_redirect = require_page_access("customer-satisfaction")
+    if access_redirect is not None:
+        return access_redirect
+
+    products_payload = fetch_catalog_products()
+    overview = build_customer_satisfaction_overview_products(products_payload.get("items", []))
+    return render_template(
+        "customer_satisfaction.html",
+        active_page="customer-satisfaction",
+        totals=overview["totals"],
+        products=overview["products"],
+        total_products=len(overview["products"]),
+        last_updated=format_cache_timestamp(products_payload.get("cachedAt", 0.0)),
+        message=products_payload.get("message") or None,
+    )
+
+
+@app.get("/management/klanttevredenheid/<path:product_key>")
+def customer_satisfaction_product_page(product_key: str) -> str:
+    access_redirect = require_page_access("customer-satisfaction")
+    if access_redirect is not None:
+        return access_redirect
+
+    normalized_product_key = str(product_key or "").strip()
+    products_payload = fetch_catalog_products()
+    overview = build_customer_satisfaction_overview_products(products_payload.get("items", []))
+    selected_product = next(
+        (product for product in overview["products"] if product["productKey"] == normalized_product_key),
+        None,
+    )
+    if selected_product is None:
+        return "Product niet gevonden.", 404
+    return render_template(
+        "customer_satisfaction_detail.html",
+        active_page="customer-satisfaction",
+        selected_product=selected_product,
+        reviews=load_customer_satisfaction_product_reviews(normalized_product_key),
+        back_url=url_for("customer_satisfaction_page"),
+    )
+
+
+@app.route("/klanttevredenheid/invullen/<survey_token>", methods=["GET", "POST"])
+def customer_satisfaction_form_page(survey_token: str) -> str:
+    survey = get_customer_satisfaction_survey_by_token(survey_token)
+    if survey is None:
+        return "Deze vragenlijst bestaat niet (meer).", 404
+
+    form_error = ""
+    form_values = {
+        "group_name": "",
+        "overall_score": "",
+        "overall_comment": "",
+        "content_score": "",
+        "content_comment": "",
+        "trainer_score": "",
+        "trainer_comment": "",
+        "other_feedback": "",
+    }
+    if request.method == "POST":
+        form_values = {key: str(request.form.get(key, "") or "") for key in form_values}
+        if str(request.form.get("website", "") or "").strip():
+            return redirect(url_for("customer_satisfaction_form_page", survey_token=survey_token, bedankt="1"))
+        try:
+            save_customer_satisfaction_review(survey["productKey"], form_values)
+        except ValueError as exc:
+            form_error = str(exc)
+        else:
+            return redirect(url_for("customer_satisfaction_form_page", survey_token=survey_token, bedankt="1"))
+
+    submitted = request.args.get("bedankt", "").strip() == "1"
+    return render_template(
+        "customer_satisfaction_form.html",
+        survey=survey,
+        submitted=submitted,
+        form_error=form_error,
+        form_values=form_values,
+    )
+
+
 def get_current_request_base_url() -> str:
     request_url = str(request.url or "").strip()
     request_path = str(request.path or "").strip()
@@ -21097,6 +21891,11 @@ def registrations_detail_page(product_key: str) -> str:
     if selected_product is None:
         abort(404)
 
+    customer_satisfaction_email = prepare_customer_satisfaction_email(selected_product)
+    selected_product["customerSatisfactionUrl"] = customer_satisfaction_email["feedbackUrl"]
+    selected_product["customerSatisfactionEmailSubject"] = customer_satisfaction_email["emailSubject"]
+    selected_product["customerSatisfactionEmailBody"] = customer_satisfaction_email["emailBody"]
+
     product_message = products_payload.get("message")
     order_message = orders_payload.get("message")
     message_parts = []
@@ -21337,6 +22136,61 @@ def api_sync_emailed_registration_orders():
     )
 
 
+@app.post("/api/klanttevredenheid/test-email")
+def api_send_customer_satisfaction_test_email():
+    access_redirect = require_page_access("orders")
+    if access_redirect is not None:
+        return access_redirect
+    if not registration_auto_email_is_configured():
+        return jsonify({"error": "De e-mailkoppeling is nog niet volledig geconfigureerd."}), 400
+
+    payload = request.get_json(silent=True) or {}
+    product_key = str(payload.get("productKey", "") or "").strip()
+    recipient = str(payload.get("recipient", "") or "").strip()
+    subject = str(payload.get("feedbackSubject", "") or "").strip()[:300]
+    body = str(payload.get("feedbackBody", "") or "").strip()
+    if not product_key:
+        return jsonify({"error": "Product ontbreekt."}), 400
+    if not is_valid_email_address(recipient):
+        return jsonify({"error": "Vul een geldig testadres in."}), 400
+    if not subject or not body:
+        return jsonify({"error": "Vul het onderwerp en de mailtekst in."}), 400
+    if len(body) > 20000:
+        return jsonify({"error": "De feedbackmail is te lang."}), 400
+
+    products_payload = fetch_catalog_products()
+    orders_payload = fetch_ecwid_orders()
+    selected_product = build_registration_product_detail(
+        products_payload.get("items", []),
+        orders_payload.get("items", []),
+        product_key,
+    )
+    if selected_product is None:
+        return jsonify({"error": "Product niet gevonden."}), 404
+    prepared_email = prepare_customer_satisfaction_email(selected_product)
+    feedback_url = prepared_email["feedbackUrl"]
+    body = ensure_customer_satisfaction_email_has_link(body, feedback_url)
+    test_order = {"customerName": "ouder/verzorger en deelnemer"}
+    rendered_subject = render_customer_satisfaction_email_template(
+        subject,
+        prepared_email,
+        feedback_url,
+        test_order,
+    )
+    rendered_body = render_customer_satisfaction_email_template(
+        body,
+        prepared_email,
+        feedback_url,
+        test_order,
+    )
+    try:
+        send_customer_satisfaction_email_message(recipient, rendered_subject, rendered_body, feedback_url)
+    except Exception as exc:
+        app.logger.warning("Test-feedbackmail mislukt voor product %s: %s", product_key, exc)
+        return jsonify({"error": f"Testmail kon niet worden verstuurd: {exc}"}), 502
+    return jsonify({"ok": True, "message": f"Testmail verstuurd naar {recipient}."})
+
+
 @app.post("/api/registrations/event-completed")
 def api_complete_registration_event():
     access_redirect = require_page_access("orders")
@@ -21346,6 +22200,8 @@ def api_complete_registration_event():
     config = get_config()
     if not config["store_id"] or not config["secret_token"]:
         return jsonify({"error": "Live Ecwid-koppeling staat nog niet aan."}), 400
+    if not registration_auto_email_is_configured():
+        return jsonify({"error": "De e-mailkoppeling is nog niet volledig geconfigureerd."}), 400
 
     payload = request.get_json(silent=True) or {}
     product_key = str(payload.get("productKey", "") or "").strip()
@@ -21368,6 +22224,50 @@ def api_complete_registration_event():
     if len(order_ids) > 500:
         return jsonify({"error": "Te veel bestellingen in één verzoek."}), 400
 
+    prepared_email = prepare_customer_satisfaction_email(selected_product)
+    feedback_url = prepared_email["feedbackUrl"]
+    feedback_subject = str(
+        payload.get("feedbackSubject", "") or prepared_email.get("emailSubject", "")
+    ).strip()
+    feedback_body = ensure_customer_satisfaction_email_has_link(
+        str(payload.get("feedbackBody", "") or prepared_email.get("emailBody", "")).strip(),
+        feedback_url,
+    )
+    try:
+        save_customer_satisfaction_email_settings(product_key, feedback_subject, feedback_body)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    email_result = send_customer_satisfaction_product_emails(
+        product_key,
+        orders_payload.get("items", []),
+        prepared_email,
+        feedback_subject,
+        feedback_body,
+        feedback_url,
+    )
+    if order_ids and email_result["recipientCount"] == 0:
+        return jsonify({"error": "Voor dit event zijn geen geldige e-mailadressen gevonden."}), 400
+    if email_result["failedRecipientCount"]:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "productKey": product_key,
+                    "emailResult": email_result,
+                    "message": (
+                        f"{email_result['sentRecipientCount']} feedbackmail(s) verstuurd, "
+                        f"{email_result['failedRecipientCount']} mislukt. Het event is nog niet afgerond."
+                    ),
+                    "error": (
+                        f"{email_result['failedRecipientCount']} feedbackmail(s) konden niet worden verstuurd. "
+                        "Probeer het opnieuw; reeds verstuurde mails worden niet dubbel verzonden."
+                    ),
+                }
+            ),
+            502,
+        )
+
     sync_result = sync_registration_event_orders_to_delivered(order_ids)
     if sync_result["failedOrderIds"]:
         message = (
@@ -21382,18 +22282,27 @@ def api_complete_registration_event():
                     "orderIds": sync_result["orderIds"],
                     "syncedOrderIds": sync_result["syncedOrderIds"],
                     "failedOrderIds": sync_result["failedOrderIds"],
+                    "emailResult": email_result,
                     "message": message,
+                    "error": message,
                 }
             ),
             502,
         )
 
     set_registration_event_completed(product_key)
-    message = (
-        "Event afgerond. Er waren geen Ecwid-bestellingen om bij te werken."
-        if not sync_result["orderIds"]
-        else f"Event afgerond. {len(sync_result['syncedOrderIds'])} bestellingen zijn op geleverd gezet."
-    )
+    if not sync_result["orderIds"]:
+        message = "Event afgerond. Er waren geen deelnemers of Ecwid-bestellingen om bij te werken."
+    else:
+        skipped_email_text = (
+            f" en {email_result['skippedRecipientCount']} eerder verstuurde overgeslagen"
+            if email_result["skippedRecipientCount"]
+            else ""
+        )
+        message = (
+            f"Event afgerond: {email_result['sentRecipientCount']} feedbackmail(s) verstuurd"
+            f"{skipped_email_text}. {len(sync_result['syncedOrderIds'])} bestellingen zijn op geleverd gezet."
+        )
     return jsonify(
         {
             "ok": True,
@@ -21401,6 +22310,8 @@ def api_complete_registration_event():
             "orderIds": sync_result["orderIds"],
             "syncedOrderIds": sync_result["syncedOrderIds"],
             "failedOrderIds": [],
+            "emailResult": email_result,
+            "feedbackUrl": feedback_url,
             "eventCompleted": True,
             "eventCanceled": False,
             "message": message,
