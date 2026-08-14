@@ -6821,6 +6821,13 @@ a.spaarpot-year-row:hover {
   align-items: center;
 }
 
+.team-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 .team-primary-button {
   display: inline-flex;
   align-items: center;
@@ -7039,6 +7046,10 @@ a.spaarpot-year-row:hover {
   width: min(1180px, calc(100vw - 240px - 48px));
 }
 
+.team-modal .team-invite-dialog {
+  width: min(760px, calc(100vw - 240px - 48px));
+}
+
 .team-modal-top {
   display: flex;
   align-items: start;
@@ -7050,6 +7061,108 @@ a.spaarpot-year-row:hover {
 .team-modal-title-wrap h2 {
   margin: 0;
   font-size: clamp(2rem, 3vw, 2.8rem);
+}
+
+.team-modal-title-wrap p {
+  max-width: 640px;
+  margin: 10px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.team-invite-result {
+  display: grid;
+  gap: 12px;
+  margin: 4px 0 20px;
+  padding: 18px;
+  border: 1px solid rgba(49, 198, 103, 0.35);
+  border-radius: 18px;
+  background: var(--success-soft);
+}
+
+.team-invite-result[hidden] {
+  display: none;
+}
+
+.team-invite-open-link {
+  justify-self: start;
+  color: #111111;
+  font-size: 0.86rem;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.team-invite-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.team-invite-trainer-form {
+  margin: 0;
+}
+
+.team-invite-trainer-button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 72px;
+  padding: 10px 16px 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #ffffff;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.team-invite-trainer-button:hover,
+.team-invite-trainer-button.is-selected {
+  border-color: rgba(17, 17, 17, 0.38);
+  box-shadow: 0 10px 24px rgba(17, 17, 17, 0.08);
+  transform: translateY(-1px);
+}
+
+.team-invite-trainer-button.is-loading {
+  cursor: wait;
+  opacity: 0.64;
+}
+
+.team-invite-trainer-avatar {
+  width: 50px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #c4ff00 0%, #b3f000 100%);
+  color: #111111;
+  font-weight: 800;
+}
+
+.team-invite-trainer-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.team-invite-trainer-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-invite-trainer-copy small {
+  color: var(--muted);
+}
+
+.team-invite-trainer-action {
+  font-size: 1.5rem;
+  line-height: 1;
 }
 
 .team-modal-close {
@@ -7519,6 +7632,11 @@ a.spaarpot-year-row:hover {
   min-height: 100vh;
 }
 
+.invite-body {
+  --login-panel-width: clamp(680px, 55vw, 880px);
+  overflow: auto;
+}
+
 .login-background {
   position: fixed;
   inset: 0 var(--login-panel-width) 0 0;
@@ -7618,6 +7736,10 @@ a.spaarpot-year-row:hover {
   backdrop-filter: blur(8px);
 }
 
+.invite-body .login-card {
+  align-content: start;
+}
+
 .login-brand {
   width: 100%;
   display: grid;
@@ -7701,6 +7823,14 @@ a.spaarpot-year-row:hover {
     border-top: 1px solid var(--line);
     box-shadow: 0 -18px 54px rgba(0, 0, 0, 0.18);
   }
+
+  .invite-profile-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .invite-profile-section {
+    padding: 16px;
+  }
 }
 
 .invite-summary {
@@ -7715,6 +7845,109 @@ a.spaarpot-year-row:hover {
 .invite-summary strong,
 .invite-summary span {
   margin: 0;
+}
+
+.invite-profile-form {
+  gap: 20px;
+}
+
+.invite-profile-section {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  margin: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(248, 248, 248, 0.72);
+}
+
+.invite-profile-section legend {
+  padding: 0 8px;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.invite-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.invite-profile-section .field span small,
+.invite-availability-group > span small {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.invite-availability-group {
+  display: grid;
+  gap: 10px;
+}
+
+.invite-availability-group > span {
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.invite-availability-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.invite-availability-options label {
+  position: relative;
+  cursor: pointer;
+}
+
+.invite-availability-options input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.invite-availability-options span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.invite-availability-options input:checked + span {
+  border-color: #111111;
+  background: #111111;
+  color: #ffffff;
+}
+
+.invite-availability-options input:focus-visible + span {
+  outline: 3px solid rgba(196, 255, 0, 0.55);
+  outline-offset: 2px;
+}
+
+.invite-password-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+@media (max-width: 760px) {
+  .invite-profile-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .invite-profile-section {
+    padding: 16px;
+  }
+
+  .invite-link-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .login-copy p,
@@ -8042,6 +8275,14 @@ a.spaarpot-year-row:hover {
     padding: 22px;
   }
 
+  .team-modal .agenda-modal-dialog,
+  .team-modal .team-detail-dialog,
+  .team-modal .team-invite-dialog {
+    width: min(100vw - 20px, 900px);
+    max-height: calc(100vh - 20px);
+    padding: 22px;
+  }
+
   .team-modal {
     padding: 10px;
   }
@@ -8052,6 +8293,14 @@ a.spaarpot-year-row:hover {
   .team-header {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .team-header-actions {
+    justify-content: stretch;
+  }
+
+  .team-header-actions > button {
+    flex: 1 1 0;
   }
 
   .team-detail-tabs {

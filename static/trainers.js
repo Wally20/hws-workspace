@@ -1,6 +1,8 @@
 const trainerCreateModal = document.querySelector("#trainerCreateModal");
 const trainerDetailModal = document.querySelector("#trainerDetailModal");
+const trainerInviteModal = document.querySelector("#trainerInviteModal");
 const openTrainerCreateModal = document.querySelector("#openTrainerCreateModal");
+const openTrainerInviteModal = document.querySelector("#openTrainerInviteModal");
 const trainerTileButtons = document.querySelectorAll("[data-open-trainer-detail='1']");
 const teamSearchInput = document.querySelector("#teamSearchInput");
 const previewFirstName = document.querySelector("#trainerFirstName");
@@ -8,6 +10,11 @@ const previewLastName = document.querySelector("#trainerLastName");
 const previewSystemRole = document.querySelector("#trainerSystemRole");
 const inviteLinkField = document.querySelector("#inviteLinkField");
 const copyInviteLinkButton = document.querySelector("#copyInviteLinkButton");
+const trainerInviteResult = document.querySelector("#trainerInviteResult");
+const trainerInviteResultName = document.querySelector("#trainerInviteResultName");
+const trainerInviteError = document.querySelector("#trainerInviteError");
+const openTrainerInviteLink = document.querySelector("#openTrainerInviteLink");
+const trainerInviteForms = document.querySelectorAll("[data-trainer-invite-form]");
 const trainerDeleteForm = document.querySelector("#trainerDeleteForm");
 const trainerDetailTabs = document.querySelectorAll("[data-team-detail-tab]");
 const trainerDetailPanels = document.querySelectorAll("[data-team-detail-panel]");
@@ -56,6 +63,7 @@ function setTrainerModalOpen(modal, isOpen) {
 function closeAllTrainerModals() {
   setTrainerModalOpen(trainerCreateModal, false);
   setTrainerModalOpen(trainerDetailModal, false);
+  setTrainerModalOpen(trainerInviteModal, false);
 }
 
 function setDetailField(id, value) {
@@ -358,6 +366,54 @@ openTrainerCreateModal?.addEventListener("click", () => {
   setTrainerModalOpen(trainerCreateModal, true);
 });
 
+openTrainerInviteModal?.addEventListener("click", () => {
+  setTrainerModalOpen(trainerInviteModal, true);
+});
+
+trainerInviteForms.forEach((form) => {
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = form.querySelector(".team-invite-trainer-button");
+    const trainerName = button?.dataset.trainerInviteName || "deze trainer";
+    const formData = new FormData(form);
+    formData.set("response_format", "json");
+
+    trainerInviteForms.forEach((item) => {
+      item.querySelector(".team-invite-trainer-button")?.classList.remove("is-selected");
+    });
+    button?.classList.add("is-loading");
+    if (button) button.disabled = true;
+    if (trainerInviteError) trainerInviteError.hidden = true;
+
+    try {
+      const response = await fetch(form.action, {
+        method: "POST",
+        body: formData,
+        headers: { Accept: "application/json" },
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.inviteLink) {
+        throw new Error(payload.error || "De aanmeldlink kon niet worden aangemaakt.");
+      }
+
+      if (inviteLinkField) inviteLinkField.value = payload.inviteLink;
+      if (trainerInviteResultName) trainerInviteResultName.textContent = payload.trainerName || trainerName;
+      if (openTrainerInviteLink) openTrainerInviteLink.href = payload.inviteLink;
+      if (trainerInviteResult) trainerInviteResult.hidden = false;
+      button?.classList.add("is-selected");
+      trainerInviteResult?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } catch (error) {
+      if (trainerInviteError) {
+        trainerInviteError.textContent = error instanceof Error ? error.message : "De aanmeldlink kon niet worden aangemaakt.";
+        trainerInviteError.hidden = false;
+      }
+    } finally {
+      button?.classList.remove("is-loading");
+      if (button) button.disabled = false;
+    }
+  });
+});
+
 trainerTileButtons.forEach((button) => {
   button.addEventListener("click", () => openTrainerDetail(button));
 });
@@ -444,6 +500,10 @@ if (inviteLinkField?.value.trim() && navigator.clipboard?.writeText) {
   }).catch(() => {
     // Ignore clipboard permission failures and keep the manual copy button available.
   });
+}
+
+if (trainerInviteModal && !trainerInviteModal.hidden) {
+  document.body.style.overflow = "hidden";
 }
 
 document.addEventListener("click", (event) => {

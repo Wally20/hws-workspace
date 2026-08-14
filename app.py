@@ -16559,24 +16559,97 @@ def get_user_by_invite_token(invite_token: str) -> Optional[Dict[str, Any]]:
     return get_cached_local_data("user_by_invite_token", (normalized_invite_token,), loader)
 
 
-def accept_trainer_invite(profile_id: str, password: str) -> None:
+def renew_trainer_invite(profile_id: str) -> Dict[str, str]:
+    invite_token = create_invite_token()
+    invite_expires_at = build_invite_expiry()
     with get_db_connection() as connection:
-        connection.execute(
+        cursor = connection.execute(
             """
             UPDATE trainer_profiles
             SET
-                password_hash = ?,
-                invite_token = NULL,
-                invite_accepted_at = ?,
-                status = 'Actief'
+                invite_token = ?,
+                invite_expires_at = ?,
+                invite_accepted_at = NULL,
+                status = CASE
+                    WHEN password_hash IS NULL OR trim(password_hash) = '' THEN 'Uitgenodigd'
+                    ELSE status
+                END
             WHERE id = ?
             """,
+            (invite_token, invite_expires_at, profile_id.strip()),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("Dit teamlid bestaat niet meer.")
+    clear_local_data_cache()
+    return {
+        "profileId": profile_id.strip(),
+        "inviteToken": invite_token,
+        "inviteExpiresAt": invite_expires_at,
+    }
+
+
+def accept_trainer_invite(
+    profile_id: str,
+    invite_token: str,
+    full_name: str,
+    email: str,
+    phone: str,
+    address: str,
+    city: str,
+    postal_code: str,
+    bank_account_number: str,
+    bank_account_name: str,
+    knvb_license: str,
+    education: str,
+    availability_days: List[str],
+    password: str,
+) -> None:
+    username = build_internal_username(full_name, email, exclude_profile_id=profile_id)
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE trainer_profiles
+            SET
+                full_name = ?,
+                email = ?,
+                username = ?,
+                phone = ?,
+                address = ?,
+                city = ?,
+                postal_code = ?,
+                bank_account_number = ?,
+                bank_account_name = ?,
+                knvb_license = ?,
+                education = ?,
+                availability_days = ?,
+                password_hash = ?,
+                invite_token = NULL,
+                invite_expires_at = NULL,
+                invite_accepted_at = ?,
+                status = 'Actief'
+            WHERE id = ? AND invite_token = ?
+            """,
             (
+                full_name.strip(),
+                email.strip(),
+                username,
+                phone.strip(),
+                address.strip(),
+                city.strip(),
+                postal_code.strip(),
+                bank_account_number.strip(),
+                bank_account_name.strip(),
+                knvb_license.strip(),
+                education.strip(),
+                ",".join(day.strip() for day in availability_days if day.strip()),
                 hash_password(password),
                 utcnow_iso(),
                 profile_id.strip(),
+                invite_token.strip(),
             ),
         )
+        if cursor.rowcount != 1:
+            raise ValueError("Deze aanmeldlink is niet meer geldig.")
     clear_local_data_cache()
 
 
@@ -19826,44 +19899,118 @@ def invite_accept_page(invite_token: str) -> str:
         return render_template(
             "invite_accept.html",
             invited_user=None,
+            invite_can_submit=False,
             invite_error="Deze aanmeldlink is niet geldig of is al gebruikt.",
             invite_success="",
         )
-
-    if invited_user.get("passwordHash"):
-        return redirect(url_for("login_page"))
 
     if invite_is_expired(invited_user):
         return render_template(
             "invite_accept.html",
             invited_user=invited_user,
+            invite_can_submit=False,
             invite_error="Deze aanmeldlink is verlopen. Maak een nieuwe uitnodiging aan voor dit teamlid.",
             invite_success="",
         )
 
+    invited_user = dict(invited_user)
     invite_error = ""
     invite_success = ""
 
     if request.method == "POST":
+        first_name = request.form.get("first_name", "").strip()
+        last_name = request.form.get("last_name", "").strip()
+        full_name = " ".join(part for part in [first_name, last_name] if part).strip()
+        email = request.form.get("email", "").strip()
+        phone = request.form.get("phone", "").strip()
+        address = request.form.get("address", "").strip()
+        city = request.form.get("city", "").strip()
+        postal_code = request.form.get("postal_code", "").strip()
+        bank_account_number = request.form.get("bank_account_number", "").strip()
+        bank_account_name = request.form.get("bank_account_name", "").strip()
+        knvb_license = request.form.get("knvb_license", "").strip()
+        education = request.form.get("education", "").strip()
+        availability_days = request.form.getlist("availability_days")
         password = request.form.get("password", "")
         password_confirm = request.form.get("password_confirm", "")
 
-        if len(password) < 12:
+        invited_user = {
+            **invited_user,
+            "fullName": full_name,
+            "firstName": first_name,
+            "lastName": last_name,
+            "email": email,
+            "phone": phone,
+            "address": address,
+            "city": city,
+            "postalCode": postal_code,
+            "bankAccountNumber": bank_account_number,
+            "bankAccountName": bank_account_name,
+            "knvbLicense": knvb_license,
+            "education": education,
+            "availabilityDays": availability_days,
+        }
+
+        if not all(
+            [
+                first_name,
+                last_name,
+                email,
+                phone,
+                address,
+                city,
+                postal_code,
+                bank_account_number,
+                bank_account_name,
+            ]
+        ):
+            invite_error = "Vul alle verplichte gegevens in."
+        elif not is_valid_email_address(email):
+            invite_error = "Vul een geldig e-mailadres in."
+        elif trainer_email_exists(email, exclude_profile_id=invited_user["id"]):
+            invite_error = "Dit e-mailadres is al gekoppeld aan een ander account."
+        elif len(password.strip()) < 12:
             invite_error = "Kies een wachtwoord van minimaal 12 tekens."
         elif password != password_confirm:
             invite_error = "De wachtwoorden komen niet overeen."
         else:
-            accept_trainer_invite(invited_user["id"], password)
-            refreshed_user = get_user_by_id(invited_user["id"])
-            if refreshed_user is not None:
-                rotate_authenticated_session(refreshed_user["id"])
-            invite_success = "Wachtwoord opgeslagen. Je account is geactiveerd."
-            if refreshed_user is not None:
-                return redirect(get_default_post_login_path(refreshed_user))
+            try:
+                accept_trainer_invite(
+                    invited_user["id"],
+                    invite_token,
+                    full_name,
+                    email,
+                    phone,
+                    address,
+                    city,
+                    postal_code,
+                    bank_account_number,
+                    bank_account_name,
+                    knvb_license,
+                    education,
+                    availability_days,
+                    password,
+                )
+            except sqlite3.IntegrityError:
+                invite_error = "Dit e-mailadres is al gekoppeld aan een ander account."
+            except ValueError as exc:
+                invite_error = str(exc)
+            else:
+                refreshed_user = get_user_by_id(invited_user["id"])
+                if refreshed_user is not None:
+                    rotate_authenticated_session(refreshed_user["id"])
+                    return redirect(get_default_post_login_path(refreshed_user))
+                invite_success = "Je gegevens zijn opgeslagen en je account is geactiveerd."
+
+    if "firstName" not in invited_user:
+        name_parts = invited_user.get("fullName", "").split()
+        invited_user["firstName"] = name_parts[0] if name_parts else ""
+        invited_user["lastName"] = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
 
     return render_template(
         "invite_accept.html",
         invited_user=invited_user,
+        invite_can_submit=True,
         invite_error=invite_error,
         invite_success=invite_success,
     )
@@ -22927,9 +23074,48 @@ def trainers_page() -> str:
     form_error = request.args.get("error", "").strip()
     form_success = request.args.get("success", "").strip()
     invite_link = str(session.pop("latest_invite_link", "") or "").strip()
+    invite_name = str(session.pop("latest_invite_name", "") or "").strip()
+    invite_profile_id = str(session.pop("latest_invite_profile_id", "") or "").strip()
 
     if request.method == "POST":
         action = request.form.get("action", "").strip()
+        if action == "create_invite_link":
+            profile_id = request.form.get("profile_id", "").strip()
+            profile = get_user_by_id(profile_id)
+            response_as_json = request.form.get("response_format", "").strip() == "json"
+            if profile is None or not is_trainer_user(profile):
+                message = "Deze trainer bestaat niet meer."
+                if response_as_json:
+                    return jsonify({"error": message}), 404
+                return redirect(url_for("trainers_page", error=message, invite_modal="1"))
+
+            try:
+                invite = renew_trainer_invite(profile_id)
+            except ValueError as exc:
+                if response_as_json:
+                    return jsonify({"error": str(exc)}), 404
+                return redirect(url_for("trainers_page", error=str(exc), invite_modal="1"))
+
+            generated_invite_link = url_for(
+                "invite_accept_page",
+                invite_token=invite["inviteToken"],
+                _external=True,
+            )
+            if response_as_json:
+                return jsonify(
+                    {
+                        "ok": True,
+                        "inviteLink": generated_invite_link,
+                        "trainerName": profile["fullName"],
+                        "expiresAt": invite["inviteExpiresAt"],
+                    }
+                )
+
+            session["latest_invite_link"] = generated_invite_link
+            session["latest_invite_name"] = profile["fullName"]
+            session["latest_invite_profile_id"] = profile_id
+            return redirect(url_for("trainers_page", success=f"Aanmeldlink voor {profile['fullName']} is aangemaakt."))
+
         if action == "update":
             profile_id = request.form.get("profile_id", "").strip()
             first_name = request.form.get("first_name", "").strip()
@@ -23056,9 +23242,12 @@ def trainers_page() -> str:
         except sqlite3.IntegrityError:
             return redirect(url_for("trainers_page", error="Dit account kon niet worden opgeslagen. Controleer of het e-mailadres uniek is."))
         session["latest_invite_link"] = url_for("invite_accept_page", invite_token=invite["inviteToken"], _external=True)
+        session["latest_invite_name"] = full_name
+        session["latest_invite_profile_id"] = invite["profileId"]
         return redirect(url_for("trainers_page", success="Teamlid opgeslagen. De aanmeldlink is klaar om te delen."))
 
     profiles = load_trainer_profiles()
+    invite_modal_open = bool(invite_link) or request.args.get("invite_modal", "").strip() == "1"
     for profile in profiles:
         created_at = parse_iso_datetime(profile.get("createdAt", ""))
         profile["createdAtDisplay"] = created_at.strftime("%d-%m-%Y %H:%M") if created_at else "-"
@@ -23075,10 +23264,14 @@ def trainers_page() -> str:
         "trainers.html",
         active_page="trainers",
         trainer_profiles=profiles,
+        invite_profiles=[profile for profile in profiles if is_trainer_user(profile)],
         account_debug=build_admin_account_debug_summary(),
         form_error=form_error,
         form_success=form_success,
         invite_link=invite_link,
+        invite_name=invite_name,
+        invite_profile_id=invite_profile_id,
+        invite_modal_open=invite_modal_open,
         agenda_club_options=AGENDA_CLUB_OPTIONS,
         trainer_fee_activity_options=TRAINER_FEE_ACTIVITY_OPTIONS,
         trainer_fee_agenda_activity_options=build_trainer_fee_agenda_activity_options(),

@@ -7,7 +7,7 @@
     <title>Account activeren | HWS Voetbalschool Workspace</title>
     <link rel="stylesheet" href="../static/styles.css?v={{ asset_version }}">
   </head>
-  <body class="login-body">
+  <body class="login-body invite-body">
     <div class="login-background" aria-hidden="true">
       <span class="login-background-slide login-background-slide-1"></span>
       <span class="login-background-slide login-background-slide-2"></span>
@@ -25,7 +25,10 @@
         </div>
 
         <div class="login-copy">
-          <h1>ACCOUNT ACTIVEREN</h1>
+          <h1>PROFIEL AANVULLEN</h1>
+          {% if invite_can_submit %}
+            <p>Vul je gegevens aan en kies een wachtwoord om je account te activeren.</p>
+          {% endif %}
         </div>
 
         {% if invite_error %}
@@ -36,27 +39,115 @@
           <section class="notice trainers-notice trainers-notice-success">{{ invite_success }}</section>
         {% endif %}
 
-        {% if invited_user and not invite_error %}
+        {% if invited_user %}
           <div class="invite-summary">
             <strong>{{ invited_user.fullName }}</strong>
-            <span>{{ invited_user.email }}</span>
             <span>{{ invited_user.systemRole or invited_user.role }}</span>
           </div>
+        {% endif %}
 
-          <form class="agenda-form" method="post">
+        {% if invited_user and invite_can_submit %}
+          <form class="agenda-form invite-profile-form" method="post">
             <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
-            <label class="field">
-              <span>Wachtwoord</span>
-              <input type="password" name="password" autocomplete="new-password" required>
-            </label>
 
-            <label class="field">
-              <span>Herhaal wachtwoord</span>
-              <input type="password" name="password_confirm" autocomplete="new-password" required>
-            </label>
+            <fieldset class="invite-profile-section">
+              <legend>Persoonlijke gegevens</legend>
+
+              <div class="invite-profile-grid">
+                <label class="field">
+                  <span>Voornaam</span>
+                  <input type="text" name="first_name" value="{{ invited_user.firstName }}" autocomplete="given-name" required>
+                </label>
+                <label class="field">
+                  <span>Achternaam</span>
+                  <input type="text" name="last_name" value="{{ invited_user.lastName }}" autocomplete="family-name" required>
+                </label>
+              </div>
+
+              <div class="invite-profile-grid">
+                <label class="field">
+                  <span>E-mailadres</span>
+                  <input type="email" name="email" value="{{ invited_user.email }}" autocomplete="email" required>
+                </label>
+                <label class="field">
+                  <span>Telefoonnummer</span>
+                  <input type="tel" name="phone" value="{{ invited_user.phone }}" autocomplete="tel" required>
+                </label>
+              </div>
+
+              <label class="field">
+                <span>Adres</span>
+                <input type="text" name="address" value="{{ invited_user.address }}" autocomplete="street-address" required>
+              </label>
+
+              <div class="invite-profile-grid">
+                <label class="field">
+                  <span>Postcode</span>
+                  <input type="text" name="postal_code" value="{{ invited_user.postalCode }}" autocomplete="postal-code" required>
+                </label>
+                <label class="field">
+                  <span>Woonplaats</span>
+                  <input type="text" name="city" value="{{ invited_user.city }}" autocomplete="address-level2" required>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="invite-profile-section">
+              <legend>Aanvullende gegevens</legend>
+
+              <div class="invite-profile-grid">
+                <label class="field">
+                  <span>Bankrekeningnummer</span>
+                  <input type="text" name="bank_account_number" value="{{ invited_user.bankAccountNumber }}" autocomplete="off" required>
+                </label>
+                <label class="field">
+                  <span>Tenaamstelling bankrekening</span>
+                  <input type="text" name="bank_account_name" value="{{ invited_user.bankAccountName }}" autocomplete="name" required>
+                </label>
+              </div>
+
+              <div class="invite-profile-grid">
+                <label class="field">
+                  <span>KNVB-licentie <small>(optioneel)</small></span>
+                  <input type="text" name="knvb_license" value="{{ invited_user.knvbLicense }}">
+                </label>
+                <label class="field">
+                  <span>Opleiding <small>(optioneel)</small></span>
+                  <input type="text" name="education" value="{{ invited_user.education }}">
+                </label>
+              </div>
+
+              <div class="invite-availability-group">
+                <span>Beschikbare dagen <small>(optioneel)</small></span>
+                <div class="invite-availability-options">
+                  {% for day in ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"] %}
+                    <label>
+                      <input type="checkbox" name="availability_days" value="{{ day }}" {% if day in invited_user.availabilityDays %}checked{% endif %}>
+                      <span>{{ day }}</span>
+                    </label>
+                  {% endfor %}
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset class="invite-profile-section">
+              <legend>Wachtwoord</legend>
+              <p class="invite-password-help">Gebruik minimaal 12 tekens.</p>
+
+              <div class="invite-profile-grid">
+                <label class="field">
+                  <span>Wachtwoord</span>
+                  <input type="password" name="password" minlength="12" autocomplete="new-password" required>
+                </label>
+                <label class="field">
+                  <span>Herhaal wachtwoord</span>
+                  <input type="password" name="password_confirm" minlength="12" autocomplete="new-password" required>
+                </label>
+              </div>
+            </fieldset>
 
             <div class="agenda-form-actions">
-              <button type="submit" class="subtle-button subtle-button-strong">Account activeren</button>
+              <button type="submit" class="subtle-button subtle-button-strong">Gegevens opslaan en activeren</button>
             </div>
           </form>
         {% endif %}

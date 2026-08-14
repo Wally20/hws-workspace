@@ -4099,6 +4099,115 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                     ("trainer-extra-admin-test-1", "trainer-extra-admin-test-2"),
                 )
 
+    def test_admin_can_create_profile_completion_link_for_existing_trainer(self):
+        profile_id = "trainer-invite-flow-test"
+        old_email = "invite-flow-old@example.com"
+        new_email = "invite-flow-new@example.com"
+        with legacy.get_db_connection() as connection:
+            connection.execute("DELETE FROM trainer_profiles WHERE id = ?", (profile_id,))
+            connection.execute(
+                """
+                INSERT INTO trainer_profiles (
+                    id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at,
+                    role, member_type, system_role, knvb_license, education, availability_days, phone, address, city,
+                    postal_code, bank_account_number, bank_account_name, notes, is_admin, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    profile_id,
+                    "Test Trainer Uitnodiging",
+                    old_email,
+                    "test.trainer.uitnodiging",
+                    legacy.hash_password("bestaand-wachtwoord-123"),
+                    None,
+                    None,
+                    None,
+                    "Trainer",
+                    "Medewerker",
+                    "Trainer",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    0,
+                    "Actief",
+                    "2026-08-14T10:00:00",
+                ),
+            )
+        legacy.clear_local_data_cache()
+
+        try:
+            admin_client = self.build_authenticated_client()
+            page_response = admin_client.get("/trainers", secure=True)
+            self.assertContains(page_response, 'id="openTrainerInviteModal"')
+            self.assertContains(page_response, "Test Trainer Uitnodiging")
+
+            create_response = admin_client.post(
+                "/trainers",
+                {
+                    "csrf_token": self.TEST_CSRF_TOKEN,
+                    "action": "create_invite_link",
+                    "profile_id": profile_id,
+                    "response_format": "json",
+                },
+                secure=True,
+                HTTP_ACCEPT="application/json",
+            )
+
+            self.assertEqual(create_response.status_code, 200)
+            invite_link = create_response.json()["inviteLink"]
+            self.assertIn("/uitnodiging/", invite_link)
+            invite_path = "/uitnodiging/" + invite_link.rsplit("/uitnodiging/", 1)[1]
+
+            invited_client = Client()
+            invitation_response = invited_client.get(invite_path, secure=True)
+            invitation_csrf = self.extract_csrf_token(invitation_response)
+            self.assertContains(invitation_response, "PROFIEL AANVULLEN")
+            self.assertContains(invitation_response, 'name="email"')
+            self.assertContains(invitation_response, 'name="bank_account_number"')
+
+            completion_response = invited_client.post(
+                invite_path,
+                {
+                    "csrf_token": invitation_csrf,
+                    "first_name": "Test",
+                    "last_name": "Trainer Compleet",
+                    "email": new_email,
+                    "phone": "0612345678",
+                    "address": "Sportlaan 1",
+                    "postal_code": "1234 AB",
+                    "city": "Deventer",
+                    "bank_account_number": "NL91ABNA0417164300",
+                    "bank_account_name": "Test Trainer Compleet",
+                    "knvb_license": "VC 2",
+                    "education": "Sport en bewegen",
+                    "availability_days": ["Maandag", "Woensdag"],
+                    "password": "veilig-wachtwoord-123",
+                    "password_confirm": "veilig-wachtwoord-123",
+                },
+                secure=True,
+            )
+
+            self.assertEqual(completion_response.status_code, 302)
+            completed_profile = legacy.get_user_by_id(profile_id)
+            self.assertEqual(completed_profile["fullName"], "Test Trainer Compleet")
+            self.assertEqual(completed_profile["email"], new_email)
+            self.assertEqual(completed_profile["phone"], "0612345678")
+            self.assertEqual(completed_profile["availabilityDays"], ["Maandag", "Woensdag"])
+            self.assertEqual(completed_profile["status"], "Actief")
+            self.assertEqual(completed_profile["inviteToken"], "")
+            self.assertTrue(legacy.check_password_hash(completed_profile["passwordHash"], "veilig-wachtwoord-123"))
+        finally:
+            with legacy.get_db_connection() as connection:
+                connection.execute("DELETE FROM trainer_profiles WHERE id = ?", (profile_id,))
+            legacy.clear_local_data_cache()
+
     def test_content_page_repairs_orphan_albums_for_admin_visibility(self):
         album_id = 99999
         with legacy.get_db_connection() as connection:

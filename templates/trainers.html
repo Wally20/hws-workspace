@@ -9,7 +9,10 @@
         <h1>Team</h1>
         <p class="welcome-line">Beheer teamleden en open profielen in een overzichtelijke teamomgeving.</p>
       </div>
-      <button type="button" id="openTrainerCreateModal" class="team-primary-button">Nieuw Teamlid</button>
+      <div class="team-header-actions">
+        <button type="button" id="openTrainerInviteModal" class="team-secondary-button">Aanmeldlink maken</button>
+        <button type="button" id="openTrainerCreateModal" class="team-primary-button">Nieuw Teamlid</button>
+      </div>
     </div>
   </header>
 
@@ -19,16 +22,6 @@
 
   {% if form_success %}
     <section class="notice trainers-notice trainers-notice-success">{{ form_success }}</section>
-  {% endif %}
-
-  {% if invite_link %}
-    <section class="notice trainers-notice trainers-notice-success invite-link-card">
-      <p class="invite-link-title">Aanmeldlink voor nieuw teamlid</p>
-      <div class="invite-link-row">
-        <input id="inviteLinkField" type="text" value="{{ invite_link }}" readonly>
-        <button type="button" id="copyInviteLinkButton" class="subtle-button subtle-button-strong">Kopieer link</button>
-      </div>
-    </section>
   {% endif %}
 
   {% if account_debug %}
@@ -103,7 +96,60 @@
     {% endfor %}
   </section>
 
-  <div id="trainerCreateModal" class="agenda-modal team-modal" {% if not form_error %}hidden{% endif %}>
+  <div id="trainerInviteModal" class="agenda-modal team-modal" {% if not invite_modal_open %}hidden{% endif %}>
+    <div class="agenda-modal-backdrop" data-close-trainer-modal="invite"></div>
+    <div class="agenda-modal-dialog team-invite-dialog">
+      <div class="team-modal-top">
+        <div class="team-modal-title-wrap">
+          <h2>Aanmeldlink maken</h2>
+          <p>Klik op een trainer om een nieuwe persoonlijke link te maken. De trainer vult via die link zelf alle ontbrekende gegevens, het e-mailadres en een wachtwoord in.</p>
+        </div>
+        <button type="button" class="team-modal-close" data-close-trainer-modal="invite" aria-label="Sluiten">×</button>
+      </div>
+
+      <section
+        id="trainerInviteResult"
+        class="team-invite-result"
+        aria-live="polite"
+        {% if not invite_link %}hidden{% endif %}
+      >
+        <p class="invite-link-title">Aanmeldlink voor <strong id="trainerInviteResultName">{{ invite_name }}</strong></p>
+        <div class="invite-link-row">
+          <input id="inviteLinkField" type="text" value="{{ invite_link }}" readonly>
+          <button type="button" id="copyInviteLinkButton" class="subtle-button subtle-button-strong">Kopieer link</button>
+        </div>
+        <a id="openTrainerInviteLink" class="team-invite-open-link" href="{{ invite_link or '#' }}" target="_blank" rel="noopener">Open de invulpagina</a>
+      </section>
+
+      <div id="trainerInviteError" class="notice trainers-notice trainers-notice-error" role="alert" hidden></div>
+
+      <div class="team-invite-list" aria-label="Trainers">
+        {% for profile in invite_profiles %}
+          <form method="post" action="/trainers" class="team-invite-trainer-form" data-trainer-invite-form>
+            <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+            <input type="hidden" name="action" value="create_invite_link">
+            <input type="hidden" name="profile_id" value="{{ profile.id }}">
+            <button
+              type="submit"
+              class="team-invite-trainer-button {% if invite_profile_id == profile.id %}is-selected{% endif %}"
+              data-trainer-invite-name="{{ profile.fullName }}"
+            >
+              <span class="team-invite-trainer-avatar">{{ profile.initials }}</span>
+              <span class="team-invite-trainer-copy">
+                <strong>{{ profile.fullName }}</strong>
+                <small>{% if profile.inviteLink %}Nieuwe link maken{% else %}Link maken{% endif %}</small>
+              </span>
+              <span class="team-invite-trainer-action" aria-hidden="true">→</span>
+            </button>
+          </form>
+        {% else %}
+          <div class="empty-state">Er zijn nog geen trainers om uit te nodigen.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div id="trainerCreateModal" class="agenda-modal team-modal" {% if not form_error or invite_modal_open %}hidden{% endif %}>
     <div class="agenda-modal-backdrop" data-close-trainer-modal="create"></div>
     <div class="agenda-modal-dialog team-modal-dialog">
       <div class="team-modal-top">
