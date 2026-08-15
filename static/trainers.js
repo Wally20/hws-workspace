@@ -386,6 +386,48 @@ function filterTrainerOverview() {
   }
 }
 
+let inviteCopyResetTimer = 0;
+
+function setInviteCopyButtonState(label) {
+  if (!copyInviteLinkButton) return;
+  window.clearTimeout(inviteCopyResetTimer);
+  copyInviteLinkButton.textContent = label;
+  if (label === "Gekopieerd") {
+    inviteCopyResetTimer = window.setTimeout(() => {
+      copyInviteLinkButton.textContent = "Kopieer link";
+    }, 1800);
+  }
+}
+
+async function copyInviteLinkToClipboard(inviteLink, failureLabel = "Kopieer link") {
+  const normalizedInviteLink = String(inviteLink || "").trim();
+  if (!normalizedInviteLink) return false;
+
+  let copied = false;
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(normalizedInviteLink);
+      copied = true;
+    } catch (_error) {
+      // Continue with the selection-based fallback below.
+    }
+  }
+
+  if (!copied && inviteLinkField) {
+    inviteLinkField.value = normalizedInviteLink;
+    inviteLinkField.focus({ preventScroll: true });
+    inviteLinkField.select();
+    try {
+      copied = document.execCommand("copy");
+    } catch (_error) {
+      copied = false;
+    }
+  }
+
+  setInviteCopyButtonState(copied ? "Gekopieerd" : failureLabel);
+  return copied;
+}
+
 openTrainerCreateModal?.addEventListener("click", () => {
   updateTrainerPreview();
   setTrainerModalOpen(trainerCreateModal, true);
@@ -448,6 +490,7 @@ trainerInviteForms.forEach((form) => {
       if (trainerInviteResult) trainerInviteResult.hidden = false;
       button?.classList.add("is-selected");
       trainerInviteResult?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      await copyInviteLinkToClipboard(payload.inviteLink);
     } catch (error) {
       if (trainerInviteError) {
         trainerInviteError.textContent = error instanceof Error ? error.message : "De aanmeldlink kon niet worden aangemaakt.";
@@ -523,30 +566,11 @@ copyInviteLinkButton?.addEventListener("click", async () => {
   if (!inviteLink) {
     return;
   }
-
-  try {
-    await navigator.clipboard.writeText(inviteLink);
-    copyInviteLinkButton.textContent = "Gekopieerd";
-    window.setTimeout(() => {
-      copyInviteLinkButton.textContent = "Kopieer link";
-    }, 1800);
-  } catch (_error) {
-    inviteLinkField?.select();
-    copyInviteLinkButton.textContent = "Selecteer link";
-  }
+  await copyInviteLinkToClipboard(inviteLink, "Selecteer link");
 });
 
-if (inviteLinkField?.value.trim() && navigator.clipboard?.writeText) {
-  navigator.clipboard.writeText(inviteLinkField.value.trim()).then(() => {
-    if (copyInviteLinkButton) {
-      copyInviteLinkButton.textContent = "Gekopieerd";
-      window.setTimeout(() => {
-        copyInviteLinkButton.textContent = "Kopieer link";
-      }, 1800);
-    }
-  }).catch(() => {
-    // Ignore clipboard permission failures and keep the manual copy button available.
-  });
+if (inviteLinkField?.value.trim()) {
+  copyInviteLinkToClipboard(inviteLinkField.value.trim());
 }
 
 if (trainerInviteModal && !trainerInviteModal.hidden) {

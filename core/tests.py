@@ -4168,6 +4168,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             self.assertNotIn("fetch(form.action", trainer_script)
             self.assertIn('payload.trainerId !== requestedTrainerId', trainer_script)
             self.assertIn('trainerInviteResult.hidden = true', trainer_script)
+            self.assertIn('await copyInviteLinkToClipboard(payload.inviteLink)', trainer_script)
+            self.assertIn('document.execCommand("copy")', trainer_script)
             self.assertIn("filterTrainerOverview", trainer_script)
             self.assertIn("openTrainerOverviewModal", trainer_script)
 
