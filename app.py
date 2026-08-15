@@ -16228,16 +16228,6 @@ def load_trainer_profiles() -> List[Dict[str, Any]]:
     return get_cached_local_data("trainer_profiles", (), loader)
 
 
-def build_admin_account_debug_summary() -> Dict[str, Any]:
-    profiles = load_trainer_profiles()
-    return {
-        "total": len(profiles),
-        "admins": sum(1 for item in profiles if item.get("isAdmin")),
-        "invited": sum(1 for item in profiles if item.get("status") == "Uitgenodigd"),
-        "active": sum(1 for item in profiles if item.get("status") == "Actief"),
-    }
-
-
 def build_admin_content_debug_summary(repaired_albums: Optional[int] = None) -> Dict[str, Any]:
     if repaired_albums is None:
         repaired_albums = ensure_content_album_records_exist()
@@ -23265,7 +23255,6 @@ def trainers_page() -> str:
         active_page="trainers",
         trainer_profiles=profiles,
         invite_profiles=[profile for profile in profiles if is_trainer_user(profile)],
-        account_debug=build_admin_account_debug_summary(),
         form_error=form_error,
         form_success=form_success,
         invite_link=invite_link,

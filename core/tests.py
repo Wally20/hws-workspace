@@ -4090,8 +4090,9 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             content = response.content.decode("utf-8")
             self.assertIn("Anne de Vries", content)
             self.assertIn("Milan Jansen", content)
-            self.assertIn("3 totaal", content)
-            self.assertIn("1 uitgenodigd", content)
+            self.assertNotIn("Accountoverzicht", content)
+            self.assertNotIn("trainer_profiles", content)
+            self.assertIn('id="trainerFeeTotal"', content)
         finally:
             with legacy.get_db_connection() as connection:
                 connection.execute(
