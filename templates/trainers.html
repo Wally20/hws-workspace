@@ -99,100 +99,63 @@
         <span id="trainerOverviewCount" class="team-overview-count" aria-live="polite"></span>
       </div>
 
-      <div class="team-overview-list" id="trainerOverviewList">
-        {% for profile in trainer_profiles %}
-          <article
-            class="team-overview-item"
-            data-trainer-overview-card
-            data-search="{{ (profile.fullName ~ ' ' ~ profile.systemRole ~ ' ' ~ profile.status ~ ' ' ~ profile.email ~ ' ' ~ profile.phone ~ ' ' ~ profile.address ~ ' ' ~ profile.postalCode ~ ' ' ~ profile.city ~ ' ' ~ profile.availabilityLabel ~ ' ' ~ profile.knvbLicense ~ ' ' ~ profile.education ~ ' ' ~ profile.bankAccountNumber ~ ' ' ~ profile.bankAccountName ~ ' ' ~ profile.notes)|lower }}"
-          >
-            <div class="team-overview-item-head">
-              <div class="team-overview-identity">
-                <span class="team-overview-avatar">{{ profile.initials }}</span>
-                <span>
-                  <strong>{{ profile.fullName }}</strong>
-                  <small>{{ profile.systemRole or profile.role or 'Teamlid' }}</small>
-                </span>
-              </div>
-              <span class="team-overview-status{% if profile.status == 'Actief' %} is-active{% else %} is-invited{% endif %}">{{ profile.status or '-' }}</span>
-            </div>
-
-            <div class="team-overview-details">
-              <section class="team-overview-detail-group">
-                <h3>Contact</h3>
-                <dl>
-                  <div>
-                    <dt>E-mail</dt>
-                    <dd>{% if profile.email %}<a href="mailto:{{ profile.email }}">{{ profile.email }}</a>{% else %}-{% endif %}</dd>
-                  </div>
-                  <div>
-                    <dt>Telefoon</dt>
-                    <dd>{% if profile.phone %}<a href="tel:{{ profile.phone }}">{{ profile.phone }}</a>{% else %}-{% endif %}</dd>
-                  </div>
-                </dl>
-              </section>
-
-              <section class="team-overview-detail-group">
-                <h3>Adres</h3>
-                <dl>
-                  <div>
-                    <dt>Straat</dt>
-                    <dd>{{ profile.address or '-' }}</dd>
-                  </div>
-                  <div>
-                    <dt>Postcode en plaats</dt>
-                    <dd>{{ (profile.postalCode ~ ' ' ~ profile.city)|trim or '-' }}</dd>
-                  </div>
-                </dl>
-              </section>
-
-              <section class="team-overview-detail-group">
-                <h3>Trainergegevens</h3>
-                <dl>
-                  <div>
-                    <dt>Beschikbaar</dt>
-                    <dd>{{ profile.availabilityLabel or '-' }}</dd>
-                  </div>
-                  <div>
-                    <dt>KNVB-licentie</dt>
-                    <dd>{{ profile.knvbLicense or '-' }}</dd>
-                  </div>
-                  <div>
-                    <dt>Opleiding</dt>
-                    <dd>{{ profile.education or '-' }}</dd>
-                  </div>
-                </dl>
-              </section>
-
-              <section class="team-overview-detail-group">
-                <h3>Bankgegevens</h3>
-                <dl>
-                  <div>
-                    <dt>Rekeningnummer</dt>
-                    <dd>{{ profile.bankAccountNumber or '-' }}</dd>
-                  </div>
-                  <div>
-                    <dt>Tenaamstelling</dt>
-                    <dd>{{ profile.bankAccountName or '-' }}</dd>
-                  </div>
-                  <div>
-                    <dt>Aangemaakt</dt>
-                    <dd>{{ profile.createdAtDisplay or '-' }}</dd>
-                  </div>
-                </dl>
-              </section>
-            </div>
-
-            {% if profile.notes %}
-              <div class="team-overview-notes">
-                <strong>Notities</strong>
-                <p>{{ profile.notes }}</p>
-              </div>
-            {% endif %}
-          </article>
-        {% else %}
-          <div class="empty-state">Er zijn nog geen trainers om te tonen.</div>
-        {% endfor %}
+      <div class="team-overview-table-wrap" id="trainerOverviewList" tabindex="0" aria-label="Tabel met trainergegevens">
+        <table class="team-overview-table">
+          <thead>
+            <tr>
+              <th scope="col">Naam</th>
+              <th scope="col">Rol</th>
+              <th scope="col">Type</th>
+              <th scope="col">Status</th>
+              <th scope="col">E-mail</th>
+              <th scope="col">Telefoon</th>
+              <th scope="col">Straat</th>
+              <th scope="col">Postcode</th>
+              <th scope="col">Plaats</th>
+              <th scope="col">Beschikbaar</th>
+              <th scope="col">KNVB-licentie</th>
+              <th scope="col">Opleiding</th>
+              <th scope="col">IBAN</th>
+              <th scope="col">Tenaamstelling</th>
+              <th scope="col">Aangemaakt</th>
+              <th scope="col">Notities</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for profile in trainer_profiles %}
+              <tr
+                data-trainer-overview-row
+                data-search="{{ (profile.fullName ~ ' ' ~ profile.systemRole ~ ' ' ~ profile.memberType ~ ' ' ~ profile.status ~ ' ' ~ profile.email ~ ' ' ~ profile.phone ~ ' ' ~ profile.address ~ ' ' ~ profile.postalCode ~ ' ' ~ profile.city ~ ' ' ~ profile.availabilityLabel ~ ' ' ~ profile.knvbLicense ~ ' ' ~ profile.education ~ ' ' ~ profile.bankAccountNumber ~ ' ' ~ profile.bankAccountName ~ ' ' ~ profile.notes)|lower }}"
+              >
+                <th scope="row" class="team-overview-name-cell">
+                  <span class="team-overview-name-content">
+                    <span class="team-overview-table-avatar">{{ profile.initials }}</span>
+                    <strong>{{ profile.fullName }}</strong>
+                  </span>
+                </th>
+                <td>{{ profile.systemRole or profile.role or 'Teamlid' }}</td>
+                <td>{{ profile.memberType or '-' }}</td>
+                <td><span class="team-overview-status{% if profile.status == 'Actief' %} is-active{% else %} is-invited{% endif %}">{{ profile.status or '-' }}</span></td>
+                <td>{% if profile.email %}<a href="mailto:{{ profile.email }}">{{ profile.email }}</a>{% else %}-{% endif %}</td>
+                <td>{% if profile.phone %}<a href="tel:{{ profile.phone }}">{{ profile.phone }}</a>{% else %}-{% endif %}</td>
+                <td>{{ profile.address or '-' }}</td>
+                <td>{{ profile.postalCode or '-' }}</td>
+                <td>{{ profile.city or '-' }}</td>
+                <td>{{ profile.availabilityLabel or '-' }}</td>
+                <td>{{ profile.knvbLicense or '-' }}</td>
+                <td>{{ profile.education or '-' }}</td>
+                <td>{{ profile.bankAccountNumber or '-' }}</td>
+                <td>{{ profile.bankAccountName or '-' }}</td>
+                <td>{{ profile.createdAtDisplay or '-' }}</td>
+                <td class="team-overview-notes-cell">{{ profile.notes or '-' }}</td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="16" class="team-overview-table-empty">Er zijn nog geen trainers om te tonen.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
       <div id="trainerOverviewEmpty" class="empty-state" hidden>Geen trainers gevonden met deze zoekopdracht.</div>
     </div>

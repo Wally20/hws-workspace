@@ -8,7 +8,7 @@ const openTrainerOverviewModal = document.querySelector("#openTrainerOverviewMod
 const trainerTileButtons = document.querySelectorAll("[data-open-trainer-detail='1']");
 const teamSearchInput = document.querySelector("#teamSearchInput");
 const trainerOverviewSearchInput = document.querySelector("#trainerOverviewSearchInput");
-const trainerOverviewCards = document.querySelectorAll("[data-trainer-overview-card]");
+const trainerOverviewRows = document.querySelectorAll("[data-trainer-overview-row]");
 const trainerOverviewCount = document.querySelector("#trainerOverviewCount");
 const trainerOverviewEmpty = document.querySelector("#trainerOverviewEmpty");
 const previewFirstName = document.querySelector("#trainerFirstName");
@@ -372,9 +372,9 @@ function filterTrainerOverview() {
   const query = (trainerOverviewSearchInput?.value || "").trim().toLowerCase();
   let visibleCount = 0;
 
-  trainerOverviewCards.forEach((card) => {
-    const isVisible = !query || (card.dataset.search || "").includes(query);
-    card.hidden = !isVisible;
+  trainerOverviewRows.forEach((row) => {
+    const isVisible = !query || (row.dataset.search || "").includes(query);
+    row.hidden = !isVisible;
     if (isVisible) visibleCount += 1;
   });
 
@@ -382,7 +382,7 @@ function filterTrainerOverview() {
     trainerOverviewCount.textContent = `${visibleCount} ${visibleCount === 1 ? "teamlid" : "teamleden"}`;
   }
   if (trainerOverviewEmpty) {
-    trainerOverviewEmpty.hidden = visibleCount > 0 || trainerOverviewCards.length === 0;
+    trainerOverviewEmpty.hidden = visibleCount > 0 || trainerOverviewRows.length === 0;
   }
 }
 

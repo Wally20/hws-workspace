@@ -4096,10 +4096,12 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             self.assertIn('id="openTrainerOverviewModal"', content)
             self.assertIn('id="trainerOverviewModal"', content)
             self.assertIn('id="trainerOverviewSearchInput"', content)
-            self.assertIn("Bankgegevens", content)
+            self.assertIn('class="team-overview-table"', content)
+            self.assertIn("IBAN", content)
+            self.assertIn("Tenaamstelling", content)
             self.assertIn("KNVB-licentie", content)
             self.assertEqual(
-                content.count("data-trainer-overview-card"),
+                content.count("data-trainer-overview-row"),
                 len(legacy.load_trainer_profiles()),
             )
         finally:
