@@ -23096,6 +23096,7 @@ def trainers_page() -> str:
                     {
                         "ok": True,
                         "inviteLink": generated_invite_link,
+                        "trainerId": profile_id,
                         "trainerName": profile["fullName"],
                         "expiresAt": invite["inviteExpiresAt"],
                     }

@@ -4166,6 +4166,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 trainer_script = trainer_script_file.read()
             self.assertIn('form.getAttribute("action")', trainer_script)
             self.assertNotIn("fetch(form.action", trainer_script)
+            self.assertIn('payload.trainerId !== requestedTrainerId', trainer_script)
+            self.assertIn('trainerInviteResult.hidden = true', trainer_script)
             self.assertIn("filterTrainerOverview", trainer_script)
             self.assertIn("openTrainerOverviewModal", trainer_script)
 
@@ -4182,6 +4184,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             )
 
             self.assertEqual(create_response.status_code, 200)
+            self.assertEqual(create_response.json()["trainerId"], profile_id)
             invite_link = create_response.json()["inviteLink"]
             self.assertIn("/uitnodiging/", invite_link)
             invite_path = "/uitnodiging/" + invite_link.rsplit("/uitnodiging/", 1)[1]
@@ -4227,6 +4230,78 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         finally:
             with legacy.get_db_connection() as connection:
                 connection.execute("DELETE FROM trainer_profiles WHERE id = ?", (profile_id,))
+            legacy.clear_local_data_cache()
+
+    def test_profile_completion_links_remain_bound_to_selected_trainer(self):
+        profile_ids = ("trainer-invite-binding-a", "trainer-invite-binding-b")
+        profiles = [
+            (profile_ids[0], "Trainer Link Alfa", "trainer-link-alfa@example.com", "trainer.link.alfa"),
+            (profile_ids[1], "Trainer Link Bravo", "trainer-link-bravo@example.com", "trainer.link.bravo"),
+        ]
+        with legacy.get_db_connection() as connection:
+            connection.executemany("DELETE FROM trainer_profiles WHERE id = ?", [(profile_id,) for profile_id in profile_ids])
+            connection.executemany(
+                """
+                INSERT INTO trainer_profiles (
+                    id, full_name, email, username, password_hash, role, member_type, system_role,
+                    is_admin, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        profile_id,
+                        full_name,
+                        email,
+                        username,
+                        legacy.hash_password("bestaand-wachtwoord-123"),
+                        "Trainer",
+                        "Medewerker",
+                        "Trainer",
+                        0,
+                        "Actief",
+                        "2026-08-15T10:00:00",
+                    )
+                    for profile_id, full_name, email, username in profiles
+                ],
+            )
+        legacy.clear_local_data_cache()
+
+        try:
+            admin_client = self.build_authenticated_client()
+
+            def create_link(profile_id):
+                response = admin_client.post(
+                    "/trainers",
+                    {
+                        "csrf_token": self.TEST_CSRF_TOKEN,
+                        "action": "create_invite_link",
+                        "profile_id": profile_id,
+                        "response_format": "json",
+                    },
+                    secure=True,
+                    HTTP_ACCEPT="application/json",
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["trainerId"], profile_id)
+                return "/uitnodiging/" + response.json()["inviteLink"].rsplit("/uitnodiging/", 1)[1]
+
+            first_alfa_path = create_link(profile_ids[0])
+            bravo_path = create_link(profile_ids[1])
+
+            alfa_response = Client().get(first_alfa_path, secure=True)
+            bravo_response = Client().get(bravo_path, secure=True)
+            self.assertContains(alfa_response, "Trainer Link Alfa")
+            self.assertNotContains(alfa_response, "Trainer Link Bravo")
+            self.assertContains(bravo_response, "Trainer Link Bravo")
+            self.assertNotContains(bravo_response, "Trainer Link Alfa")
+
+            renewed_alfa_path = create_link(profile_ids[0])
+            self.assertContains(Client().get(first_alfa_path, secure=True), "niet geldig of is al gebruikt")
+            self.assertContains(Client().get(renewed_alfa_path, secure=True), "Trainer Link Alfa")
+            self.assertContains(Client().get(bravo_path, secure=True), "Trainer Link Bravo")
+        finally:
+            with legacy.get_db_connection() as connection:
+                connection.executemany("DELETE FROM trainer_profiles WHERE id = ?", [(profile_id,) for profile_id in profile_ids])
             legacy.clear_local_data_cache()
 
     def test_content_page_repairs_orphan_albums_for_admin_visibility(self):

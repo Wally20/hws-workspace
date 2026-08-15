@@ -409,10 +409,18 @@ trainerInviteForms.forEach((form) => {
     const submitUrl = form.getAttribute("action") || window.location.pathname;
     const formData = new FormData(form);
     formData.set("response_format", "json");
+    const requestedTrainerId = String(formData.get("profile_id") || "").trim();
 
     trainerInviteForms.forEach((item) => {
       item.querySelector(".team-invite-trainer-button")?.classList.remove("is-selected");
     });
+    // Never leave a previously generated link visible while a new trainer is
+    // being selected. Otherwise a failed request could result in sharing the
+    // previous trainer's link under the new trainer's name.
+    if (inviteLinkField) inviteLinkField.value = "";
+    if (trainerInviteResultName) trainerInviteResultName.textContent = "";
+    if (openTrainerInviteLink) openTrainerInviteLink.href = "#";
+    if (trainerInviteResult) trainerInviteResult.hidden = true;
     button?.classList.add("is-loading");
     if (button) button.disabled = true;
     if (trainerInviteError) trainerInviteError.hidden = true;
@@ -429,6 +437,9 @@ trainerInviteForms.forEach((form) => {
       const payload = await response.json();
       if (!response.ok || !payload.inviteLink) {
         throw new Error(payload.error || "De aanmeldlink kon niet worden aangemaakt.");
+      }
+      if (!requestedTrainerId || payload.trainerId !== requestedTrainerId) {
+        throw new Error("De aanmeldlink hoort niet bij de gekozen trainer. Probeer het opnieuw.");
       }
 
       if (inviteLinkField) inviteLinkField.value = payload.inviteLink;
