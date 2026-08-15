@@ -4148,6 +4148,13 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             self.assertContains(page_response, 'id="openTrainerInviteModal"')
             self.assertContains(page_response, "Test Trainer Uitnodiging")
 
+            trainer_script_path = finders.find("trainers.js")
+            self.assertIsNotNone(trainer_script_path)
+            with open(trainer_script_path, encoding="utf-8") as trainer_script_file:
+                trainer_script = trainer_script_file.read()
+            self.assertIn('form.getAttribute("action")', trainer_script)
+            self.assertNotIn("fetch(form.action", trainer_script)
+
             create_response = admin_client.post(
                 "/trainers",
                 {

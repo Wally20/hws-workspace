@@ -375,6 +375,7 @@ trainerInviteForms.forEach((form) => {
     event.preventDefault();
     const button = form.querySelector(".team-invite-trainer-button");
     const trainerName = button?.dataset.trainerInviteName || "deze trainer";
+    const submitUrl = form.getAttribute("action") || window.location.pathname;
     const formData = new FormData(form);
     formData.set("response_format", "json");
 
@@ -386,7 +387,10 @@ trainerInviteForms.forEach((form) => {
     if (trainerInviteError) trainerInviteError.hidden = true;
 
     try {
-      const response = await fetch(form.action, {
+      // A field named `action` becomes a named property on HTMLFormElement and
+      // can shadow form.action. Read the actual attribute so fetch never turns
+      // the input element into the URL "[object HTMLInputElement]".
+      const response = await fetch(submitUrl, {
         method: "POST",
         body: formData,
         headers: { Accept: "application/json" },
