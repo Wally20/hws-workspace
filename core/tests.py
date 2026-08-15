@@ -4093,6 +4093,15 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             self.assertNotIn("Accountoverzicht", content)
             self.assertNotIn("trainer_profiles", content)
             self.assertIn('id="trainerFeeTotal"', content)
+            self.assertIn('id="openTrainerOverviewModal"', content)
+            self.assertIn('id="trainerOverviewModal"', content)
+            self.assertIn('id="trainerOverviewSearchInput"', content)
+            self.assertIn("Bankgegevens", content)
+            self.assertIn("KNVB-licentie", content)
+            self.assertEqual(
+                content.count("data-trainer-overview-card"),
+                len(legacy.load_trainer_profiles()),
+            )
         finally:
             with legacy.get_db_connection() as connection:
                 connection.execute(
@@ -4155,6 +4164,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 trainer_script = trainer_script_file.read()
             self.assertIn('form.getAttribute("action")', trainer_script)
             self.assertNotIn("fetch(form.action", trainer_script)
+            self.assertIn("filterTrainerOverview", trainer_script)
+            self.assertIn("openTrainerOverviewModal", trainer_script)
 
             create_response = admin_client.post(
                 "/trainers",

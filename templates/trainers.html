@@ -10,6 +10,7 @@
         <p class="welcome-line">Beheer teamleden en open profielen in een overzichtelijke teamomgeving.</p>
       </div>
       <div class="team-header-actions">
+        <button type="button" id="openTrainerOverviewModal" class="team-secondary-button" aria-haspopup="dialog" aria-controls="trainerOverviewModal">Traineroverzicht</button>
         <button type="button" id="openTrainerInviteModal" class="team-secondary-button">Aanmeldlink maken</button>
         <button type="button" id="openTrainerCreateModal" class="team-primary-button">Nieuw Teamlid</button>
       </div>
@@ -78,6 +79,124 @@
       <div class="empty-state">Er zijn nog geen teamleden aangemaakt.</div>
     {% endfor %}
   </section>
+
+  <div id="trainerOverviewModal" class="agenda-modal team-modal" hidden>
+    <div class="agenda-modal-backdrop" data-close-trainer-modal="overview"></div>
+    <div class="agenda-modal-dialog team-overview-dialog" role="dialog" aria-modal="true" aria-labelledby="trainerOverviewTitle">
+      <div class="team-modal-top">
+        <div class="team-modal-title-wrap">
+          <h2 id="trainerOverviewTitle">Traineroverzicht</h2>
+          <p>Alle gegevens van de trainers en overige teamleden overzichtelijk bij elkaar.</p>
+        </div>
+        <button type="button" class="team-modal-close" data-close-trainer-modal="overview" aria-label="Sluiten">×</button>
+      </div>
+
+      <div class="team-overview-toolbar">
+        <label class="team-overview-search-field">
+          <span class="team-search-icon" aria-hidden="true">⌕</span>
+          <input id="trainerOverviewSearchInput" type="search" placeholder="Zoek op naam, e-mail, telefoon, plaats of rol...">
+        </label>
+        <span id="trainerOverviewCount" class="team-overview-count" aria-live="polite"></span>
+      </div>
+
+      <div class="team-overview-list" id="trainerOverviewList">
+        {% for profile in trainer_profiles %}
+          <article
+            class="team-overview-item"
+            data-trainer-overview-card
+            data-search="{{ (profile.fullName ~ ' ' ~ profile.systemRole ~ ' ' ~ profile.status ~ ' ' ~ profile.email ~ ' ' ~ profile.phone ~ ' ' ~ profile.address ~ ' ' ~ profile.postalCode ~ ' ' ~ profile.city ~ ' ' ~ profile.availabilityLabel ~ ' ' ~ profile.knvbLicense ~ ' ' ~ profile.education ~ ' ' ~ profile.bankAccountNumber ~ ' ' ~ profile.bankAccountName ~ ' ' ~ profile.notes)|lower }}"
+          >
+            <div class="team-overview-item-head">
+              <div class="team-overview-identity">
+                <span class="team-overview-avatar">{{ profile.initials }}</span>
+                <span>
+                  <strong>{{ profile.fullName }}</strong>
+                  <small>{{ profile.systemRole or profile.role or 'Teamlid' }}</small>
+                </span>
+              </div>
+              <span class="team-overview-status{% if profile.status == 'Actief' %} is-active{% else %} is-invited{% endif %}">{{ profile.status or '-' }}</span>
+            </div>
+
+            <div class="team-overview-details">
+              <section class="team-overview-detail-group">
+                <h3>Contact</h3>
+                <dl>
+                  <div>
+                    <dt>E-mail</dt>
+                    <dd>{% if profile.email %}<a href="mailto:{{ profile.email }}">{{ profile.email }}</a>{% else %}-{% endif %}</dd>
+                  </div>
+                  <div>
+                    <dt>Telefoon</dt>
+                    <dd>{% if profile.phone %}<a href="tel:{{ profile.phone }}">{{ profile.phone }}</a>{% else %}-{% endif %}</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section class="team-overview-detail-group">
+                <h3>Adres</h3>
+                <dl>
+                  <div>
+                    <dt>Straat</dt>
+                    <dd>{{ profile.address or '-' }}</dd>
+                  </div>
+                  <div>
+                    <dt>Postcode en plaats</dt>
+                    <dd>{{ (profile.postalCode ~ ' ' ~ profile.city)|trim or '-' }}</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section class="team-overview-detail-group">
+                <h3>Trainergegevens</h3>
+                <dl>
+                  <div>
+                    <dt>Beschikbaar</dt>
+                    <dd>{{ profile.availabilityLabel or '-' }}</dd>
+                  </div>
+                  <div>
+                    <dt>KNVB-licentie</dt>
+                    <dd>{{ profile.knvbLicense or '-' }}</dd>
+                  </div>
+                  <div>
+                    <dt>Opleiding</dt>
+                    <dd>{{ profile.education or '-' }}</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section class="team-overview-detail-group">
+                <h3>Bankgegevens</h3>
+                <dl>
+                  <div>
+                    <dt>Rekeningnummer</dt>
+                    <dd>{{ profile.bankAccountNumber or '-' }}</dd>
+                  </div>
+                  <div>
+                    <dt>Tenaamstelling</dt>
+                    <dd>{{ profile.bankAccountName or '-' }}</dd>
+                  </div>
+                  <div>
+                    <dt>Aangemaakt</dt>
+                    <dd>{{ profile.createdAtDisplay or '-' }}</dd>
+                  </div>
+                </dl>
+              </section>
+            </div>
+
+            {% if profile.notes %}
+              <div class="team-overview-notes">
+                <strong>Notities</strong>
+                <p>{{ profile.notes }}</p>
+              </div>
+            {% endif %}
+          </article>
+        {% else %}
+          <div class="empty-state">Er zijn nog geen trainers om te tonen.</div>
+        {% endfor %}
+      </div>
+      <div id="trainerOverviewEmpty" class="empty-state" hidden>Geen trainers gevonden met deze zoekopdracht.</div>
+    </div>
+  </div>
 
   <div id="trainerInviteModal" class="agenda-modal team-modal" {% if not invite_modal_open %}hidden{% endif %}>
     <div class="agenda-modal-backdrop" data-close-trainer-modal="invite"></div>

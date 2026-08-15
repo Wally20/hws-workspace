@@ -1,10 +1,16 @@
 const trainerCreateModal = document.querySelector("#trainerCreateModal");
 const trainerDetailModal = document.querySelector("#trainerDetailModal");
 const trainerInviteModal = document.querySelector("#trainerInviteModal");
+const trainerOverviewModal = document.querySelector("#trainerOverviewModal");
 const openTrainerCreateModal = document.querySelector("#openTrainerCreateModal");
 const openTrainerInviteModal = document.querySelector("#openTrainerInviteModal");
+const openTrainerOverviewModal = document.querySelector("#openTrainerOverviewModal");
 const trainerTileButtons = document.querySelectorAll("[data-open-trainer-detail='1']");
 const teamSearchInput = document.querySelector("#teamSearchInput");
+const trainerOverviewSearchInput = document.querySelector("#trainerOverviewSearchInput");
+const trainerOverviewCards = document.querySelectorAll("[data-trainer-overview-card]");
+const trainerOverviewCount = document.querySelector("#trainerOverviewCount");
+const trainerOverviewEmpty = document.querySelector("#trainerOverviewEmpty");
 const previewFirstName = document.querySelector("#trainerFirstName");
 const previewLastName = document.querySelector("#trainerLastName");
 const previewSystemRole = document.querySelector("#trainerSystemRole");
@@ -64,6 +70,7 @@ function closeAllTrainerModals() {
   setTrainerModalOpen(trainerCreateModal, false);
   setTrainerModalOpen(trainerDetailModal, false);
   setTrainerModalOpen(trainerInviteModal, false);
+  setTrainerModalOpen(trainerOverviewModal, false);
 }
 
 function setDetailField(id, value) {
@@ -361,6 +368,24 @@ function filterTeamCards() {
   });
 }
 
+function filterTrainerOverview() {
+  const query = (trainerOverviewSearchInput?.value || "").trim().toLowerCase();
+  let visibleCount = 0;
+
+  trainerOverviewCards.forEach((card) => {
+    const isVisible = !query || (card.dataset.search || "").includes(query);
+    card.hidden = !isVisible;
+    if (isVisible) visibleCount += 1;
+  });
+
+  if (trainerOverviewCount) {
+    trainerOverviewCount.textContent = `${visibleCount} ${visibleCount === 1 ? "teamlid" : "teamleden"}`;
+  }
+  if (trainerOverviewEmpty) {
+    trainerOverviewEmpty.hidden = visibleCount > 0 || trainerOverviewCards.length === 0;
+  }
+}
+
 openTrainerCreateModal?.addEventListener("click", () => {
   updateTrainerPreview();
   setTrainerModalOpen(trainerCreateModal, true);
@@ -368,6 +393,12 @@ openTrainerCreateModal?.addEventListener("click", () => {
 
 openTrainerInviteModal?.addEventListener("click", () => {
   setTrainerModalOpen(trainerInviteModal, true);
+});
+
+openTrainerOverviewModal?.addEventListener("click", () => {
+  filterTrainerOverview();
+  setTrainerModalOpen(trainerOverviewModal, true);
+  window.setTimeout(() => trainerOverviewSearchInput?.focus(), 0);
 });
 
 trainerInviteForms.forEach((form) => {
@@ -467,6 +498,7 @@ trainerFeeRows?.addEventListener("click", (event) => {
 });
 
 teamSearchInput?.addEventListener("input", filterTeamCards);
+trainerOverviewSearchInput?.addEventListener("input", filterTrainerOverview);
 previewFirstName?.addEventListener("input", updateTrainerPreview);
 previewLastName?.addEventListener("input", updateTrainerPreview);
 previewSystemRole?.addEventListener("change", updateTrainerPreview);
