@@ -117,30 +117,19 @@
                 </label>
               </div>
 
-              <div class="invite-availability-group">
-                <span>Beschikbare dagen <small>(optioneel)</small></span>
-                <div class="invite-availability-options">
-                  {% for day in ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"] %}
-                    <label>
-                      <input type="checkbox" name="availability_days" value="{{ day }}" {% if day in invited_user.availabilityDays %}checked{% endif %}>
-                      <span>{{ day }}</span>
-                    </label>
-                  {% endfor %}
-                </div>
-              </div>
             </fieldset>
 
             <fieldset class="invite-profile-section">
-              <legend>Wachtwoord</legend>
-              <p class="invite-password-help">Gebruik minimaal 12 tekens.</p>
+              <legend>Wachtwoord voor je account</legend>
+              <p class="invite-password-help">Met dit wachtwoord log je straks in op je persoonlijke HWS Workspace-account. Gebruik minimaal 12 tekens.</p>
 
               <div class="invite-profile-grid">
                 <label class="field">
-                  <span>Wachtwoord</span>
+                  <span>Wachtwoord voor je account</span>
                   <input type="password" name="password" minlength="12" autocomplete="new-password" required>
                 </label>
                 <label class="field">
-                  <span>Herhaal wachtwoord</span>
+                  <span>Herhaal je accountwachtwoord</span>
                   <input type="password" name="password_confirm" minlength="12" autocomplete="new-password" required>
                 </label>
               </div>

@@ -4139,7 +4139,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                     "Trainer",
                     "",
                     "",
-                    "",
+                    "Vrijdag",
                     "",
                     "",
                     "",
@@ -4195,6 +4195,10 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             self.assertContains(invitation_response, "PROFIEL AANVULLEN")
             self.assertContains(invitation_response, 'name="email"')
             self.assertContains(invitation_response, 'name="bank_account_number"')
+            self.assertNotContains(invitation_response, "Beschikbare dagen")
+            self.assertNotContains(invitation_response, 'name="availability_days"')
+            self.assertContains(invitation_response, "Wachtwoord voor je account")
+            self.assertContains(invitation_response, "persoonlijke HWS Workspace-account")
 
             completion_response = invited_client.post(
                 invite_path,
@@ -4211,7 +4215,6 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                     "bank_account_name": "Test Trainer Compleet",
                     "knvb_license": "VC 2",
                     "education": "Sport en bewegen",
-                    "availability_days": ["Maandag", "Woensdag"],
                     "password": "veilig-wachtwoord-123",
                     "password_confirm": "veilig-wachtwoord-123",
                 },
@@ -4223,7 +4226,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             self.assertEqual(completed_profile["fullName"], "Test Trainer Compleet")
             self.assertEqual(completed_profile["email"], new_email)
             self.assertEqual(completed_profile["phone"], "0612345678")
-            self.assertEqual(completed_profile["availabilityDays"], ["Maandag", "Woensdag"])
+            self.assertEqual(completed_profile["availabilityDays"], ["Vrijdag"])
             self.assertEqual(completed_profile["status"], "Actief")
             self.assertEqual(completed_profile["inviteToken"], "")
             self.assertTrue(legacy.check_password_hash(completed_profile["passwordHash"], "veilig-wachtwoord-123"))

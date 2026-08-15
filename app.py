@@ -16591,7 +16591,6 @@ def accept_trainer_invite(
     bank_account_name: str,
     knvb_license: str,
     education: str,
-    availability_days: List[str],
     password: str,
 ) -> None:
     username = build_internal_username(full_name, email, exclude_profile_id=profile_id)
@@ -16611,7 +16610,6 @@ def accept_trainer_invite(
                 bank_account_name = ?,
                 knvb_license = ?,
                 education = ?,
-                availability_days = ?,
                 password_hash = ?,
                 invite_token = NULL,
                 invite_expires_at = NULL,
@@ -16631,7 +16629,6 @@ def accept_trainer_invite(
                 bank_account_name.strip(),
                 knvb_license.strip(),
                 education.strip(),
-                ",".join(day.strip() for day in availability_days if day.strip()),
                 hash_password(password),
                 utcnow_iso(),
                 profile_id.strip(),
@@ -19920,7 +19917,6 @@ def invite_accept_page(invite_token: str) -> str:
         bank_account_name = request.form.get("bank_account_name", "").strip()
         knvb_license = request.form.get("knvb_license", "").strip()
         education = request.form.get("education", "").strip()
-        availability_days = request.form.getlist("availability_days")
         password = request.form.get("password", "")
         password_confirm = request.form.get("password_confirm", "")
 
@@ -19938,7 +19934,6 @@ def invite_accept_page(invite_token: str) -> str:
             "bankAccountName": bank_account_name,
             "knvbLicense": knvb_license,
             "education": education,
-            "availabilityDays": availability_days,
         }
 
         if not all(
@@ -19978,7 +19973,6 @@ def invite_accept_page(invite_token: str) -> str:
                     bank_account_name,
                     knvb_license,
                     education,
-                    availability_days,
                     password,
                 )
             except sqlite3.IntegrityError:
