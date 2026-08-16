@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_trainer_clothing_keys_fields.html" import trainer_clothing_keys_fields %}
 
 {% block title %}Profiel | HWS Voetbalschool Workspace{% endblock %}
 
@@ -118,6 +119,22 @@
         <button type="submit" class="team-primary-button personal-profile-save">Profiel Opslaan</button>
       </div>
     </form>
+    {% elif active_profile_section == 'kleding-en-sleutels' %}
+      <form method="post" action="/profiel" class="team-member-form personal-profile-form">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <input type="hidden" name="action" value="save_clothing_keys">
+        {{ trainer_clothing_keys_fields(
+          profile.clothingItems,
+          profile.keySets,
+          'profile-clothing-keys',
+          true,
+          false,
+          false
+        ) }}
+        <div class="team-form-actions personal-profile-actions">
+          <button type="submit" class="team-primary-button">Kleding en sleutels opslaan</button>
+        </div>
+      </form>
     {% elif active_profile_section == 'planning' %}
       <form method="post" action="/profiel" class="team-member-form personal-profile-form">
         <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
@@ -151,10 +168,6 @@
           <button type="submit" class="team-primary-button">Opslaan</button>
         </div>
       </form>
-    {% else %}
-      <section class="team-form-section personal-profile-empty-section">
-        {% if active_profile_section == 'kleding-en-sleutels' %}<h2>Kleding en sleutels</h2>{% endif %}
-      </section>
     {% endif %}
   </div>
 
@@ -205,6 +218,7 @@
     <script type="application/json" id="trainerFeeAgendaActivityOptions">{{ trainer_fee_agenda_activity_options|tojson }}</script>
     <script type="application/json" id="trainerFeeClubOptionsByType">{{ trainer_fee_club_options_by_type|tojson }}</script>
     <script type="application/json" id="profileTrainerFeesData">{{ profile.trainerFees|tojson }}</script>
+    <script src="../static/trainer-clothing-keys.js?v={{ asset_version }}" defer></script>
     <script src="../static/trainers.js?v={{ asset_version }}" defer></script>
   {% endif %}
 {% endblock %}

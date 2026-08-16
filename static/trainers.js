@@ -20,6 +20,7 @@ const trainerInviteResult = document.querySelector("#trainerInviteResult");
 const trainerInviteResultName = document.querySelector("#trainerInviteResultName");
 const trainerInviteError = document.querySelector("#trainerInviteError");
 const openTrainerInviteLink = document.querySelector("#openTrainerInviteLink");
+const trainerInviteIncludeClothingKeys = document.querySelector("#trainerInviteIncludeClothingKeys");
 const trainerInviteForms = document.querySelectorAll("[data-trainer-invite-form]");
 const trainerDeleteForm = document.querySelector("#trainerDeleteForm");
 const trainerDetailTabs = document.querySelectorAll("[data-team-detail-tab]");
@@ -319,6 +320,15 @@ function getTrainerFeesFromButton(button) {
   }
 }
 
+function getTrainerJsonDataFromButton(button, dataKey) {
+  try {
+    const parsedValue = JSON.parse(button.dataset[dataKey] || "[]");
+    return Array.isArray(parsedValue) ? parsedValue : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
 if (profileTrainerFeesDataNode) {
   try {
     setTrainerFeeRows(JSON.parse(profileTrainerFeesDataNode.textContent || "[]"));
@@ -349,6 +359,11 @@ function openTrainerDetail(button) {
   setDetailField("#trainerDetailRole", button.dataset.trainerSystemRole || "-");
   setDetailField("#trainerDetailAvatar", button.dataset.trainerInitials || "TM");
   setTrainerFeeRows(getTrainerFeesFromButton(button));
+  window.setTrainerClothingKeysData?.(
+    document.querySelector("#trainer-detail-clothing-keys"),
+    getTrainerJsonDataFromButton(button, "trainerClothing"),
+    getTrainerJsonDataFromButton(button, "trainerKeySets")
+  );
   setTrainerDetailTab("gegevens");
 
   const systemRoleInput = document.querySelector("#trainerDetailSystemRoleInput");
@@ -451,6 +466,7 @@ trainerInviteForms.forEach((form) => {
     const submitUrl = form.getAttribute("action") || window.location.pathname;
     const formData = new FormData(form);
     formData.set("response_format", "json");
+    formData.set("include_clothing_keys", trainerInviteIncludeClothingKeys?.checked ? "1" : "0");
     const requestedTrainerId = String(formData.get("profile_id") || "").trim();
 
     trainerInviteForms.forEach((item) => {

@@ -1,0 +1,85 @@
+{% macro trainer_clothing_keys_fields(clothing_items, key_sets, scope_id, quantities_required=false, show_no_keys_option=false, no_key_sets=false) %}
+  <div
+    class="trainer-clothing-keys"
+    id="{{ scope_id }}"
+    data-clothing-keys-scope
+    data-require-complete="{{ '1' if quantities_required else '0' }}"
+  >
+    <section class="trainer-property-section" aria-labelledby="{{ scope_id }}-clothing-heading">
+      <div class="trainer-property-heading">
+        <div>
+          <h3 id="{{ scope_id }}-clothing-heading">Kleding</h3>
+          <p>Vul per kledingstuk het aantal en de maat in. Vul 0 in als je het kledingstuk niet hebt.</p>
+        </div>
+      </div>
+
+      <div class="trainer-clothing-table">
+        <div class="trainer-clothing-table-head" aria-hidden="true">
+          <span>Kledingstuk</span>
+          <span>Aantal</span>
+          <span>Maat</span>
+        </div>
+        {% for item in clothing_items %}
+          <div class="trainer-clothing-row" data-clothing-key="{{ item.key }}">
+            <strong>{{ item.label }}</strong>
+            <label class="field">
+              <span>Aantal {{ item.label }}</span>
+              <input
+                type="number"
+                name="clothing_quantity_{{ item.key }}"
+                value="{{ item.quantity }}"
+                min="0"
+                max="99"
+                step="1"
+                inputmode="numeric"
+                data-clothing-quantity-input
+                {% if quantities_required %}required{% endif %}
+              >
+            </label>
+            <label class="field">
+              <span>Maat {{ item.label }}</span>
+              <input
+                type="text"
+                name="clothing_size_{{ item.key }}"
+                value="{{ item.size }}"
+                maxlength="30"
+                placeholder="Bijv. M, L of 152"
+                data-clothing-size-input
+              >
+            </label>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="trainer-property-section" aria-labelledby="{{ scope_id }}-keys-heading">
+      <div class="trainer-property-heading trainer-key-sets-heading">
+        <div>
+          <h3 id="{{ scope_id }}-keys-heading">Sleutels</h3>
+          <p>Vul voor iedere sleutelset in van welke club deze is.</p>
+        </div>
+        <button type="button" class="team-secondary-button trainer-key-set-add" data-add-key-set>Club toevoegen</button>
+      </div>
+
+      <div class="trainer-key-set-rows" data-key-set-rows>
+        {% set displayed_key_sets = key_sets if key_sets else [{'club': ''}] %}
+        {% for key_set in displayed_key_sets %}
+          <div class="trainer-key-set-row" data-key-set-row>
+            <label class="field">
+              <span>Club</span>
+              <input type="text" name="key_set_club" value="{{ key_set.club }}" maxlength="100" placeholder="Naam van de club">
+            </label>
+            <button type="button" class="subtle-button action-small trainer-key-set-remove" data-remove-key-set>Verwijderen</button>
+          </div>
+        {% endfor %}
+      </div>
+
+      {% if show_no_keys_option %}
+        <label class="trainer-no-key-sets-option">
+          <input type="checkbox" name="no_key_sets" value="1" data-no-key-sets {% if no_key_sets %}checked{% endif %}>
+          <span>Ik heb geen sleutelsets</span>
+        </label>
+      {% endif %}
+    </section>
+  </div>
+{% endmacro %}

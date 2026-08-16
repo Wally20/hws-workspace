@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_trainer_clothing_keys_fields.html" import trainer_clothing_keys_fields %}
 
 {% block title %}Team | HWS Voetbalschool Workspace{% endblock %}
 
@@ -66,6 +67,8 @@
         data-trainer-is-admin="{{ '1' if profile.isAdmin else '0' }}"
         data-trainer-notes="{{ profile.notes or 'Geen notities toegevoegd.' }}"
         data-trainer-fees='{{ profile.trainerFees|tojson }}'
+        data-trainer-clothing='{{ profile.clothingItems|tojson }}'
+        data-trainer-key-sets='{{ profile.keySets|tojson }}'
         data-trainer-initials="{{ profile.initials }}"
       >
         <span class="team-user-avatar-wrap">
@@ -188,12 +191,21 @@
 
       <div id="trainerInviteError" class="notice trainers-notice trainers-notice-error" role="alert" hidden></div>
 
+      <label class="team-invite-extra-option">
+        <input type="checkbox" id="trainerInviteIncludeClothingKeys" value="1">
+        <span>
+          <strong>Kleding en sleutels laten invullen</strong>
+          <small>Voeg de verplichte pagina met kledingmaten, aantallen en sleutelsets toe aan de aanmeldlink.</small>
+        </span>
+      </label>
+
       <div class="team-invite-list" aria-label="Trainers">
         {% for profile in invite_profiles %}
           <form method="post" action="/trainers" class="team-invite-trainer-form" data-trainer-invite-form>
             <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
             <input type="hidden" name="action" value="create_invite_link">
             <input type="hidden" name="profile_id" value="{{ profile.id }}">
+            <input type="hidden" name="include_clothing_keys" value="0" data-invite-clothing-keys-value>
             <button
               type="submit"
               class="team-invite-trainer-button {% if invite_profile_id == profile.id %}is-selected{% endif %}"
@@ -302,6 +314,14 @@
             <p class="team-invite-help">
               Na opslaan krijg je direct een aanmeldlink die je kunt doorsturen naar dit teamlid.
             </p>
+
+            <label class="team-invite-extra-option team-create-invite-option">
+              <input type="checkbox" name="include_clothing_keys" value="1">
+              <span>
+                <strong>Kleding en sleutels laten invullen</strong>
+                <small>De trainer moet bij het activeren ook alle kledingaantallen, maten en sleutelsets invullen.</small>
+              </span>
+            </label>
 
           </article>
 
@@ -416,8 +436,15 @@
 
           </article>
 
-          <article class="team-form-section team-detail-placeholder team-detail-panel-hidden" data-team-detail-panel="kleding-en-sleutels" data-trainer-profile-only hidden>
-            <h3>Kleding en sleutels</h3>
+          <article class="team-form-section team-detail-panel-hidden" data-team-detail-panel="kleding-en-sleutels" data-trainer-profile-only hidden>
+            {{ trainer_clothing_keys_fields(
+              clothing_item_options,
+              [],
+              'trainer-detail-clothing-keys',
+              true,
+              false,
+              false
+            ) }}
           </article>
 
           <article class="team-form-section team-fees-section team-detail-panel-hidden" data-team-detail-panel="planning" data-trainer-profile-only hidden>
@@ -525,5 +552,6 @@
   <script type="application/json" id="trainerFeeAgendaActivityOptions">{{ trainer_fee_agenda_activity_options|tojson }}</script>
   <script type="application/json" id="trainerFeeClubOptionsByType">{{ trainer_fee_club_options_by_type|tojson }}</script>
 
+  <script src="../static/trainer-clothing-keys.js?v={{ asset_version }}" defer></script>
   <script src="../static/trainers.js?v={{ asset_version }}" defer></script>
 {% endblock %}

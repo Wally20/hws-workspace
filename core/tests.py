@@ -4201,6 +4201,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             self.assertNotContains(invitation_response, 'name="availability_days"')
             self.assertContains(invitation_response, "Wachtwoord voor je account")
             self.assertContains(invitation_response, "persoonlijke HWS Workspace-account")
+            self.assertNotContains(invitation_response, 'name="clothing_quantity_winterjas"')
 
             completion_response = invited_client.post(
                 invite_path,
@@ -4232,6 +4233,142 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             self.assertEqual(completed_profile["status"], "Actief")
             self.assertEqual(completed_profile["inviteToken"], "")
             self.assertTrue(legacy.check_password_hash(completed_profile["passwordHash"], "veilig-wachtwoord-123"))
+        finally:
+            with legacy.get_db_connection() as connection:
+                connection.execute("DELETE FROM trainer_profiles WHERE id = ?", (profile_id,))
+            legacy.clear_local_data_cache()
+
+    def test_clothing_and_keys_requested_by_invite_are_saved_to_trainer_profile(self):
+        profile_id = "trainer-clothing-keys-invite-test"
+        with legacy.get_db_connection() as connection:
+            connection.execute("DELETE FROM trainer_profiles WHERE id = ?", (profile_id,))
+            connection.execute(
+                """
+                INSERT INTO trainer_profiles (
+                    id, full_name, email, username, password_hash, role, member_type, system_role,
+                    is_admin, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    profile_id,
+                    "Trainer Kleding Test",
+                    "trainer-kleding-test@example.com",
+                    "trainer.kleding.test",
+                    legacy.hash_password("bestaand-wachtwoord-123"),
+                    "Trainer",
+                    "Medewerker",
+                    "Trainer",
+                    0,
+                    "Actief",
+                    "2026-08-16T10:00:00",
+                ),
+            )
+        legacy.clear_local_data_cache()
+
+        try:
+            admin_client = self.build_authenticated_client()
+            create_response = admin_client.post(
+                "/trainers",
+                {
+                    "csrf_token": self.TEST_CSRF_TOKEN,
+                    "action": "create_invite_link",
+                    "profile_id": profile_id,
+                    "include_clothing_keys": "1",
+                    "response_format": "json",
+                },
+                secure=True,
+                HTTP_ACCEPT="application/json",
+            )
+
+            self.assertEqual(create_response.status_code, 200)
+            self.assertTrue(create_response.json()["requiresClothingKeys"])
+            invite_path = "/uitnodiging/" + create_response.json()["inviteLink"].rsplit("/uitnodiging/", 1)[1]
+            invited_client = Client()
+            invitation_response = invited_client.get(invite_path, secure=True)
+            invitation_csrf = self.extract_csrf_token(invitation_response)
+            self.assertContains(invitation_response, "Kleding")
+            self.assertContains(invitation_response, "Sleutels")
+            for key, label in legacy.TRAINER_CLOTHING_OPTIONS:
+                self.assertContains(invitation_response, label)
+                self.assertContains(invitation_response, f'name="clothing_quantity_{key}"')
+                self.assertContains(invitation_response, f'name="clothing_size_{key}"')
+            self.assertContains(invitation_response, 'name="key_set_club"')
+            self.assertContains(invitation_response, 'name="no_key_sets"')
+
+            base_profile_payload = {
+                "csrf_token": invitation_csrf,
+                "first_name": "Trainer",
+                "last_name": "Kleding Opgeslagen",
+                "email": "trainer-kleding-opgeslagen@example.com",
+                "phone": "0612345678",
+                "address": "Sportlaan 2",
+                "postal_code": "1234 AB",
+                "city": "Deventer",
+                "bank_account_number": "NL91ABNA0417164300",
+                "bank_account_name": "Trainer Kleding Opgeslagen",
+                "knvb_license": "VC 2",
+                "education": "Sport en bewegen",
+                "password": "veilig-wachtwoord-123",
+                "password_confirm": "veilig-wachtwoord-123",
+            }
+            missing_clothing_response = invited_client.post(invite_path, base_profile_payload, secure=True)
+            self.assertEqual(missing_clothing_response.status_code, 200)
+            self.assertContains(missing_clothing_response, "Vul bij Winterjas in hoeveel je ervan hebt.")
+
+            completed_payload = dict(base_profile_payload)
+            for index, (key, _label) in enumerate(legacy.TRAINER_CLOTHING_OPTIONS, start=1):
+                completed_payload[f"clothing_quantity_{key}"] = str(index)
+                completed_payload[f"clothing_size_{key}"] = f"Maat {index}"
+            completed_payload["key_set_club"] = ["VV Testclub", "SV Tweede Club"]
+
+            completion_response = invited_client.post(invite_path, completed_payload, secure=True)
+
+            self.assertEqual(completion_response.status_code, 302)
+            completed_profile = legacy.get_user_by_id(profile_id)
+            self.assertTrue(completed_profile["inviteRequiresClothingKeys"])
+            self.assertEqual(
+                [(item["label"], item["quantity"], item["size"]) for item in completed_profile["clothingItems"]],
+                [
+                    (label, index, f"Maat {index}")
+                    for index, (_key, label) in enumerate(legacy.TRAINER_CLOTHING_OPTIONS, start=1)
+                ],
+            )
+            self.assertEqual(completed_profile["keySets"], [{"club": "VV Testclub"}, {"club": "SV Tweede Club"}])
+
+            personal_profile_response = invited_client.get(
+                "/profiel?onderdeel=kleding-en-sleutels",
+                secure=True,
+            )
+            self.assertEqual(personal_profile_response.status_code, 200)
+            self.assertContains(personal_profile_response, 'value="VV Testclub"')
+            self.assertContains(personal_profile_response, 'value="SV Tweede Club"')
+            self.assertRegex(
+                personal_profile_response.content.decode("utf-8"),
+                r'name="clothing_quantity_winterjas"[\s\S]*?value="1"',
+            )
+
+            profile_update_payload = {
+                "csrf_token": self.extract_csrf_token(personal_profile_response),
+                "action": "save_clothing_keys",
+                "key_set_club": ["VV Profielwijziging"],
+            }
+            for index, (key, _label) in enumerate(legacy.TRAINER_CLOTHING_OPTIONS, start=1):
+                profile_update_payload[f"clothing_quantity_{key}"] = str(index + 1)
+                profile_update_payload[f"clothing_size_{key}"] = f"Nieuwe maat {index}"
+            profile_update_response = invited_client.post(
+                "/profiel",
+                profile_update_payload,
+                secure=True,
+            )
+            self.assertEqual(profile_update_response.status_code, 302)
+            updated_profile = legacy.get_user_by_id(profile_id)
+            self.assertEqual(updated_profile["clothingItems"][0]["quantity"], 2)
+            self.assertEqual(updated_profile["clothingItems"][0]["size"], "Nieuwe maat 1")
+            self.assertEqual(updated_profile["keySets"], [{"club": "VV Profielwijziging"}])
+
+            admin_profile_response = admin_client.get("/trainers", secure=True)
+            self.assertContains(admin_profile_response, "VV Profielwijziging")
+            self.assertContains(admin_profile_response, 'id="trainer-detail-clothing-keys"')
         finally:
             with legacy.get_db_connection() as connection:
                 connection.execute("DELETE FROM trainer_profiles WHERE id = ?", (profile_id,))

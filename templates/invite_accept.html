@@ -1,3 +1,4 @@
+{% from "_trainer_clothing_keys_fields.html" import trainer_clothing_keys_fields %}
 <!doctype html>
 <html lang="nl">
   <head>
@@ -92,6 +93,17 @@
               </div>
             </fieldset>
 
+            {% if invited_user.inviteRequiresClothingKeys %}
+              {{ trainer_clothing_keys_fields(
+                invited_user.clothingItems,
+                invited_user.keySets,
+                'invite-clothing-keys',
+                true,
+                true,
+                invited_user.noKeySets
+              ) }}
+            {% endif %}
+
             <fieldset class="invite-profile-section">
               <legend>Aanvullende gegevens</legend>
 
@@ -142,5 +154,6 @@
         {% endif %}
       </section>
     </main>
+    <script src="../static/trainer-clothing-keys.js?v={{ asset_version }}" defer></script>
   </body>
 </html>

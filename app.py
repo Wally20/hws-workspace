@@ -233,6 +233,18 @@ AGENDA_TECHNIQUE_CLUB_OPTIONS = (
     "Apeldoornse Boys",
 )
 AGENDA_CLUB_OPTIONS = tuple(dict.fromkeys((*AGENDA_AMATEUR_CLUB_OPTIONS, *AGENDA_TECHNIQUE_CLUB_OPTIONS)))
+TRAINER_CLOTHING_OPTIONS = (
+    ("winterjas", "Winterjas"),
+    ("zomerjas", "Zomerjas"),
+    ("trainingsjack", "Trainingsjack"),
+    ("trainingsbroek", "Trainingsbroek"),
+    ("shirt", "Shirt"),
+    ("korte_broek", "Korte broek"),
+    ("sokken", "Sokken"),
+)
+TRAINER_CLOTHING_KEYS = {key for key, _label in TRAINER_CLOTHING_OPTIONS}
+TRAINER_MAX_CLOTHING_QUANTITY = 99
+TRAINER_MAX_KEY_SETS = 25
 AGENDA_CLUB_CLASS_NAMES = {
     "WWNA": "agenda-event-club-wwna",
     "ABS": "agenda-event-club-abs",
@@ -4503,6 +4515,9 @@ def init_db() -> None:
                 bank_account_name TEXT,
                 notes TEXT,
                 trainer_fees_json TEXT NOT NULL DEFAULT '[]',
+                clothing_json TEXT NOT NULL DEFAULT '[]',
+                key_sets_json TEXT NOT NULL DEFAULT '[]',
+                invite_requires_clothing_keys INTEGER NOT NULL DEFAULT 0,
                 is_admin INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL
@@ -4954,6 +4969,14 @@ def init_db() -> None:
             connection.execute("ALTER TABLE trainer_profiles ADD COLUMN bank_account_name TEXT")
         if "trainer_fees_json" not in existing_columns:
             connection.execute("ALTER TABLE trainer_profiles ADD COLUMN trainer_fees_json TEXT NOT NULL DEFAULT '[]'")
+        if "clothing_json" not in existing_columns:
+            connection.execute("ALTER TABLE trainer_profiles ADD COLUMN clothing_json TEXT NOT NULL DEFAULT '[]'")
+        if "key_sets_json" not in existing_columns:
+            connection.execute("ALTER TABLE trainer_profiles ADD COLUMN key_sets_json TEXT NOT NULL DEFAULT '[]'")
+        if "invite_requires_clothing_keys" not in existing_columns:
+            connection.execute(
+                "ALTER TABLE trainer_profiles ADD COLUMN invite_requires_clothing_keys INTEGER NOT NULL DEFAULT 0"
+            )
 
         registration_event_columns = {
             row["name"]
@@ -15224,6 +15247,98 @@ def save_materials_inventory(inventory: Dict[str, Any]) -> None:
     clear_local_data_cache()
 
 
+def normalize_trainer_clothing_items(raw_items: Any) -> List[Dict[str, Any]]:
+    items_by_key: Dict[str, Dict[str, Any]] = {}
+    if isinstance(raw_items, dict):
+        source_items = [
+            {"key": key, **(value if isinstance(value, dict) else {})}
+            for key, value in raw_items.items()
+        ]
+    elif isinstance(raw_items, list):
+        source_items = raw_items
+    else:
+        source_items = []
+
+    for item in source_items:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip().lower()
+        if key not in TRAINER_CLOTHING_KEYS:
+            continue
+        try:
+            quantity = int(item.get("quantity") or 0)
+        except (TypeError, ValueError):
+            quantity = 0
+        quantity = min(max(quantity, 0), TRAINER_MAX_CLOTHING_QUANTITY)
+        size = str(item.get("size") or "").strip()[:30] if quantity else ""
+        items_by_key[key] = {"quantity": quantity, "size": size}
+
+    return [
+        {
+            "key": key,
+            "label": label,
+            "quantity": items_by_key.get(key, {}).get("quantity", 0),
+            "size": items_by_key.get(key, {}).get("size", ""),
+        }
+        for key, label in TRAINER_CLOTHING_OPTIONS
+    ]
+
+
+def parse_trainer_clothing_items_from_form(form_data: Any, require_complete: bool = False) -> List[Dict[str, Any]]:
+    raw_items = []
+    for key, label in TRAINER_CLOTHING_OPTIONS:
+        raw_quantity = str(form_data.get(f"clothing_quantity_{key}", "") or "").strip()
+        raw_size = str(form_data.get(f"clothing_size_{key}", "") or "").strip()
+        if require_complete and not raw_quantity:
+            raise ValueError(f"Vul bij {label} in hoeveel je ervan hebt.")
+        try:
+            quantity = int(raw_quantity or 0)
+        except ValueError as exc:
+            raise ValueError(f"Vul bij {label} een geldig aantal in.") from exc
+        if quantity < 0 or quantity > TRAINER_MAX_CLOTHING_QUANTITY:
+            raise ValueError(
+                f"Het aantal bij {label} moet tussen 0 en {TRAINER_MAX_CLOTHING_QUANTITY} liggen."
+            )
+        if quantity > 0 and not raw_size:
+            raise ValueError(f"Vul bij {label} ook de maat in.")
+        raw_items.append({"key": key, "quantity": quantity, "size": raw_size})
+    return normalize_trainer_clothing_items(raw_items)
+
+
+def normalize_trainer_key_sets(raw_key_sets: Any) -> List[Dict[str, str]]:
+    source_items = raw_key_sets if isinstance(raw_key_sets, list) else []
+    normalized_key_sets = []
+    seen_clubs = set()
+    for item in source_items:
+        club = str(item.get("club") if isinstance(item, dict) else item or "").strip()[:100]
+        normalized_club = club.casefold()
+        if not club or normalized_club in seen_clubs:
+            continue
+        normalized_key_sets.append({"club": club})
+        seen_clubs.add(normalized_club)
+        if len(normalized_key_sets) >= TRAINER_MAX_KEY_SETS:
+            break
+    return normalized_key_sets
+
+
+def parse_trainer_key_sets_from_form(form_data: Any, require_decision: bool = False) -> List[Dict[str, str]]:
+    key_sets = normalize_trainer_key_sets(form_data.getlist("key_set_club"))
+    has_no_key_sets = str(form_data.get("no_key_sets", "") or "").strip() == "1"
+    if require_decision and not key_sets and not has_no_key_sets:
+        raise ValueError("Vul minimaal één club in of vink aan dat je geen sleutelsets hebt.")
+    if key_sets and has_no_key_sets:
+        raise ValueError("Kies tussen sleutelsets invullen en aangeven dat je geen sleutelsets hebt.")
+    return key_sets
+
+
+def trainer_clothing_json_dumps(items: Any) -> str:
+    return json.dumps(normalize_trainer_clothing_items(items), ensure_ascii=False)
+
+
+def trainer_key_sets_json_dumps(key_sets: Any) -> str:
+    return json.dumps(normalize_trainer_key_sets(key_sets), ensure_ascii=False)
+
+
 def normalize_trainer_fee_rows(raw_rows: Any) -> List[Dict[str, Any]]:
     rows = raw_rows if isinstance(raw_rows, list) else []
     normalized_rows = []
@@ -15953,10 +16068,20 @@ def build_budget_summary(season_start_year: int) -> Dict[str, Any]:
 def build_user_payload(row: sqlite3.Row) -> Dict[str, Any]:
     system_role = normalize_system_role(str(row["system_role"] or row["role"] or ""))
     trainer_fees_json = str(row["trainer_fees_json"] or "[]") if "trainer_fees_json" in row.keys() else "[]"
+    clothing_json = str(row["clothing_json"] or "[]") if "clothing_json" in row.keys() else "[]"
+    key_sets_json = str(row["key_sets_json"] or "[]") if "key_sets_json" in row.keys() else "[]"
     try:
         trainer_fees_payload = json.loads(trainer_fees_json)
     except (TypeError, json.JSONDecodeError):
         trainer_fees_payload = []
+    try:
+        clothing_payload = json.loads(clothing_json)
+    except (TypeError, json.JSONDecodeError):
+        clothing_payload = []
+    try:
+        key_sets_payload = json.loads(key_sets_json)
+    except (TypeError, json.JSONDecodeError):
+        key_sets_payload = []
     return {
         "id": str(row["id"]),
         "fullName": str(row["full_name"] or "").strip(),
@@ -15980,6 +16105,11 @@ def build_user_payload(row: sqlite3.Row) -> Dict[str, Any]:
         "bankAccountName": str(row["bank_account_name"] or "").strip() if "bank_account_name" in row.keys() else "",
         "notes": str(row["notes"] or "").strip(),
         "trainerFees": normalize_trainer_fee_rows(trainer_fees_payload),
+        "clothingItems": normalize_trainer_clothing_items(clothing_payload),
+        "keySets": normalize_trainer_key_sets(key_sets_payload),
+        "inviteRequiresClothingKeys": bool(row["invite_requires_clothing_keys"])
+        if "invite_requires_clothing_keys" in row.keys()
+        else False,
         "isAdmin": bool(row["is_admin"]) or role_grants_admin_access(system_role),
         "status": str(row["status"] or "Actief").strip(),
         "createdAt": str(row["created_at"] or "").strip(),
@@ -16028,6 +16158,8 @@ def update_trainer_profile(
     availability_days: List[str],
     is_admin: bool,
     trainer_fees: Optional[List[Dict[str, Any]]] = None,
+    clothing_items: Optional[List[Dict[str, Any]]] = None,
+    key_sets: Optional[List[Dict[str, str]]] = None,
 ) -> None:
     with get_db_connection() as connection:
         if trainer_fees is None:
@@ -16122,6 +16254,42 @@ def update_trainer_profile(
                     profile_id.strip(),
                 ),
             )
+        if clothing_items is not None and key_sets is not None:
+            connection.execute(
+                """
+                UPDATE trainer_profiles
+                SET clothing_json = ?, key_sets_json = ?
+                WHERE id = ?
+                """,
+                (
+                    trainer_clothing_json_dumps(clothing_items),
+                    trainer_key_sets_json_dumps(key_sets),
+                    profile_id.strip(),
+                ),
+            )
+    clear_local_data_cache()
+
+
+def update_trainer_clothing_and_keys(
+    profile_id: str,
+    clothing_items: List[Dict[str, Any]],
+    key_sets: List[Dict[str, str]],
+) -> None:
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE trainer_profiles
+            SET clothing_json = ?, key_sets_json = ?
+            WHERE id = ?
+            """,
+            (
+                trainer_clothing_json_dumps(clothing_items),
+                trainer_key_sets_json_dumps(key_sets),
+                profile_id.strip(),
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("Dit trainerprofiel bestaat niet meer.")
     clear_local_data_cache()
 
 
@@ -16208,6 +16376,9 @@ def load_trainer_profiles() -> List[Dict[str, Any]]:
                     bank_account_name,
                     notes,
                     trainer_fees_json,
+                    clothing_json,
+                    key_sets_json,
+                    invite_requires_clothing_keys,
                     is_admin,
                     status,
                     created_at
@@ -16393,6 +16564,7 @@ def create_trainer_invite_profile(
     bank_account_name: str,
     notes: str,
     is_admin: bool = False,
+    requires_clothing_keys: bool = False,
 ) -> Dict[str, str]:
     created_at = datetime.now().isoformat(timespec="seconds")
     profile_id = f"trainer-{int(time.time() * 1000)}"
@@ -16405,8 +16577,8 @@ def create_trainer_invite_profile(
             INSERT INTO trainer_profiles (
                 id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at,
                 role, member_type, system_role, knvb_license, education, availability_days, phone, address, city, postal_code,
-                bank_account_number, bank_account_name, notes, is_admin, status, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                bank_account_number, bank_account_name, notes, invite_requires_clothing_keys, is_admin, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 profile_id,
@@ -16430,6 +16602,7 @@ def create_trainer_invite_profile(
                 bank_account_number.strip(),
                 bank_account_name.strip(),
                 notes.strip(),
+                1 if requires_clothing_keys else 0,
                 1 if is_admin else 0,
                 "Uitgenodigd",
                 created_at,
@@ -16454,7 +16627,8 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
                 SELECT
                     id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
                     knvb_license, education, availability_days, phone, address, city, postal_code, bank_account_number,
-                    bank_account_name, notes, trainer_fees_json, is_admin, status, created_at
+                    bank_account_name, notes, trainer_fees_json, clothing_json, key_sets_json,
+                    invite_requires_clothing_keys, is_admin, status, created_at
                 FROM trainer_profiles
                 WHERE id = ?
                 LIMIT 1
@@ -16480,7 +16654,8 @@ def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
                 SELECT
                     id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
                     knvb_license, education, availability_days, phone, address, city, postal_code, bank_account_number,
-                    bank_account_name, notes, is_admin, status, created_at
+                    bank_account_name, notes, clothing_json, key_sets_json, invite_requires_clothing_keys,
+                    is_admin, status, created_at
                 FROM trainer_profiles
                 WHERE lower(username) = lower(?)
                 LIMIT 1
@@ -16506,7 +16681,8 @@ def get_user_by_login(login_value: str) -> Optional[Dict[str, Any]]:
                 SELECT
                     id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
                     knvb_license, education, availability_days, phone, address, city, postal_code, bank_account_number,
-                    bank_account_name, notes, is_admin, status, created_at
+                    bank_account_name, notes, clothing_json, key_sets_json, invite_requires_clothing_keys,
+                    is_admin, status, created_at
                 FROM trainer_profiles
                 WHERE lower(email) = lower(?) OR lower(username) = lower(?)
                 ORDER BY is_admin DESC, created_at ASC
@@ -16533,7 +16709,8 @@ def get_user_by_invite_token(invite_token: str) -> Optional[Dict[str, Any]]:
                 SELECT
                     id, full_name, email, username, password_hash, invite_token, invite_expires_at, invite_accepted_at, role, member_type, system_role,
                     knvb_license, education, availability_days, phone, address, city, postal_code, bank_account_number,
-                    bank_account_name, notes, is_admin, status, created_at
+                    bank_account_name, notes, clothing_json, key_sets_json, invite_requires_clothing_keys,
+                    is_admin, status, created_at
                 FROM trainer_profiles
                 WHERE invite_token = ?
                 LIMIT 1
@@ -16549,7 +16726,7 @@ def get_user_by_invite_token(invite_token: str) -> Optional[Dict[str, Any]]:
     return get_cached_local_data("user_by_invite_token", (normalized_invite_token,), loader)
 
 
-def renew_trainer_invite(profile_id: str) -> Dict[str, str]:
+def renew_trainer_invite(profile_id: str, requires_clothing_keys: bool = False) -> Dict[str, Any]:
     invite_token = create_invite_token()
     invite_expires_at = build_invite_expiry()
     with get_db_connection() as connection:
@@ -16560,13 +16737,14 @@ def renew_trainer_invite(profile_id: str) -> Dict[str, str]:
                 invite_token = ?,
                 invite_expires_at = ?,
                 invite_accepted_at = NULL,
+                invite_requires_clothing_keys = ?,
                 status = CASE
                     WHEN password_hash IS NULL OR trim(password_hash) = '' THEN 'Uitgenodigd'
                     ELSE status
                 END
             WHERE id = ?
             """,
-            (invite_token, invite_expires_at, profile_id.strip()),
+            (invite_token, invite_expires_at, 1 if requires_clothing_keys else 0, profile_id.strip()),
         )
         if cursor.rowcount != 1:
             raise ValueError("Dit teamlid bestaat niet meer.")
@@ -16575,6 +16753,7 @@ def renew_trainer_invite(profile_id: str) -> Dict[str, str]:
         "profileId": profile_id.strip(),
         "inviteToken": invite_token,
         "inviteExpiresAt": invite_expires_at,
+        "requiresClothingKeys": requires_clothing_keys,
     }
 
 
@@ -16592,6 +16771,8 @@ def accept_trainer_invite(
     knvb_license: str,
     education: str,
     password: str,
+    clothing_items: Optional[List[Dict[str, Any]]] = None,
+    key_sets: Optional[List[Dict[str, str]]] = None,
 ) -> None:
     username = build_internal_username(full_name, email, exclude_profile_id=profile_id)
     with get_db_connection() as connection:
@@ -16637,6 +16818,19 @@ def accept_trainer_invite(
         )
         if cursor.rowcount != 1:
             raise ValueError("Deze aanmeldlink is niet meer geldig.")
+        if clothing_items is not None and key_sets is not None:
+            connection.execute(
+                """
+                UPDATE trainer_profiles
+                SET clothing_json = ?, key_sets_json = ?
+                WHERE id = ?
+                """,
+                (
+                    trainer_clothing_json_dumps(clothing_items),
+                    trainer_key_sets_json_dumps(key_sets),
+                    profile_id.strip(),
+                ),
+            )
     clear_local_data_cache()
 
 
@@ -19919,6 +20113,32 @@ def invite_accept_page(invite_token: str) -> str:
         education = request.form.get("education", "").strip()
         password = request.form.get("password", "")
         password_confirm = request.form.get("password_confirm", "")
+        clothing_items = None
+        key_sets = None
+        clothing_keys_error = ""
+        if invited_user.get("inviteRequiresClothingKeys"):
+            submitted_clothing_items = [
+                {
+                    "key": key,
+                    "label": label,
+                    "quantity": request.form.get(f"clothing_quantity_{key}", ""),
+                    "size": request.form.get(f"clothing_size_{key}", ""),
+                }
+                for key, label in TRAINER_CLOTHING_OPTIONS
+            ]
+            submitted_key_sets = [
+                {"club": str(club or "").strip()}
+                for club in request.form.getlist("key_set_club")
+                if str(club or "").strip()
+            ]
+            try:
+                clothing_items = parse_trainer_clothing_items_from_form(request.form, require_complete=True)
+                key_sets = parse_trainer_key_sets_from_form(request.form, require_decision=True)
+            except ValueError as exc:
+                clothing_keys_error = str(exc)
+        else:
+            submitted_clothing_items = invited_user.get("clothingItems", [])
+            submitted_key_sets = invited_user.get("keySets", [])
 
         invited_user = {
             **invited_user,
@@ -19934,6 +20154,9 @@ def invite_accept_page(invite_token: str) -> str:
             "bankAccountName": bank_account_name,
             "knvbLicense": knvb_license,
             "education": education,
+            "clothingItems": submitted_clothing_items,
+            "keySets": submitted_key_sets,
+            "noKeySets": str(request.form.get("no_key_sets", "") or "").strip() == "1",
         }
 
         if not all(
@@ -19954,6 +20177,8 @@ def invite_accept_page(invite_token: str) -> str:
             invite_error = "Vul een geldig e-mailadres in."
         elif trainer_email_exists(email, exclude_profile_id=invited_user["id"]):
             invite_error = "Dit e-mailadres is al gekoppeld aan een ander account."
+        elif clothing_keys_error:
+            invite_error = clothing_keys_error
         elif len(password.strip()) < 12:
             invite_error = "Kies een wachtwoord van minimaal 12 tekens."
         elif password != password_confirm:
@@ -19974,6 +20199,8 @@ def invite_accept_page(invite_token: str) -> str:
                     knvb_license,
                     education,
                     password,
+                    clothing_items,
+                    key_sets,
                 )
             except sqlite3.IntegrityError:
                 invite_error = "Dit e-mailadres is al gekoppeld aan een ander account."
@@ -19990,6 +20217,7 @@ def invite_accept_page(invite_token: str) -> str:
         name_parts = invited_user.get("fullName", "").split()
         invited_user["firstName"] = name_parts[0] if name_parts else ""
         invited_user["lastName"] = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+    invited_user.setdefault("noKeySets", False)
 
     return render_template(
         "invite_accept.html",
@@ -19997,6 +20225,7 @@ def invite_accept_page(invite_token: str) -> str:
         invite_can_submit=True,
         invite_error=invite_error,
         invite_success=invite_success,
+        clothing_item_options=normalize_trainer_clothing_items([]),
     )
 
 
@@ -22970,6 +23199,27 @@ def personal_profile_page() -> str:
     form_success = request.args.get("success", "").strip()
 
     if request.method == "POST":
+        if request.form.get("action", "").strip() == "save_clothing_keys" and is_trainer_user(user):
+            try:
+                clothing_items = parse_trainer_clothing_items_from_form(request.form, require_complete=True)
+                key_sets = parse_trainer_key_sets_from_form(request.form)
+                update_trainer_clothing_and_keys(user["id"], clothing_items, key_sets)
+            except ValueError as exc:
+                return redirect(
+                    url_for(
+                        "personal_profile_page",
+                        onderdeel="kleding-en-sleutels",
+                        error=str(exc),
+                    )
+                )
+            return redirect(
+                url_for(
+                    "personal_profile_page",
+                    onderdeel="kleding-en-sleutels",
+                    success="Kleding en sleutels opgeslagen.",
+                )
+            )
+
         if request.form.get("action", "").strip() == "save_planning" and is_trainer_user(user):
             update_trainer_fee_rows(user["id"], parse_trainer_fee_rows_from_form(request.form))
             return redirect(url_for("personal_profile_page", onderdeel="planning", success="Planning opgeslagen."))
@@ -23065,6 +23315,7 @@ def trainers_page() -> str:
         action = request.form.get("action", "").strip()
         if action == "create_invite_link":
             profile_id = request.form.get("profile_id", "").strip()
+            requires_clothing_keys = request.form.get("include_clothing_keys", "").strip() == "1"
             profile = get_user_by_id(profile_id)
             response_as_json = request.form.get("response_format", "").strip() == "json"
             if profile is None or not is_trainer_user(profile):
@@ -23074,7 +23325,10 @@ def trainers_page() -> str:
                 return redirect(url_for("trainers_page", error=message, invite_modal="1"))
 
             try:
-                invite = renew_trainer_invite(profile_id)
+                invite = renew_trainer_invite(
+                    profile_id,
+                    requires_clothing_keys=requires_clothing_keys,
+                )
             except ValueError as exc:
                 if response_as_json:
                     return jsonify({"error": str(exc)}), 404
@@ -23093,6 +23347,7 @@ def trainers_page() -> str:
                         "trainerId": profile_id,
                         "trainerName": profile["fullName"],
                         "expiresAt": invite["inviteExpiresAt"],
+                        "requiresClothingKeys": invite["requiresClothingKeys"],
                     }
                 )
 
@@ -23121,6 +23376,8 @@ def trainers_page() -> str:
             bank_account_name = request.form.get("bank_account_name", "").strip()
             notes = request.form.get("notes", "").strip()
             trainer_fees = parse_trainer_fee_rows_from_form(request.form)
+            clothing_items = None
+            key_sets = None
 
             if not profile_id or not full_name or not email or not system_role:
                 return redirect(url_for("trainers_page", error="Vul alle verplichte velden in."))
@@ -23135,6 +23392,13 @@ def trainers_page() -> str:
 
             if trainer_email_exists(email, exclude_profile_id=profile_id):
                 return redirect(url_for("trainers_page", error="Dit e-mailadres bestaat al."))
+
+            if is_trainer_user({"systemRole": system_role, "role": system_role}):
+                try:
+                    clothing_items = parse_trainer_clothing_items_from_form(request.form, require_complete=True)
+                    key_sets = parse_trainer_key_sets_from_form(request.form)
+                except ValueError as exc:
+                    return redirect(url_for("trainers_page", error=str(exc)))
 
             update_trainer_profile(
                 profile_id,
@@ -23155,6 +23419,8 @@ def trainers_page() -> str:
                 availability_days,
                 is_admin,
                 trainer_fees,
+                clothing_items,
+                key_sets,
             )
             return redirect(url_for("trainers_page", success="Teamlid opgeslagen."))
         if action == "delete":
@@ -23194,6 +23460,10 @@ def trainers_page() -> str:
         bank_account_number = request.form.get("bank_account_number", "").strip()
         bank_account_name = request.form.get("bank_account_name", "").strip()
         notes = request.form.get("notes", "").strip()
+        requires_clothing_keys = (
+            system_role == "Trainer"
+            and request.form.get("include_clothing_keys", "").strip() == "1"
+        )
 
         if not full_name or not email or not system_role or not address or not city or not postal_code or not bank_account_number or not bank_account_name:
             return redirect(url_for("trainers_page", error="Vul alle verplichte velden in."))
@@ -23223,6 +23493,7 @@ def trainers_page() -> str:
                 bank_account_name,
                 notes,
                 is_admin=is_admin,
+                requires_clothing_keys=requires_clothing_keys,
             )
         except sqlite3.IntegrityError:
             return redirect(url_for("trainers_page", error="Dit account kon niet worden opgeslagen. Controleer of het e-mailadres uniek is."))
@@ -23260,6 +23531,7 @@ def trainers_page() -> str:
         trainer_fee_activity_options=TRAINER_FEE_ACTIVITY_OPTIONS,
         trainer_fee_agenda_activity_options=build_trainer_fee_agenda_activity_options(),
         trainer_fee_club_options_by_type=build_trainer_fee_club_options_by_type(),
+        clothing_item_options=normalize_trainer_clothing_items([]),
     )
 
 
