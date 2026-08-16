@@ -4055,7 +4055,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 "Milan Jansen",
                 "milan@example.com",
                 "milan.jansen",
-                None,
+                legacy.hash_password("test-wachtwoord-123"),
                 None,
                 None,
                 None,
@@ -4100,6 +4100,27 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             self.assertIn("IBAN", content)
             self.assertIn("Tenaamstelling", content)
             self.assertIn("KNVB-licentie", content)
+            invited_card = re.search(
+                r'data-trainer-id="trainer-extra-admin-test-1".*?</button>',
+                content,
+                re.DOTALL,
+            )
+            active_card = re.search(
+                r'data-trainer-id="trainer-extra-admin-test-2".*?</button>',
+                content,
+                re.DOTALL,
+            )
+            self.assertIsNotNone(invited_card)
+            self.assertIsNotNone(active_card)
+            self.assertIn('class="team-user-status-dot is-unactivated"', invited_card.group(0))
+            self.assertIn('class="team-user-status-dot"', active_card.group(0))
+            self.assertNotIn('class="team-user-status-dot is-unactivated"', active_card.group(0))
+            styles_path = finders.find("styles.css")
+            self.assertIsNotNone(styles_path)
+            with open(styles_path, encoding="utf-8") as styles_file:
+                styles = styles_file.read()
+            self.assertIn(".team-user-status-dot.is-unactivated", styles)
+            self.assertIn("background: #f59e0b;", styles)
             self.assertEqual(
                 content.count("data-trainer-overview-row"),
                 len(legacy.load_trainer_profiles()),

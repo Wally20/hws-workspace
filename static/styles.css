@@ -6977,6 +6977,10 @@ a.spaarpot-year-row:hover {
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
 }
 
+.team-user-status-dot.is-unactivated {
+  background: #f59e0b;
+}
+
 .team-user-name {
   font-size: 1.02rem;
   font-weight: 800;

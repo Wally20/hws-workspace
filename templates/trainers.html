@@ -73,7 +73,7 @@
       >
         <span class="team-user-avatar-wrap">
           <span class="team-user-avatar">{{ profile.initials }}</span>
-          <span class="team-user-status-dot" aria-hidden="true"></span>
+          <span class="team-user-status-dot{% if not profile.passwordHash %} is-unactivated{% endif %}" aria-hidden="true"></span>
         </span>
         <span class="team-user-name">{{ profile.fullName }}</span>
         <span class="team-user-role">{{ profile.systemRole }}</span>
