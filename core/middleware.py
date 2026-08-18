@@ -39,7 +39,9 @@ class LegacyResponseHeadersMiddleware:
             request.csp_nonce = secrets.token_urlsafe(16)
         response = self.get_response(request)
 
-        if request.path == "/service-worker.js":
+        if response.has_header("Cache-Control"):
+            pass
+        elif request.path == "/service-worker.js":
             response["Cache-Control"] = "public, max-age=60"
         elif request.path == "/manifest.webmanifest":
             response["Cache-Control"] = "public, max-age=3600"

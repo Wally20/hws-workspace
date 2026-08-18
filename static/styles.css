@@ -3526,6 +3526,10 @@ textarea:focus {
   gap: 22px;
 }
 
+.football-days-actions {
+  flex-wrap: wrap;
+}
+
 .football-playbook-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

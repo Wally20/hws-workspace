@@ -22,6 +22,7 @@ import app as legacy
 
 class LegacyDjangoSmokeTests(SimpleTestCase):
     TEST_CSRF_TOKEN = "test-csrf-token-value-with-sufficient-length-1234567890"
+    PPTX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
     def tearDown(self):
         with legacy.get_db_connection() as connection:
@@ -46,6 +47,33 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         match = re.search(r'name="csrf_token" value="([^"]+)"', content)
         self.assertIsNotNone(match)
         return match.group(1)
+
+    def extract_pptx_slide_text(self, content: bytes) -> tuple[list[str], list[str]]:
+        self.assertTrue(content.startswith(b"PK"))
+        with zipfile.ZipFile(BytesIO(content), "r") as archive:
+            self.assertIsNone(archive.testzip())
+            archive_names = set(archive.namelist())
+            self.assertIn("[Content_Types].xml", archive_names)
+            self.assertIn("ppt/presentation.xml", archive_names)
+            self.assertIn("ppt/_rels/presentation.xml.rels", archive_names)
+            slide_names = sorted(
+                (
+                    name
+                    for name in archive_names
+                    if re.fullmatch(r"ppt/slides/slide\d+\.xml", name)
+                ),
+                key=lambda name: int(re.search(r"slide(\d+)\.xml$", name).group(1)),
+            )
+            self.assertTrue(slide_names)
+            presentation_root = legacy.XmlElementTree.fromstring(archive.read("ppt/presentation.xml"))
+            slide_size = presentation_root.find("p:sldSz", legacy.PPTX_XML_NAMESPACES)
+            self.assertIsNotNone(slide_size)
+            self.assertGreater(int(slide_size.get("cx") or 0), int(slide_size.get("cy") or 0))
+            slide_text = []
+            for slide_name in slide_names:
+                slide_root = legacy.XmlElementTree.fromstring(archive.read(slide_name))
+                slide_text.extend(legacy.extract_pptx_slide_text(slide_root))
+        return slide_names, slide_text
 
     def build_authenticated_client(self) -> Client:
         client = Client()
@@ -2007,6 +2035,10 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn('id="footballProgramImportModal"', content)
         self.assertIn('id="confirmFootballProgramImport"', content)
         self.assertIn('data-reuse-playbook="fieldLayout"', content)
+        self.assertIn('id="exportFootballDaysPptx"', content)
+        self.assertIn("Export PowerPoint", content)
+        self.assertIn('data-export-pptx-api="/api/voetbaldagen/export-pptx"', content)
+        self.assertIn('data-fallback-pptx-filename="voetbaldag-draaiboek.pptx"', content)
 
     def test_planning_overview_quick_create_edit_and_pdf_export(self):
         client = self.build_authenticated_client()
@@ -2397,6 +2429,127 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(export_data["registrationCount"], "73")
         self.assertEqual(export_data["coverMeta"], "SC TERSCHELLING | 73 AANMELDINGEN")
 
+    def test_football_days_pptx_export_returns_valid_powerpoint(self):
+        response = self.build_authenticated_client().post(
+            "/api/voetbaldagen/export-pptx",
+            data=json.dumps(
+                {
+                    "playbookType": "voetbaldagen",
+                    "title": "Test draaiboek PowerPoint voetbaldag",
+                    "eventDate": "2026-08-23",
+                    "location": "VV Test",
+                    "clubName": "VV Test",
+                    "registrationCount": "27",
+                    "includeStaff": True,
+                    "includeProgram": True,
+                    "staff": [
+                        {
+                            "name": "Trainer PowerPoint",
+                            "role": "Hoofdtrainer",
+                            "setupTask": "Veld klaarzetten",
+                        }
+                    ],
+                    "program": [
+                        {
+                            "startTime": "09:00",
+                            "endTime": "10:00",
+                            "activity": "PowerPoint voetbaltraining",
+                            "icon": "football",
+                        }
+                    ],
+                    "fieldLayout": [
+                        {
+                            "id": "block-powerpoint",
+                            "title": "Veldvorm PowerPoint",
+                            "exerciseTitle": "Dribbelparcours",
+                            "x": 10,
+                            "y": 15,
+                            "width": 30,
+                            "height": 20,
+                        }
+                    ],
+                    "contingencies": "Bij regen trainen we binnen.",
+                }
+            ),
+            content_type="application/json",
+            HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], self.PPTX_CONTENT_TYPE)
+        self.assertIn(
+            'attachment; filename="vv-test-2026-08-23.pptx"',
+            response["Content-Disposition"],
+        )
+        self.assertEqual(response["Cache-Control"], "no-store")
+        slide_names, slide_text = self.extract_pptx_slide_text(response.content)
+        exported_text = " ".join(slide_text).casefold()
+        self.assertGreaterEqual(len(slide_names), 4)
+        self.assertIn("test draaiboek powerpoint voetbaldag", exported_text)
+        self.assertIn("vv test", exported_text)
+        self.assertIn("trainer powerpoint", exported_text)
+        self.assertIn("powerpoint voetbaltraining", exported_text)
+
+    def test_football_playbook_pptx_exports_require_csrf_token(self):
+        for endpoint in (
+            "/api/voetbaldagen/export-pptx",
+            "/api/samenwerkende-amateurclubs/export-pptx",
+        ):
+            with self.subTest(endpoint=endpoint):
+                response = self.build_authenticated_client().post(
+                    endpoint,
+                    data='{"title":"Geen CSRF"}',
+                    content_type="application/json",
+                    secure=True,
+                )
+
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.json()["error"], "Ongeldig of ontbrekend CSRF-token.")
+
+    def test_football_playbook_pptx_styles_every_line_of_exercise_text(self):
+        from pptx import Presentation
+
+        presentation_bytes = legacy.create_football_days_pptx(
+            {
+                "title": "Draaiboek met meerregelige oefentekst",
+                "playbookType": "voetbaldagen",
+                "coverTitle": "HWS VOETBALDAG",
+                "coverMeta": "VV TEST | 0 AANMELDINGEN",
+                "clubName": "VV Test",
+                "eventDateLabel": "Zondag 23 augustus 2026",
+                "includeStaff": False,
+                "includeProgram": False,
+                "fieldLayout": [
+                    {
+                        "id": "multiline-exercise",
+                        "title": "O1 Techniek",
+                        "exerciseTitle": "Dribbelparcours",
+                        "exerciseDetails": {
+                            "description": "• Eerste regel in wit.\n• Tweede regel blijft ook wit.",
+                        },
+                    }
+                ],
+            }
+        )
+
+        presentation = Presentation(BytesIO(presentation_bytes))
+        matching_shapes = [
+            shape
+            for slide in presentation.slides
+            for shape in slide.shapes
+            if getattr(shape, "has_text_frame", False) and "Eerste regel in wit" in shape.text
+        ]
+        self.assertEqual(len(matching_shapes), 1)
+        text_runs = [
+            run
+            for paragraph in matching_shapes[0].text_frame.paragraphs
+            for run in paragraph.runs
+            if run.text.strip()
+        ]
+        self.assertEqual(len(text_runs), 2)
+        self.assertTrue(all(str(run.font.color.rgb) == "FFFFFF" for run in text_runs))
+
     def test_football_days_overview_defers_registration_count_fetch(self):
         legacy.save_football_days_playbook(
             {
@@ -2501,6 +2654,21 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("/api/samenwerkende-amateurclubs/registration-counts", content)
         self.assertIn(f'action="/samenwerkende-amateurclubs/{created_id}/dupliceren"', content)
 
+        edit_response = self.build_authenticated_client().get(
+            f"/samenwerkende-amateurclubs/{created_id}",
+            secure=True,
+        )
+        self.assertEqual(edit_response.status_code, 200)
+        self.assertContains(edit_response, 'id="exportFootballDaysPptx"')
+        self.assertContains(
+            edit_response,
+            'data-export-pptx-api="/api/samenwerkende-amateurclubs/export-pptx"',
+        )
+        self.assertContains(
+            edit_response,
+            'data-fallback-pptx-filename="samenwerkende-amateurclubs-draaiboek.pptx"',
+        )
+
         export_data = legacy.normalize_football_days_export_payload(created_playbook, "samenwerkende-amateurclubs")
         self.assertEqual(export_data["cycleNumber"], "4")
         self.assertEqual(export_data["coverTitle"], "Test draaiboek samenwerkende amateurclub")
@@ -2513,6 +2681,91 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             [row["date"] for row in export_data["cycleNoTrainingDates"]],
             ["2026-10-19", "2026-10-21"],
         )
+
+    def test_amateur_clubs_pptx_export_contains_cycle_and_trainings(self):
+        response = self.build_authenticated_client().post(
+            "/api/samenwerkende-amateurclubs/export-pptx",
+            data=json.dumps(
+                {
+                    "playbookType": "samenwerkende-amateurclubs",
+                    "title": "HWS - SJO Almen/Harfsen - Cyclus 4",
+                    "cycleNumber": "4",
+                    "cycleStartDate": "2026-09-01",
+                    "cycleEndDate": "2026-12-18",
+                    "cycleNoTrainingDates": [
+                        {
+                            "date": "2026-10-19",
+                            "description": "Herfstvakantie PowerPoint",
+                        }
+                    ],
+                    "location": "SJO Almen/Harfsen",
+                    "clubName": "SJO Almen/Harfsen",
+                    "includeStaff": True,
+                    "includeStaffSetupTasks": True,
+                    "includeProgram": True,
+                    "staff": [
+                        {
+                            "name": "Clubtrainer PowerPoint",
+                            "role": "Trainer",
+                            "setupTask": "Materialen klaarzetten",
+                        }
+                    ],
+                    "program": [
+                        {
+                            "startTime": "17:00",
+                            "endTime": "18:00",
+                            "activity": "Teamtraining PowerPoint",
+                            "icon": "football",
+                        }
+                    ],
+                    "fieldTrainings": [
+                        {
+                            "id": "training-powerpoint",
+                            "name": "Training O13 PowerPoint",
+                            "date": "2026-09-03",
+                            "fieldPeriods": [
+                                {
+                                    "id": "periode-powerpoint",
+                                    "label": "Ronde PowerPoint",
+                                    "startTime": "17:00",
+                                    "endTime": "18:00",
+                                    "fieldLayout": [
+                                        {
+                                            "id": "block-amateurclub-powerpoint",
+                                            "title": "Partijvorm PowerPoint",
+                                            "x": 12,
+                                            "y": 18,
+                                            "width": 28,
+                                            "height": 22,
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ),
+            content_type="application/json",
+            HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], self.PPTX_CONTENT_TYPE)
+        self.assertIn(
+            'attachment; filename="HWS - SJO Almen-Harfsen - Cyclus 4.pptx"',
+            response["Content-Disposition"],
+        )
+        self.assertEqual(response["Cache-Control"], "no-store")
+        slide_names, slide_text = self.extract_pptx_slide_text(response.content)
+        exported_text = " ".join(slide_text).casefold()
+        self.assertGreaterEqual(len(slide_names), 5)
+        self.assertIn("hws - sjo almen/harfsen - cyclus 4", exported_text)
+        self.assertIn("cyclus 4", exported_text)
+        self.assertIn("herfstvakantie powerpoint", exported_text)
+        self.assertIn("clubtrainer powerpoint", exported_text)
+        self.assertIn("teamtraining powerpoint", exported_text)
+        self.assertIn("training o13 powerpoint", exported_text)
 
     def test_amateur_club_playbook_can_be_duplicated_from_overview_tile(self):
         playbook_id = legacy.save_football_days_playbook(

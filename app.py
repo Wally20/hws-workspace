@@ -138,7 +138,9 @@ FOOTBALL_PLAYBOOK_CONTEXTS = {
         "editPathPrefix": "/voetbaldagen",
         "registrationCountsApi": "/api/voetbaldagen/registration-counts",
         "exportPdfApi": "/api/voetbaldagen/export-pdf",
+        "exportPptxApi": "/api/voetbaldagen/export-pptx",
         "fallbackPdfFilename": "voetbaldag-draaiboek.pdf",
+        "fallbackPptxFilename": "voetbaldag-draaiboek.pptx",
     },
     "samenwerkende-amateurclubs": {
         "playbookType": "samenwerkende-amateurclubs",
@@ -164,7 +166,9 @@ FOOTBALL_PLAYBOOK_CONTEXTS = {
         "editPathPrefix": "/samenwerkende-amateurclubs",
         "registrationCountsApi": "/api/samenwerkende-amateurclubs/registration-counts",
         "exportPdfApi": "/api/samenwerkende-amateurclubs/export-pdf",
+        "exportPptxApi": "/api/samenwerkende-amateurclubs/export-pptx",
         "fallbackPdfFilename": "samenwerkende-amateurclubs-draaiboek.pdf",
+        "fallbackPptxFilename": "samenwerkende-amateurclubs-draaiboek.pptx",
     },
 }
 EXERCISE_FIELD_MIN_X = 350000
@@ -9738,6 +9742,11 @@ def football_days_pdf_filename(data: Dict[str, Any]) -> str:
     return f"{base}.pdf"
 
 
+def football_days_pptx_filename(data: Dict[str, Any]) -> str:
+    pdf_filename = football_days_pdf_filename(data)
+    return f"{pdf_filename[:-4]}.pptx" if pdf_filename.lower().endswith(".pdf") else f"{pdf_filename}.pptx"
+
+
 def chunk_items(items: List[Any], size: int) -> List[List[Any]]:
     return [items[index : index + size] for index in range(0, len(items), size)] or [[]]
 
@@ -10993,6 +11002,19 @@ def create_football_days_pdf(data: Dict[str, Any]) -> bytes:
     return buffer.read()
 
 
+def create_football_days_pptx(data: Dict[str, Any]) -> bytes:
+    try:
+        from core.playbook_pptx import create_playbook_presentation
+    except ImportError as exc:
+        raise RuntimeError("De PowerPoint-library ontbreekt. Installeer de packages uit requirements.txt.") from exc
+
+    return create_playbook_presentation(
+        data,
+        background_paths=football_days_background_paths(),
+        logo_path=os.path.join(os.path.dirname(__file__), "static", "assets", "hws-logo.png"),
+    )
+
+
 @app.post("/api/voetbaldagen/export-pdf")
 def api_football_days_export_pdf():
     return export_football_playbook_pdf("voetbaldagen")
@@ -11001,6 +11023,16 @@ def api_football_days_export_pdf():
 @app.post("/api/samenwerkende-amateurclubs/export-pdf")
 def api_amateur_clubs_export_pdf():
     return export_football_playbook_pdf("samenwerkende-amateurclubs")
+
+
+@app.post("/api/voetbaldagen/export-pptx")
+def api_football_days_export_pptx():
+    return export_football_playbook_pptx("voetbaldagen")
+
+
+@app.post("/api/samenwerkende-amateurclubs/export-pptx")
+def api_amateur_clubs_export_pptx():
+    return export_football_playbook_pptx("samenwerkende-amateurclubs")
 
 
 def export_football_playbook_pdf(playbook_type: str):
@@ -11022,6 +11054,31 @@ def export_football_playbook_pdf(playbook_type: str):
         200,
         {
             "Content-Type": "application/pdf",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+def export_football_playbook_pptx(playbook_type: str):
+    context = get_football_playbook_context(playbook_type)
+    access_redirect = require_page_access(context["pageKey"])
+    if access_redirect is not None:
+        return access_redirect
+
+    payload = request.get_json(silent=True) or {}
+    data = normalize_football_days_export_payload(payload, context["playbookType"])
+    try:
+        pptx_bytes = create_football_days_pptx(data)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    filename = football_days_pptx_filename(data)
+    return (
+        pptx_bytes,
+        200,
+        {
+            "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "no-store",
         },

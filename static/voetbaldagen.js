@@ -53,7 +53,8 @@
   const programImportPreviewRows = document.getElementById("footballProgramImportPreviewRows");
   const addProgramImportPreviewRowButton = document.getElementById("addFootballImportPreviewRow");
   const confirmProgramImportButton = document.getElementById("confirmFootballProgramImport");
-  const exportButton = document.getElementById("exportFootballDaysPdf");
+  const exportPdfButton = document.getElementById("exportFootballDaysPdf");
+  const exportPptxButton = document.getElementById("exportFootballDaysPptx");
   const includeStaffSetupTasksInput = document.getElementById("includeStaffSetupTasks");
   const previousPlaybooksElement = document.getElementById("footballPreviousPlaybooks");
   const productSearchInput = document.getElementById("footballProductSearch");
@@ -123,7 +124,9 @@
   const pdfCoverTitle = footballDaysForm?.dataset.coverTitle || "HWS VOETBALDAG";
   const introSubject = footballDaysForm?.dataset.introSubject || "voetbaldag";
   const exportPdfApi = footballDaysForm?.dataset.exportPdfApi || "/api/voetbaldagen/export-pdf";
+  const exportPptxApi = footballDaysForm?.dataset.exportPptxApi || "/api/voetbaldagen/export-pptx";
   const fallbackPdfFilename = footballDaysForm?.dataset.fallbackPdfFilename || "voetbaldag-draaiboek.pdf";
+  const fallbackPptxFilename = footballDaysForm?.dataset.fallbackPptxFilename || "voetbaldag-draaiboek.pptx";
   let previousPlaybooks = [];
   let exerciseLibrary = [];
   let fieldLayout = [];
@@ -3258,14 +3261,14 @@
     document.body.append(printRoot);
   };
 
-  const getDownloadFilename = (response) => {
+  const getDownloadFilename = (response, fallbackFilename) => {
     const disposition = response.headers.get("Content-Disposition") || "";
     const filenameStar = disposition.match(/filename\*=UTF-8''([^;]+)/i);
     if (filenameStar) {
       return decodeURIComponent(filenameStar[1].replace(/"/g, ""));
     }
     const filename = disposition.match(/filename="?([^";]+)"?/i);
-    return filename ? filename[1] : fallbackPdfFilename;
+    return filename ? filename[1] : fallbackFilename;
   };
 
   const downloadBlob = (blob, filename) => {
@@ -3279,15 +3282,15 @@
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const exportFootballDaysPdf = async () => {
-    if (!exportButton) {
+  const exportFootballDays = async (button, endpoint, fallbackFilename, formatLabel) => {
+    if (!button) {
       return;
     }
-    const originalText = exportButton.textContent;
-    exportButton.disabled = true;
-    exportButton.textContent = "PDF maken...";
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = `${formatLabel} maken...`;
     try {
-      const response = await fetch(exportPdfApi, {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -3297,16 +3300,24 @@
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error || "PDF exporteren mislukt.");
+        throw new Error(payload.error || `${formatLabel} exporteren mislukt.`);
       }
-      downloadBlob(await response.blob(), getDownloadFilename(response));
+      downloadBlob(await response.blob(), getDownloadFilename(response, fallbackFilename));
     } catch (error) {
-      window.alert(error.message || "PDF exporteren mislukt.");
-      console.error("PDF exporteren mislukt", error);
+      window.alert(error.message || `${formatLabel} exporteren mislukt.`);
+      console.error(`${formatLabel} exporteren mislukt`, error);
     } finally {
-      exportButton.disabled = false;
-      exportButton.textContent = originalText;
+      button.disabled = false;
+      button.textContent = originalText;
     }
+  };
+
+  const exportFootballDaysPdf = () => {
+    exportFootballDays(exportPdfButton, exportPdfApi, fallbackPdfFilename, "PDF");
+  };
+
+  const exportFootballDaysPptx = () => {
+    exportFootballDays(exportPptxButton, exportPptxApi, fallbackPptxFilename, "PowerPoint");
   };
 
   addStaffButton?.addEventListener("click", () => {
@@ -3429,7 +3440,8 @@
     refreshRemoveButtons(container, "[data-football-program-row]");
   });
 
-  exportButton?.addEventListener("click", exportFootballDaysPdf);
+  exportPdfButton?.addEventListener("click", exportFootballDaysPdf);
+  exportPptxButton?.addEventListener("click", exportFootballDaysPptx);
 
   window.addEventListener("afterprint", removePrintRoot);
 

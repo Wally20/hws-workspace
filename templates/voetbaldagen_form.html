@@ -10,6 +10,7 @@
     </div>
     <div class="football-days-actions">
       <a href="{{ page_context.overviewPath }}" class="subtle-button">Overzicht</a>
+      <button type="button" class="subtle-button subtle-button-strong" id="exportFootballDaysPptx">Export PowerPoint</button>
       <button type="button" class="refresh-button" id="exportFootballDaysPdf">Export PDF</button>
     </div>
   </header>
@@ -28,7 +29,9 @@
     data-cover-title="{{ page_context.pdfCoverTitle }}"
     data-intro-subject="{{ page_context.introSubject }}"
     data-export-pdf-api="{{ page_context.exportPdfApi }}"
+    data-export-pptx-api="{{ page_context.exportPptxApi }}"
     data-fallback-pdf-filename="{{ page_context.fallbackPdfFilename }}"
+    data-fallback-pptx-filename="{{ page_context.fallbackPptxFilename }}"
   >
     <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
 

@@ -184,6 +184,11 @@ urlpatterns = [
         name="api_football_days_export_pdf",
     ),
     path(
+        "api/voetbaldagen/export-pptx",
+        views.api_football_days_export_pptx,
+        name="api_football_days_export_pptx",
+    ),
+    path(
         "api/samenwerkende-amateurclubs/registration-counts",
         views.api_amateur_clubs_registration_counts,
         name="api_amateur_clubs_registration_counts",
@@ -192,6 +197,11 @@ urlpatterns = [
         "api/samenwerkende-amateurclubs/export-pdf",
         views.api_amateur_clubs_export_pdf,
         name="api_amateur_clubs_export_pdf",
+    ),
+    path(
+        "api/samenwerkende-amateurclubs/export-pptx",
+        views.api_amateur_clubs_export_pptx,
+        name="api_amateur_clubs_export_pptx",
     ),
     path("api/planning/export-pdf", views.api_planning_export_pdf, name="api_planning_export_pdf"),
     path("api/planning/export-png", views.api_planning_export_png, name="api_planning_export_png"),
