@@ -280,6 +280,7 @@ def legacy_render_template(template_name: str, **context: Any) -> HttpResponse:
         "workspace_navigation_pages": legacy.get_workspace_navigation_pages_for_user(user),
         "current_workspace_navigation_path": legacy.get_current_workspace_navigation_path(user, request.path),
         "current_workspace_main_navigation_path": legacy.get_current_workspace_main_navigation_path(user, request.path),
+        "current_workspace_main_navigation_title": legacy.get_current_workspace_main_navigation_title(user, request.path),
         "can_view_revenue": bool(user and user.get("isAdmin")),
         **context,
     }

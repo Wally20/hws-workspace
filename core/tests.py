@@ -1560,6 +1560,29 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             legacy.get_current_workspace_main_navigation_path(trainer, "/leads"),
             "/marketing",
         )
+        self.assertEqual(
+            legacy.get_current_workspace_main_navigation_title(trainer, "/materialen"),
+            "Management",
+        )
+
+    def test_subpage_keeps_its_parent_navigation_active_and_labelled(self):
+        client = self.build_authenticated_client()
+
+        response = client.get("/materialen", secure=True)
+        content = response.content.decode("utf-8")
+        sidebar_start = content.index('<aside class="sidebar"')
+        sidebar_end = content.index("</aside>", sidebar_start)
+        sidebar = content[sidebar_start:sidebar_end]
+        compact_start = content.index('<div class="workspace-navigation"')
+        compact_end = content.index("</button>", compact_start)
+        compact_navigation = content[compact_start:compact_end]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(sidebar.count("nav-item-active"), 1)
+        self.assertIn('class="nav-item nav-item-active" href="/management"', sidebar)
+        self.assertIn("<small>Hoofdpagina</small>", compact_navigation)
+        self.assertIn("<strong>Management</strong>", compact_navigation)
+        self.assertNotIn("<strong>Materialen</strong>", compact_navigation)
 
     def test_trainer_agenda_only_renders_assigned_appointments_and_is_read_only(self):
         trainer = {

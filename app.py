@@ -975,6 +975,19 @@ def get_current_workspace_main_navigation_path(user: Optional[Dict[str, Any]], c
     return WORKSPACE_MAIN_PATH_BY_SECTION.get(current_page["section"], "")
 
 
+def get_current_workspace_main_navigation_title(user: Optional[Dict[str, Any]], current_path: str) -> str:
+    """Keep the compact navigation label on its owning overview page."""
+    main_path = get_current_workspace_main_navigation_path(user, current_path)
+    return next(
+        (
+            page["title"]
+            for page in get_workspace_navigation_pages_for_user(user)
+            if page["path"] == main_path
+        ),
+        "",
+    )
+
+
 def get_asset_version() -> str:
     latest_mtime = 0
     static_root = os.path.join(os.path.dirname(__file__), "static")
@@ -1518,6 +1531,7 @@ def inject_navigation_permissions():
         "workspace_navigation_pages": get_workspace_navigation_pages_for_user(user),
         "current_workspace_navigation_path": get_current_workspace_navigation_path(user, request.path),
         "current_workspace_main_navigation_path": get_current_workspace_main_navigation_path(user, request.path),
+        "current_workspace_main_navigation_title": get_current_workspace_main_navigation_title(user, request.path),
         "can_view_revenue": bool(user and user.get("isAdmin")),
     }
 
