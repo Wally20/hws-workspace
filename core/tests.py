@@ -105,7 +105,15 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertContains(profile_response, 'class="sidebar-nav-logout-form"')
         self.assertContains(profile_response, 'id="workspaceNavigation"')
         self.assertContains(profile_response, 'id="workspaceNavigationMenu"')
-        self.assertContains(profile_response, 'class="workspace-nav-dropdown-link is-active"')
+        self.assertContains(profile_response, 'aria-label="Hoofdpagina\'s"')
+        self.assertContains(profile_response, 'class="workspace-navigation-link is-active"')
+        navigation_menu = profile_content[
+            profile_content.index('id="workspaceNavigationMenu"'):profile_content.index("</nav>", profile_content.index('id="workspaceNavigationMenu"'))
+        ]
+        self.assertIn('href="/management"', navigation_menu)
+        self.assertIn('href="/oefenstof"', navigation_menu)
+        self.assertNotIn('href="/materialen"', navigation_menu)
+        self.assertNotIn('href="/oefeningen-bibliotheek"', navigation_menu)
         self.assertEqual(profile_content.count('action="/logout"'), 2)
         self.assertLess(profile_content.index("<span>Profiel</span>"), profile_content.index('action="/logout"'))
 
@@ -1499,12 +1507,12 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertIn("dashboard", legacy.get_visible_pages_for_user(trainer))
         self.assertIn("agenda", legacy.get_visible_pages_for_user(trainer))
-        self.assertNotIn("management", legacy.get_visible_pages_for_user(trainer))
+        self.assertIn("management", legacy.get_visible_pages_for_user(trainer))
         self.assertNotIn("planning", legacy.get_visible_pages_for_user(trainer))
-        self.assertNotIn("marketing", legacy.get_visible_pages_for_user(trainer))
+        self.assertIn("marketing", legacy.get_visible_pages_for_user(trainer))
         self.assertEqual(legacy.get_default_post_login_path(trainer), "/")
 
-    def test_trainer_cannot_open_management_or_marketing_pages(self):
+    def test_trainer_can_open_overview_pages_but_not_restricted_detail_pages(self):
         trainer = {
             "id": "trainer-123",
             "fullName": "Test Trainer",
@@ -1518,10 +1526,40 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             marketing_response = Client().get("/marketing", secure=True)
             api_management_response = Client().get("/management/api", secure=True)
 
-        self.assertRedirects(management_response, "/", fetch_redirect_response=False)
+        self.assertEqual(management_response.status_code, 200)
+        self.assertContains(management_response, "Materialen")
+        self.assertContains(management_response, "Aanmeldingen")
+        self.assertNotContains(management_response, "Planning</span>")
         self.assertRedirects(planning_response, "/", fetch_redirect_response=False)
-        self.assertRedirects(marketing_response, "/", fetch_redirect_response=False)
+        self.assertEqual(marketing_response.status_code, 200)
+        self.assertContains(marketing_response, "Leads")
+        self.assertNotContains(marketing_response, "Contentplanning")
         self.assertRedirects(api_management_response, "/", fetch_redirect_response=False)
+
+    def test_global_navigation_contains_only_overview_pages(self):
+        trainer = {"id": "trainer-123", "isAdmin": False, "systemRole": "Trainer"}
+
+        navigation_paths = [
+            page["path"]
+            for page in legacy.get_workspace_navigation_pages_for_user(trainer)
+        ]
+
+        self.assertEqual(
+            navigation_paths,
+            ["/", "/agenda", "/draaiboeken", "/management", "/oefenstof", "/marketing", "/profiel"],
+        )
+        self.assertEqual(
+            legacy.get_current_workspace_main_navigation_path(trainer, "/materialen"),
+            "/management",
+        )
+        self.assertEqual(
+            legacy.get_current_workspace_main_navigation_path(trainer, "/trainingen/maker"),
+            "/oefenstof",
+        )
+        self.assertEqual(
+            legacy.get_current_workspace_main_navigation_path(trainer, "/leads"),
+            "/marketing",
+        )
 
     def test_trainer_agenda_only_renders_assigned_appointments_and_is_read_only(self):
         trainer = {

@@ -704,7 +704,7 @@ WORKSPACE_SEARCH_PAGES = (
         "key": "leads",
         "title": "Leads",
         "path": "/leads",
-        "section": "Management",
+        "section": "Marketing",
         "description": "Leads en geblokkeerde e-mails beheren.",
         "keywords": ("contacten", "emails", "marketing", "aanvragen"),
     },
@@ -894,6 +894,24 @@ WORKSPACE_SEARCH_PAGES = (
     },
 )
 
+WORKSPACE_MAIN_NAVIGATION_PATHS = (
+    "/",
+    "/agenda",
+    "/draaiboeken",
+    "/management",
+    "/oefenstof",
+    "/financien",
+    "/marketing",
+    "/profiel",
+)
+WORKSPACE_MAIN_PATH_BY_SECTION = {
+    "Draaiboeken": "/draaiboeken",
+    "Management": "/management",
+    "Oefenstof": "/oefenstof",
+    "Financiën": "/financien",
+    "Marketing": "/marketing",
+}
+
 
 def get_workspace_search_pages_for_user(user: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
     visible_pages = get_visible_pages_for_user(user)
@@ -910,6 +928,19 @@ def get_workspace_search_pages_for_user(user: Optional[Dict[str, Any]]) -> List[
     ]
 
 
+def get_workspace_navigation_pages_for_user(user: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return only the overview pages that belong in the global navigation."""
+    pages_by_path = {
+        page["path"]: page
+        for page in get_workspace_search_pages_for_user(user)
+    }
+    return [
+        pages_by_path[path]
+        for path in WORKSPACE_MAIN_NAVIGATION_PATHS
+        if path in pages_by_path
+    ]
+
+
 def get_current_workspace_navigation_path(user: Optional[Dict[str, Any]], current_path: str) -> str:
     """Return the most specific menu path for overview and detail pages."""
     available_paths = [page["path"] for page in get_workspace_search_pages_for_user(user)]
@@ -923,6 +954,25 @@ def get_current_workspace_navigation_path(user: Optional[Dict[str, Any]], curren
         if path != "/" and current_path.startswith(f"{path}/")
     ]
     return max(prefix_matches, key=len, default="")
+
+
+def get_current_workspace_main_navigation_path(user: Optional[Dict[str, Any]], current_path: str) -> str:
+    """Map a detail page to the overview page that owns it in the main menu."""
+    current_navigation_path = get_current_workspace_navigation_path(user, current_path)
+    if current_navigation_path in {"/", "/agenda", "/profiel"}:
+        return current_navigation_path
+
+    current_page = next(
+        (
+            page
+            for page in get_workspace_search_pages_for_user(user)
+            if page["path"] == current_navigation_path
+        ),
+        None,
+    )
+    if current_page is None:
+        return ""
+    return WORKSPACE_MAIN_PATH_BY_SECTION.get(current_page["section"], "")
 
 
 def get_asset_version() -> str:
@@ -1465,7 +1515,9 @@ def inject_navigation_permissions():
     return {
         "visible_pages": get_visible_pages_for_user(user),
         "workspace_search_pages": get_workspace_search_pages_for_user(user),
+        "workspace_navigation_pages": get_workspace_navigation_pages_for_user(user),
         "current_workspace_navigation_path": get_current_workspace_navigation_path(user, request.path),
+        "current_workspace_main_navigation_path": get_current_workspace_main_navigation_path(user, request.path),
         "can_view_revenue": bool(user and user.get("isAdmin")),
     }
 
@@ -13823,6 +13875,19 @@ def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
     visible_pages = {"materialen", "orders", "leads", "draaiboeken", "voetbaldagen", "checklists", "kleedkamerbordjes", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "profile"}
     if is_trainer_user(user):
         visible_pages.update({"dashboard", "agenda"})
+
+    # Users enter detail pages through their overview tiles. Whenever one of
+    # those tiles is available, its overview must be available in the menu too.
+    overview_children = {
+        "draaiboeken": {"voetbaldagen", "checklists", "kleedkamerbordjes", "samenwerkende-amateurclubs"},
+        "management": {"planning", "api", "customer-satisfaction", "materialen", "begroting", "voorstellen-maker", "overeenkomsten", "orders", "trainers"},
+        "oefenstof": {"oefeningen-bibliotheek", "trainingen", "exercise-videos"},
+        "financien": {"revenue", "spaarpot", "trainer-fees"},
+        "marketing": {"social-media", "content", "leads"},
+    }
+    for overview_page, child_pages in overview_children.items():
+        if visible_pages.intersection(child_pages):
+            visible_pages.add(overview_page)
     return visible_pages
 
 
