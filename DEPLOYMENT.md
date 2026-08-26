@@ -16,7 +16,7 @@ Deze app gebruikt:
 - SQLite database: `data/app.db`
 - Templates: `templates/`
 - Static files: `static/`
-- Uploads/media-achtig pad: `static/uploads/`
+- Persistente lokale uploads: `/var/lib/overzicht/uploads/` via `LOCAL_UPLOAD_ROOT`
 
 Gebruik in productie altijd een `DATA_DIR` buiten de git-worktree, bijvoorbeeld `/var/lib/overzicht/data`. Dan kunnen SQLite en sessiebestanden vrij schrijven zonder toekomstige `git pull` blokkades.
 
@@ -32,6 +32,7 @@ DJANGO_DEBUG=0
 DJANGO_ALLOWED_HOSTS=www.workspace.hwsvoetbalschool.nl
 DJANGO_CSRF_TRUSTED_ORIGINS=https://www.workspace.hwsvoetbalschool.nl
 DATA_DIR=/var/lib/overzicht/data
+LOCAL_UPLOAD_ROOT=/var/lib/overzicht/uploads
 SQLITE_BUSY_TIMEOUT_MS=30000
 STORAGE_BACKUP_RETENTION=7
 FLASK_SECRET_KEY=<lange-random-secret>
@@ -110,7 +111,7 @@ Gebruik het startscript, zodat opslaginitialisatie en de voorafgaande SQLite-bac
   --bind 127.0.0.1:8011 \
   --access-logfile - \
   --error-logfile - \
-  --timeout 120
+  --timeout 7200
 ```
 
 ## 4. Voorstel `systemd` service
@@ -133,7 +134,7 @@ ExecStart=/srv/overzicht/scripts/start.sh \
     --bind 127.0.0.1:8011 \
     --access-logfile - \
     --error-logfile - \
-    --timeout 120
+    --timeout 7200
 Restart=always
 RestartSec=5
 
@@ -163,7 +164,15 @@ server {
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    client_max_body_size 250M;
+    client_max_body_size 5000M;
+
+    location /static/uploads/ {
+        alias /var/lib/overzicht/uploads/;
+        access_log off;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800";
+        add_header X-Content-Type-Options "nosniff" always;
+    }
 
     location /static/ {
         alias /srv/overzicht/staticfiles/;
@@ -174,6 +183,9 @@ server {
 
     location / {
         proxy_pass http://127.0.0.1:8011;
+        proxy_read_timeout 7200s;
+        proxy_send_timeout 7200s;
+        proxy_connect_timeout 300s;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -189,7 +201,7 @@ server {
 ## 6. Static/media mappen
 
 - Static root voor `nginx`: `/srv/overzicht/staticfiles/`
-- Uploads/media-achtig pad: `/srv/overzicht/static/uploads/`
+- Persistente lokale uploads: `/var/lib/overzicht/uploads/`
 - SQLite data: `/var/lib/overzicht/data/`
 - Databasebestand: `/var/lib/overzicht/data/app.db`
 - Aanbevolen limiet voor mapuploads: `CONTENT_UPLOAD_MAX_REQUEST_MB=250` en `CONTENT_UPLOAD_MAX_FILES=500`
@@ -203,7 +215,7 @@ Voorbeeld met een nieuwe map `/srv/overzicht` en subdomein `www.workspace.hwsvoe
 ### Servermap en bestanden
 
 ```bash
-sudo mkdir -p /srv/overzicht /var/lib/overzicht/data
+sudo mkdir -p /srv/overzicht /var/lib/overzicht/data /var/lib/overzicht/uploads
 sudo chown -R $USER:www-data /srv/overzicht /var/lib/overzicht
 rsync -av --delete /pad/naar/lokale/Overzicht/ /srv/overzicht/
 cd /srv/overzicht
@@ -228,15 +240,14 @@ nano .env
 ### Rechten voor database en uploads
 
 ```bash
-mkdir -p static/uploads
-sudo mkdir -p /var/lib/overzicht/data
+sudo mkdir -p /var/lib/overzicht/data /var/lib/overzicht/uploads
 sudo chown -R www-data:www-data /srv/overzicht /var/lib/overzicht
 sudo find /srv/overzicht -type d -exec chmod 755 {} \;
 sudo find /srv/overzicht -type f -exec chmod 644 {} \;
 sudo chmod 755 /srv/overzicht/scripts/*.sh
 sudo find /var/lib/overzicht -type d -exec chmod 755 {} \;
 sudo find /var/lib/overzicht -type f -exec chmod 644 {} \;
-sudo chmod 775 /var/lib/overzicht/data /srv/overzicht/static/uploads
+sudo chmod 775 /var/lib/overzicht/data /var/lib/overzicht/uploads
 ```
 
 ### Eenmalige app-initialisatie
@@ -283,7 +294,7 @@ source .venv/bin/activate
   --bind 127.0.0.1:8011 \
   --access-logfile - \
   --error-logfile - \
-  --timeout 120
+  --timeout 7200
 ```
 
 ### `systemd` activeren
@@ -327,6 +338,7 @@ cd /srv/overzicht
 source .venv/bin/activate
 pip install -r requirements.txt
 ./scripts/check_release.sh
+.venv/bin/python manage.py collectstatic --noinput
 sudo systemctl restart overzicht
 sudo systemctl reload nginx
 ```
@@ -358,7 +370,7 @@ Let extra op:
 - gebruik niet dezelfde `systemd` servicenaam
 - gebruik niet dezelfde projectmap of virtualenv
 - gebruik niet dezelfde domeinnaam of `server_name`
-- zorg dat `www-data` schrijfrechten heeft op `data/` en `static/uploads/`
+- zorg dat `www-data` schrijfrechten heeft op `DATA_DIR` en `LOCAL_UPLOAD_ROOT`
 - deze app gebruikt SQLite; dat is prima voor lichte interne tooling, maar minder geschikt voor zware gelijktijdige schrijfacties
 
 ## 10. Direct uitvoerbaar stappenplan
@@ -377,12 +389,12 @@ pip install -r requirements.txt
 cp .env.example .env
 nano .env
 
-mkdir -p data static/uploads
+sudo mkdir -p /var/lib/overzicht/data /var/lib/overzicht/uploads
 sudo chown -R www-data:www-data /srv/overzicht
 sudo find /srv/overzicht -type d -exec chmod 755 {} \;
 sudo find /srv/overzicht -type f -exec chmod 644 {} \;
 sudo chmod 755 /srv/overzicht/scripts/*.sh
-sudo chmod 775 /srv/overzicht/data /srv/overzicht/static/uploads
+sudo chmod 775 /var/lib/overzicht/data /var/lib/overzicht/uploads
 
 ./scripts/check_release.sh
 .venv/bin/python manage.py collectstatic --noinput
@@ -393,7 +405,7 @@ sudo chmod 775 /srv/overzicht/data /srv/overzicht/static/uploads
   --bind 127.0.0.1:8011 \
   --access-logfile - \
   --error-logfile - \
-  --timeout 120
+  --timeout 7200
 ```
 
 Daarna:

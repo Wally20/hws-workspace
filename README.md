@@ -75,7 +75,7 @@ DATA_DIR=/var/lib/overzicht/data
 Zorg op je server voor:
 
 1. Python 3.13.15 met de vastgezette packages uit `requirements.txt`.
-2. Schrijfrechten voor de app-gebruiker op `DATA_DIR` en `static/uploads/`.
+2. Schrijfrechten voor de app-gebruiker op `DATA_DIR` en `LOCAL_UPLOAD_ROOT`.
 3. Dat `DATA_DIR` meegenomen wordt in je back-ups, inclusief `app.db`.
 4. Je `.env` met:
    - `ECWID_STORE_ID`

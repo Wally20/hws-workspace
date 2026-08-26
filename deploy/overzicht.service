@@ -13,7 +13,7 @@ ExecStart=/srv/overzicht/scripts/start.sh \
     --bind 127.0.0.1:8011 \
     --access-logfile - \
     --error-logfile - \
-    --timeout 120
+    --timeout 7200
 Restart=always
 RestartSec=5
 
