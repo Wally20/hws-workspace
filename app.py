@@ -4493,7 +4493,10 @@ def configure_storage_database() -> None:
 
 def bootstrap_seed_data_files() -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
-    if os.path.abspath(DATA_DIR) == os.path.abspath(BUNDLED_DATA_DIR):
+    if (
+        os.path.abspath(DATA_DIR) == os.path.abspath(BUNDLED_DATA_DIR)
+        or not get_env_bool("BOOTSTRAP_BUNDLED_DATA", default=True)
+    ):
         return
 
     for filename in ("app.db", "dashboard_events.json", "agenda_trainings.json"):

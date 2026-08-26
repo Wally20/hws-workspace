@@ -64,6 +64,12 @@ class StorageHardeningTests(SimpleTestCase):
                 legacy.SQLITE_BUSY_TIMEOUT_MS,
             )
 
+    def test_release_check_can_disable_bundled_data_bootstrap(self):
+        with patch.dict(os.environ, {"BOOTSTRAP_BUNDLED_DATA": "0"}):
+            legacy.bootstrap_seed_data_files()
+
+        self.assertFalse(Path(legacy.DATABASE_PATH).exists())
+
     def test_local_cache_fingerprint_tracks_committed_wal_writes(self):
         legacy.configure_storage_database()
         with legacy.get_db_connection() as connection:
