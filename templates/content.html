@@ -118,7 +118,13 @@
                   <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
                   <input type="hidden" name="action" value="delete_album">
                   <input type="hidden" name="album_id" value="{{ album.id }}">
-                  <button type="submit" class="subtle-button action-small">Verwijder album</button>
+                  <button
+                    type="submit"
+                    class="subtle-button action-small"
+                    data-confirm-submit
+                    data-confirm-message="Weet je zeker dat je dit fotoalbum naar de prullenbak wilt verplaatsen? De foto's blijven bewaard."
+                    data-confirm-value="delete:content-album:{{ album.id }}"
+                  >Naar prullenbak</button>
                 </form>
               {% endif %}
             </div>
@@ -130,6 +136,36 @@
     </div>
   </section>
 
+  {% if can_manage_content and deleted_albums %}
+    <section class="summary-card feature-list-card old-function-tile">
+      <div class="feature-list-head">
+        <div>
+          <p class="panel-title">Prullenbak</p>
+          <p class="feature-list-subtitle">Albums en bijbehorende bestanden blijven bewaard totdat je ze herstelt.</p>
+        </div>
+        <span class="pill">{{ deleted_albums|length }} album{{ 's' if deleted_albums|length != 1 else '' }}</span>
+      </div>
+      <div class="feature-record-list">
+        {% for album in deleted_albums %}
+          <article class="feature-record old-function-card">
+            <div class="feature-record-head">
+              <div>
+                <h2>{{ album.title }}</h2>
+                <p class="feature-record-meta">Verwijderd op {{ album.deletedAtDisplay }} · {{ album.photoCount }} bewaarde foto{{ 's' if album.photoCount != 1 else '' }}</p>
+              </div>
+              <form method="post" action="/content">
+                <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+                <input type="hidden" name="action" value="restore_album">
+                <input type="hidden" name="album_id" value="{{ album.id }}">
+                <button type="submit" class="subtle-button action-small">Herstel album</button>
+              </form>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
   {% if content_debug %}
     <section class="summary-card feature-list-card old-function-tile">
       <div class="feature-list-head">
@@ -140,6 +176,8 @@
         <div class="feature-record-pills">
           <span class="pill">{{ content_debug.albums }} albums</span>
           <span class="pill">{{ content_debug.photos }} foto's</span>
+          <span class="pill">{{ content_debug.deletedAlbums }} albums in prullenbak</span>
+          <span class="pill">{{ content_debug.deletedPhotos }} foto's in prullenbak</span>
           <span class="pill">{{ content_debug.exercises }} oefeningen</span>
           <span class="pill">{{ content_debug.faqItems }} FAQ</span>
           <span class="pill">{{ content_debug.trainingPlans }} trainingsplannen</span>

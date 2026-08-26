@@ -94,7 +94,7 @@
                       <input type="hidden" name="selected_month" value="{{ fee_summary.selectedMonth or '' }}">
                       <input type="hidden" name="paid" value="0">
                       <label title="Overgemaakt">
-                        <input type="checkbox" name="paid" value="1" {% if month.paid %}checked{% endif %} onchange="this.form.submit()">
+                        <input type="checkbox" name="paid" value="1" data-auto-submit="1" {% if month.paid %}checked{% endif %}>
                         <span class="visually-hidden">Overgemaakt</span>
                       </label>
                     </form>

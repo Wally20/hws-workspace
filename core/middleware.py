@@ -38,8 +38,13 @@ class LegacyResponseHeadersMiddleware:
         if not getattr(request, "csp_nonce", ""):
             request.csp_nonce = secrets.token_urlsafe(16)
         response = self.get_response(request)
+        is_public_invite = request.path.startswith("/uitnodiging/")
 
-        if response.has_header("Cache-Control"):
+        if is_public_invite:
+            response["Cache-Control"] = "no-store, max-age=0"
+            response["Pragma"] = "no-cache"
+            response["Expires"] = "0"
+        elif response.has_header("Cache-Control"):
             pass
         elif request.path == "/service-worker.js":
             response["Cache-Control"] = "public, max-age=60"
@@ -75,6 +80,9 @@ class LegacyResponseHeadersMiddleware:
         response.setdefault("X-Frame-Options", "DENY")
         response.setdefault("Permissions-Policy", "camera=(), geolocation=(), microphone=()")
         response.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        if is_public_invite:
+            response["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+            response["Referrer-Policy"] = "no-referrer"
         if request.is_secure():
             response.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response

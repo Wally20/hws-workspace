@@ -152,7 +152,14 @@
                     </div>
                   </div>
                 </a>
-                <form method="post" action="/voorstellen-maker" class="proposal-tile-actions" onsubmit="return confirm('Weet je zeker dat je dit voorstel wilt verwijderen?');">
+                <form
+                  method="post"
+                  action="/voorstellen-maker"
+                  class="proposal-tile-actions"
+                  data-confirm-submit
+                  data-confirm-message="Weet je zeker dat je dit voorstel wilt verwijderen?"
+                  data-confirm-value="delete:proposal:{{ proposal.id }}"
+                >
                   <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
                   <input type="hidden" name="action" value="delete_proposal">
                   <input type="hidden" name="proposal_id" value="{{ proposal.id }}">

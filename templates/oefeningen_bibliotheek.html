@@ -9,15 +9,17 @@
         <h1>Oefeningen Bibliotheek</h1>
         <p class="welcome-line">Bekijk oefeningen als tegels en open de volledige trainingskaart.</p>
       </div>
-      <form method="post" action="/oefeningen-bibliotheek" enctype="multipart/form-data" class="exercise-import-form">
-        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
-        <input type="hidden" name="action" value="preview">
-        <label class="subtle-button exercise-file-button">
-          <input type="file" name="exercise_file" accept=".pptx,.docx" required>
-          Bestand kiezen
-        </label>
-        <button type="submit" class="refresh-button">Importeren</button>
-      </form>
+      {% if can_manage_exercises %}
+        <form method="post" action="/oefeningen-bibliotheek" enctype="multipart/form-data" class="exercise-import-form">
+          <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+          <input type="hidden" name="action" value="preview">
+          <label class="subtle-button exercise-file-button">
+            <input type="file" name="exercise_file" accept=".pptx,.docx" required>
+            Bestand kiezen
+          </label>
+          <button type="submit" class="refresh-button">Importeren</button>
+        </form>
+      {% endif %}
     </div>
   </header>
 
@@ -29,7 +31,7 @@
     <section class="notice trainers-notice trainers-notice-error">{{ error }}</section>
   {% endif %}
 
-  {% if import_preview %}
+  {% if can_manage_exercises and import_preview %}
     <section class="summary-card exercise-import-preview">
       <form method="post" action="/oefeningen-bibliotheek" class="exercise-import-preview-form">
         <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
@@ -126,6 +128,8 @@
         {% endfor %}
       </div>
 
+      <p class="exercise-result-status" id="exerciseResultStatus" aria-live="polite"></p>
+
       <div class="exercise-tile-grid" id="exerciseTileGrid">
         {% for exercise in exercises %}
           <button
@@ -155,6 +159,7 @@
       </div>
 
       <p class="exercise-filter-empty" id="exerciseFilterEmpty" hidden>Geen oefeningen in deze categorie.</p>
+      <button type="button" class="subtle-button exercise-show-more" id="exerciseShowMore" aria-controls="exerciseTileGrid" hidden>Meer oefeningen tonen</button>
     </section>
   {% else %}
     <section class="summary-card exercise-empty-state">

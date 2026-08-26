@@ -3,12 +3,47 @@ from __future__ import annotations
 from pathlib import Path
 
 from django.conf import settings
-from django.http import FileResponse
+from django.http import FileResponse, Http404
 from django.views.decorators.csrf import csrf_exempt
 
 import app as legacy
 
 from .legacy_compat import convert_response, request_context
+
+
+SAFE_LOCAL_UPLOAD_CONTENT_TYPES = {
+    ".avif": "image/avif",
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".m4v": "video/mp4",
+    ".mov": "video/quicktime",
+    ".mp4": "video/mp4",
+    ".png": "image/png",
+    ".webm": "video/webm",
+    ".webp": "image/webp",
+}
+
+
+def local_upload(request, upload_path: str):
+    """Serve Bunny fallback uploads without exposing files outside their root."""
+    try:
+        upload_root = Path(settings.LOCAL_UPLOAD_ROOT).resolve(strict=True)
+        requested_file = (upload_root / upload_path).resolve(strict=True)
+        requested_file.relative_to(upload_root)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError):
+        raise Http404("Upload niet gevonden.")
+
+    if not requested_file.is_file():
+        raise Http404("Upload niet gevonden.")
+
+    content_type = SAFE_LOCAL_UPLOAD_CONTENT_TYPES.get(requested_file.suffix.lower())
+    if not content_type:
+        raise Http404("Uploadtype niet toegestaan.")
+
+    response = FileResponse(requested_file.open("rb"), content_type=content_type)
+    response["Cache-Control"] = "public, max-age=3600"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 def legacy_view(function_name: str):

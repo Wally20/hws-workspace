@@ -15,10 +15,12 @@ Met alleen een public token kun je geen bestellingen ophalen.
 
 ## Starten
 
-1. Maak een virtuele omgeving:
+Het project gebruikt Python 3.13.15 (zie `.python-version`) en Django 5.2 LTS.
+
+1. Maak met Python 3.13.15 een virtuele omgeving:
 
    ```bash
-   python3 -m venv .venv
+   python3.13 -m venv .venv
    source .venv/bin/activate
    pip install -r requirements.txt
    ```
@@ -29,9 +31,10 @@ Met alleen een public token kun je geen bestellingen ophalen.
    cp .env.example .env
    ```
 
-3. Start de app:
+3. Initialiseer de opslag en start daarna de app:
 
    ```bash
+   python3 manage.py init_storage
    python3 manage.py runserver 127.0.0.1:8000
    ```
 
@@ -41,6 +44,12 @@ Met alleen een public token kun je geen bestellingen ophalen.
    http://127.0.0.1:8000
    ```
 
+Voer vóór een release de geïsoleerde deploycontrole uit. Deze gebruikt een tijdelijke datamap en verstuurt geen echte integratiemails:
+
+```bash
+./scripts/check_release.sh
+```
+
 ## Opslag
 
 De app gebruikt nu een SQLite-database op `data/app.db` voor:
@@ -49,7 +58,11 @@ De app gebruikt nu een SQLite-database op `data/app.db` voor:
 - agenda-trainings
 - trainerprofielen
 
-Bestaande data uit `data/dashboard_events.json` en `data/agenda_trainings.json` wordt bij de eerste start automatisch naar SQLite gemigreerd als de database nog leeg is.
+Bestaande data uit `data/dashboard_events.json` en `data/agenda_trainings.json` wordt door `python manage.py init_storage` naar SQLite gemigreerd als de database nog leeg is. Initialisatie gebeurt bewust niet meer tijdens een gewone module-import.
+
+Vóór iedere muterende opslaginitialisatie maakt het commando met SQLite's online backup-API een consistente, atomisch gepubliceerde snapshot in `DATA_DIR/backups/`. Standaard blijven de laatste zeven snapshots staan; pas dit zo nodig aan met `STORAGE_BACKUP_RETENTION` (1–30). Deze lokale snapshots zijn een extra vangnet en vervangen geen externe serverbackup.
+
+SQLite draait na initialisatie in WAL-modus. Runtimeverbindingen gebruiken `synchronous=NORMAL` en wachten standaard maximaal 30 seconden op een schrijflock (`SQLITE_BUSY_TIMEOUT_MS=30000`).
 
 Voor productie hoort runtime-data niet in de git-worktree te staan. Zet daarom in `.env`:
 
@@ -61,7 +74,7 @@ DATA_DIR=/var/lib/overzicht/data
 
 Zorg op je server voor:
 
-1. Een Python-omgeving met de packages uit `requirements.txt`.
+1. Python 3.13.15 met de vastgezette packages uit `requirements.txt`.
 2. Schrijfrechten voor de app-gebruiker op `DATA_DIR` en `static/uploads/`.
 3. Dat `DATA_DIR` meegenomen wordt in je back-ups, inclusief `app.db`.
 4. Je `.env` met:
@@ -119,11 +132,12 @@ Voorbeeld deployment-commando's:
 
 ```bash
 cd /pad/naar/Overzicht
-python3 -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 mkdir -p /var/lib/overzicht/data
 chmod 775 /var/lib/overzicht/data
+python3 manage.py init_storage
 python3 manage.py runserver 127.0.0.1:8000
 ```
 
@@ -146,7 +160,7 @@ Zet daarna `DATA_DIR=/var/lib/overzicht/data` in `/srv/overzicht/.env`, pull de 
 
 Als `.env` of de Ecwid-omgevingsvariabelen ontbreken, draait het besteloverzicht in demo-modus met voorbeeldbestellingen. De rapporttegel laat Moneybird-omzet alleen live zien als de Moneybird-variabelen zijn ingevuld.
 
-Voor live gebruik draait productie via Gunicorn met `config.wsgi:application`.
+Voor live gebruik start `scripts/start.sh` eerst één opslaginitialisatie en daarna Gunicorn met `config.wsgi:application`. De ongebruikte Gunicorn-controlsocket staat daarbij expliciet uit, zodat de service geen schrijfbare home-directory nodig heeft.
 Open je `templates/index.html` direct in Five Server, dan werkt het dashboard in statische demo-modus.
 
 ## Automatische inschrijvingsmails via STRATO

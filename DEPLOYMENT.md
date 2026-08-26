@@ -12,6 +12,7 @@ Dit project draait nu als Django-project. Je kunt het veilig naast je bestaande 
 
 Deze app gebruikt:
 
+- Python 3.13.15 en Django 5.2 LTS
 - SQLite database: `data/app.db`
 - Templates: `templates/`
 - Static files: `static/`
@@ -31,11 +32,17 @@ DJANGO_DEBUG=0
 DJANGO_ALLOWED_HOSTS=www.workspace.hwsvoetbalschool.nl
 DJANGO_CSRF_TRUSTED_ORIGINS=https://www.workspace.hwsvoetbalschool.nl
 DATA_DIR=/var/lib/overzicht/data
+SQLITE_BUSY_TIMEOUT_MS=30000
+STORAGE_BACKUP_RETENTION=7
 FLASK_SECRET_KEY=<lange-random-secret>
 TRUSTED_HOSTS=www.workspace.hwsvoetbalschool.nl
 SESSION_COOKIE_NAME=overzicht_session
 SESSION_COOKIE_SECURE=1
 SESSION_COOKIE_SAMESITE=Lax
+SESSION_IDLE_TIMEOUT_SECONDS=3600
+SESSION_ABSOLUTE_TIMEOUT_SECONDS=43200
+SESSION_EXPIRE_AT_BROWSER_CLOSE=1
+TRAINER_INVITE_TTL_HOURS=48
 PREFERRED_URL_SCHEME=https
 REVERSE_PROXY_HOPS=1
 ADMIN_EMAIL=admin@jouwdomein.nl
@@ -78,7 +85,12 @@ BUNNY_VIDEO_PUBLIC_BASE=https://<pull-zone>.b-cdn.net
 BUNNY_VIDEO_BASE_PATH=exercise-videos
 BUNNY_VIDEO_MAX_UPLOAD_MB=5000
 BUNNY_VIDEO_ALLOWED_TYPES=video/mp4,video/webm,video/quicktime
+LOCAL_VIDEO_MAX_UPLOAD_MB=250
 ```
+
+Zonder een complete Bunny-configuratie worden uploads lokaal opgeslagen. De
+lokale videolimiet blijft bewust 250 MB, zodat één upload de persistente schijf
+niet kan vullen. Met Bunny blijft de ruimere `BUNNY_VIDEO_MAX_UPLOAD_MB` gelden.
 
 Optioneel:
 
@@ -87,19 +99,18 @@ FLASK_DEBUG=0
 PORT=8011
 ```
 
-## 3. Exacte Gunicorn startopdracht
+## 3. Exacte startopdracht
 
-Gebruik bijvoorbeeld poort `8011`, zodat dit niet botst met je bestaande Django/Gunicorn setup:
+Gebruik het startscript, zodat opslaginitialisatie en de voorafgaande SQLite-backup precies één keer vóór het forken van Gunicorn plaatsvinden. Poort `8011` botst niet met de bestaande Django/Gunicorn-setup:
 
 ```bash
-/srv/overzicht/.venv/bin/gunicorn \
+/srv/overzicht/scripts/start.sh \
   --workers 2 \
-  --threads 4 \
+  --threads 2 \
   --bind 127.0.0.1:8011 \
   --access-logfile - \
   --error-logfile - \
-  --timeout 120 \
-  config.wsgi:application
+  --timeout 120
 ```
 
 ## 4. Voorstel `systemd` service
@@ -116,14 +127,13 @@ User=www-data
 Group=www-data
 WorkingDirectory=/srv/overzicht
 EnvironmentFile=/srv/overzicht/.env
-ExecStart=/srv/overzicht/.venv/bin/gunicorn \
+ExecStart=/srv/overzicht/scripts/start.sh \
     --workers 2 \
-    --threads 4 \
+    --threads 2 \
     --bind 127.0.0.1:8011 \
     --access-logfile - \
     --error-logfile - \
-    --timeout 120 \
-    config.wsgi:application
+    --timeout 120
 Restart=always
 RestartSec=5
 
@@ -202,7 +212,7 @@ cd /srv/overzicht
 ### Virtualenv en packages
 
 ```bash
-python3 -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
@@ -223,6 +233,7 @@ sudo mkdir -p /var/lib/overzicht/data
 sudo chown -R www-data:www-data /srv/overzicht /var/lib/overzicht
 sudo find /srv/overzicht -type d -exec chmod 755 {} \;
 sudo find /srv/overzicht -type f -exec chmod 644 {} \;
+sudo chmod 755 /srv/overzicht/scripts/*.sh
 sudo find /var/lib/overzicht -type d -exec chmod 755 {} \;
 sudo find /var/lib/overzicht -type f -exec chmod 644 {} \;
 sudo chmod 775 /var/lib/overzicht/data /srv/overzicht/static/uploads
@@ -230,15 +241,21 @@ sudo chmod 775 /var/lib/overzicht/data /srv/overzicht/static/uploads
 
 ### Eenmalige app-initialisatie
 
-Er zijn geen Django model-migraties nodig voor de applicatiedata.
-Wel kun je veilig `manage.py check` en `collectstatic` draaien.
+Er zijn geen Django model-migraties nodig voor de legacy applicatiedata. Initialiseer die opslag wel expliciet. `init_storage` maakt vóór schema- of seedwijzigingen een consistente SQLite-snapshot in `DATA_DIR/backups/`, publiceert die atomisch en bewaart standaard de laatste zeven backups. Als de backup mislukt, start de migratie niet. De lokale snapshots vervangen geen externe backup van het volledige `DATA_DIR`.
+
+De releasecontrole draait deploychecks en de volledige testset uitsluitend tegen tijdelijke data. Daarna initialiseer je de live opslag en kun je `collectstatic` draaien.
 
 ```bash
 source /srv/overzicht/.venv/bin/activate
 cd /srv/overzicht
-.venv/bin/python manage.py check
+./scripts/check_release.sh
+.venv/bin/python manage.py init_storage
 .venv/bin/python manage.py collectstatic --noinput
 ```
+
+Het initialisatiecommando zet SQLite duurzaam in WAL-modus. Iedere applicatieverbinding gebruikt daarnaast `synchronous=NORMAL` en een instelbare busy timeout. Het productieproces is beperkt tot twee workers met twee threads om de gelijktijdige schrijfdruk op SQLite beheersbaar te houden.
+
+De meegeleverde periodieke `systemd`-services voeren hetzelfde commando als `ExecStartPre` en als gebruiker `www-data` uit. Daardoor kunnen facturen, registratiemails en spaarpotmeldingen ook op een nieuwe server nooit vóór de opslaginitialisatie starten, zonder root-owned databasebestanden achter te laten.
 
 ### Eenmalige migratie voor bestaande servers
 
@@ -260,14 +277,13 @@ Zorg daarna dat `/srv/overzicht/.env` `DATA_DIR=/var/lib/overzicht/data` bevat v
 ```bash
 cd /srv/overzicht
 source .venv/bin/activate
-.venv/bin/gunicorn \
+./scripts/start.sh \
   --workers 2 \
-  --threads 4 \
+  --threads 2 \
   --bind 127.0.0.1:8011 \
   --access-logfile - \
   --error-logfile - \
-  --timeout 120 \
-  config.wsgi:application
+  --timeout 120
 ```
 
 ### `systemd` activeren
@@ -310,6 +326,7 @@ Bij een nieuwe release:
 cd /srv/overzicht
 source .venv/bin/activate
 pip install -r requirements.txt
+./scripts/check_release.sh
 sudo systemctl restart overzicht
 sudo systemctl reload nginx
 ```
@@ -318,11 +335,11 @@ sudo systemctl reload nginx
 
 - `ALLOWED_HOSTS`: instellen via `DJANGO_ALLOWED_HOSTS=www.workspace.hwsvoetbalschool.nl`
 - `CSRF_TRUSTED_ORIGINS`: instellen via `DJANGO_CSRF_TRUSTED_ORIGINS=https://www.workspace.hwsvoetbalschool.nl`
-- De legacy formulieren draaien nu zonder Django CSRF-checks, zodat de bestaande templates blijven werken. Dat is functioneel compatibel, maar wel een security-punt om later nog netjes te moderniseren.
+- Django's CSRF-middleware beveiligt nieuwe native views. De tijdelijke legacy-wrappers blijven vrijgesteld van die dubbele controle en valideren hun bestaande CSRF-token server-side; migreer die wrappers stapsgewijs naar native Django-views.
 - SSL: afdwingen via `nginx` redirect van `80 -> 443`
-- Reverse proxy headers: `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-Port`, `X-Forwarded-For`
-- App-config voor proxy: `REVERSE_PROXY_HOPS=1`
-- Session cookies: `SESSION_COOKIE_SECURE=1`
+- Reverse proxy headers: `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-Port`, `X-Forwarded-For`. Laat nginx deze headers overschrijven; voeg geen door de client aangeleverde waarden vooraan toe.
+- App-config voor proxy: `REVERSE_PROXY_HOPS=1` bij precies één vertrouwde nginx-/platformproxy. Zonder proxy blijft de veilige standaard `0`, zodat forwardingheaders worden genegeerd.
+- Session cookies: `SESSION_COOKIE_SECURE=1`, een idle timeout van 3600 seconden en een absolute timeout van 43200 seconden. De sessiecookie verloopt standaard ook bij het sluiten van de browser.
 
 ## 9. Mogelijke conflicten met bestaand project op dezelfde server
 
@@ -352,7 +369,7 @@ sudo chown -R $USER:www-data /srv/overzicht
 rsync -av --delete /pad/naar/lokale/Overzicht/ /srv/overzicht/
 cd /srv/overzicht
 
-python3 -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
@@ -364,19 +381,19 @@ mkdir -p data static/uploads
 sudo chown -R www-data:www-data /srv/overzicht
 sudo find /srv/overzicht -type d -exec chmod 755 {} \;
 sudo find /srv/overzicht -type f -exec chmod 644 {} \;
+sudo chmod 755 /srv/overzicht/scripts/*.sh
 sudo chmod 775 /srv/overzicht/data /srv/overzicht/static/uploads
 
-.venv/bin/python manage.py check
+./scripts/check_release.sh
 .venv/bin/python manage.py collectstatic --noinput
 
-.venv/bin/gunicorn \
+./scripts/start.sh \
   --workers 2 \
-  --threads 4 \
+  --threads 2 \
   --bind 127.0.0.1:8011 \
   --access-logfile - \
   --error-logfile - \
-  --timeout 120 \
-  config.wsgi:application
+  --timeout 120
 ```
 
 Daarna:

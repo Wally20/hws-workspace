@@ -13,7 +13,13 @@
       <form method="post" action="/content/{{ album.id }}">
         <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
         <input type="hidden" name="action" value="delete_album">
-        <button type="submit" class="subtle-button action-small">Verwijder album</button>
+        <button
+          type="submit"
+          class="subtle-button action-small"
+          data-confirm-submit
+          data-confirm-message="Weet je zeker dat je dit fotoalbum naar de prullenbak wilt verplaatsen? De foto's blijven bewaard."
+          data-confirm-value="delete:content-album:{{ album.id }}"
+        >Naar prullenbak</button>
       </form>
     {% endif %}
   </header>
@@ -79,7 +85,13 @@
                 <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
                 <input type="hidden" name="action" value="delete_photo">
                 <input type="hidden" name="photo_id" value="{{ photo.id }}">
-                <button type="submit" class="subtle-button action-small">Verwijder</button>
+                <button
+                  type="submit"
+                  class="subtle-button action-small"
+                  data-confirm-submit
+                  data-confirm-message="Weet je zeker dat je deze foto naar de prullenbak wilt verplaatsen? Het bestand blijft bewaard."
+                  data-confirm-value="delete:content-photo:{{ photo.id }}"
+                >Naar prullenbak</button>
               </form>
             {% endif %}
           </div>
@@ -89,6 +101,37 @@
       {% endfor %}
     </div>
   </section>
+
+  {% if can_manage_content and deleted_photos %}
+    <section class="summary-card feature-list-card old-function-tile">
+      <div class="feature-list-head">
+        <div>
+          <p class="panel-title">Verwijderde foto's</p>
+          <p class="feature-list-subtitle">Deze bestanden zijn veilig bewaard en kunnen direct worden teruggezet.</p>
+        </div>
+        <span class="pill">{{ deleted_photos|length }} foto{{ 's' if deleted_photos|length != 1 else '' }}</span>
+      </div>
+      <div class="content-photo-grid">
+        {% for photo in deleted_photos %}
+          <article class="content-photo-card old-function-card">
+            <a href="{{ photo.imageUrl }}" target="_blank" rel="noreferrer" class="content-photo-link">
+              <img src="{{ photo.imageUrl }}" alt="{{ photo.originalName or album.title }}" class="content-photo-image">
+            </a>
+            <div class="content-photo-body">
+              <p class="feature-record-copy">{{ photo.originalName or photo.fileName }}</p>
+              <p class="feature-record-meta">Verwijderd op {{ photo.deletedAtDisplay }}</p>
+              <form method="post" action="/content/{{ album.id }}">
+                <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+                <input type="hidden" name="action" value="restore_photo">
+                <input type="hidden" name="photo_id" value="{{ photo.id }}">
+                <button type="submit" class="subtle-button action-small">Herstel foto</button>
+              </form>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
 
   {% if can_manage_content %}
     <script nonce="{{ csp_nonce }}">

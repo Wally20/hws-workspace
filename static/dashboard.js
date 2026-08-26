@@ -196,9 +196,18 @@ async function saveEvents() {
 }
 
 editEventsButton?.addEventListener("click", () => {
-  eventEditor.hidden = !eventEditor.hidden;
+  if (!eventEditor) {
+    return;
+  }
+  const isOpen = eventEditor.hidden;
+  eventEditor.hidden = !isOpen;
+  editEventsButton.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  editEventsButton.textContent = isOpen ? "Sluiten" : "Bewerk";
   renderSelectedEvents();
   renderTilePreview();
+  if (isOpen) {
+    window.requestAnimationFrame(() => eventSearchInput?.focus());
+  }
 });
 
 eventSearchButton?.addEventListener("click", searchEvents);

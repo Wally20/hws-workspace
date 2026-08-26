@@ -60,7 +60,12 @@
           <h2 class="panel-title">Clubs</h2>
           <p class="feature-list-subtitle">Voeg clubs toe en vul per materiaal in wat daar ligt.</p>
         </div>
-        <button type="button" class="subtle-button action-small" data-add-club>Club toevoegen</button>
+        <div class="materials-club-actions">
+          {% if inventory.clubs %}
+            <button type="button" class="subtle-button action-small materials-all-clubs-pdf-button" data-open-club-export-modal>Clubs als PDF</button>
+          {% endif %}
+          <button type="button" class="subtle-button action-small" data-add-club>Club toevoegen</button>
+        </div>
       </div>
 
       <div class="materials-club-list" data-club-list>
@@ -72,10 +77,10 @@
             </button>
             <div class="materials-club-modal" data-club-modal hidden>
               <div class="materials-club-modal-backdrop" data-close-club-modal></div>
-              <div class="materials-club-dialog">
+              <div class="materials-club-dialog" role="dialog" aria-modal="true" aria-labelledby="clubMaterialTitle{{ club.id or loop.index }}">
                 <div class="materials-club-dialog-head">
                   <div>
-                    <h3>Clubmateriaal</h3>
+                    <h3 id="clubMaterialTitle{{ club.id or loop.index }}">Clubmateriaal</h3>
                     <p class="feature-list-subtitle">Kies materialen uit je totale voorraad en vul in wat bij deze club ligt.</p>
                   </div>
                   <button type="button" class="subtle-button action-small" data-close-club-modal>Sluiten</button>
@@ -85,6 +90,11 @@
                 <label class="materials-club-name-field">
                   <span>Clubnaam</span>
                   <input type="text" name="club_name" value="{{ club.name }}" placeholder="Bijv. WWNA" data-club-name-input>
+                </label>
+
+                <label class="materials-club-search-field">
+                  <span>Zoeken</span>
+                  <input type="search" placeholder="Zoek materiaal" autocomplete="off" data-club-material-search>
                 </label>
 
                 <div class="materials-club-materials" data-club-materials>
@@ -99,6 +109,7 @@
                         >
                         <span data-club-material-label>{{ material.name or "Materiaal" }}</span>
                       </span>
+                      <output class="materials-choice-available" data-club-material-available>Beschikbaar: {{ material.availableCount }}</output>
                       <input
                         type="number"
                         name="quantity__{{ club.key }}__{{ material.key }}"
@@ -115,6 +126,14 @@
 
                 <div class="materials-club-dialog-actions">
                   <button type="button" class="subtle-button action-danger" data-remove-club>Verwijderen</button>
+                  {% if club.id %}
+                    <a
+                      class="subtle-button materials-pdf-button"
+                      href="/materialen/clubs/{{ club.id }}/export-pdf"
+                      target="_blank"
+                      rel="noopener"
+                    >PDF voor in de krat</a>
+                  {% endif %}
                   <button type="button" class="subtle-button subtle-button-strong" data-close-club-modal>Klaar</button>
                 </div>
               </div>
@@ -127,6 +146,40 @@
     <div class="agenda-form-actions materials-actions">
       <button type="submit" class="subtle-button subtle-button-strong">Opslaan</button>
     </div>
+
+    {% if inventory.clubs %}
+      <div class="materials-club-modal" data-club-export-modal hidden>
+        <div class="materials-club-modal-backdrop" data-close-club-export-modal></div>
+        <div class="materials-club-dialog materials-club-export-dialog" role="dialog" aria-modal="true" aria-labelledby="clubExportTitle">
+          <div class="materials-club-dialog-head">
+            <div>
+              <h3 id="clubExportTitle">Clubs selecteren</h3>
+              <p class="feature-list-subtitle">Selecteer de clubs die je samen als PDF wilt exporteren.</p>
+            </div>
+            <button type="button" class="subtle-button action-small" data-close-club-export-modal>Sluiten</button>
+          </div>
+
+          <div class="materials-club-export-selection-actions">
+            <button type="button" class="subtle-button action-small" data-select-all-export-clubs>Alles selecteren</button>
+            <button type="button" class="subtle-button action-small" data-clear-export-clubs>Selectie wissen</button>
+          </div>
+
+          <div class="materials-club-export-options">
+            {% for club in inventory.clubs %}
+              <label class="materials-club-export-option">
+                <input type="checkbox" value="{{ club.id }}" data-export-club-checkbox checked>
+                <span>{{ club.name or "Nieuwe club" }}</span>
+              </label>
+            {% endfor %}
+          </div>
+
+          <div class="materials-club-dialog-actions">
+            <span class="materials-club-export-count" data-club-export-count></span>
+            <button type="button" class="subtle-button subtle-button-strong" data-export-selected-clubs>Geselecteerde clubs als PDF</button>
+          </div>
+        </div>
+      </div>
+    {% endif %}
   </form>
 
   <template id="materialRowTemplate">
@@ -154,10 +207,10 @@
       </button>
       <div class="materials-club-modal" data-club-modal hidden>
         <div class="materials-club-modal-backdrop" data-close-club-modal></div>
-        <div class="materials-club-dialog">
+        <div class="materials-club-dialog" role="dialog" aria-modal="true" aria-labelledby="newClubMaterialTitle">
           <div class="materials-club-dialog-head">
             <div>
-              <h3>Clubmateriaal</h3>
+              <h3 id="newClubMaterialTitle">Clubmateriaal</h3>
               <p class="feature-list-subtitle">Kies materialen uit je totale voorraad en vul in wat bij deze club ligt.</p>
             </div>
             <button type="button" class="subtle-button action-small" data-close-club-modal>Sluiten</button>
@@ -167,6 +220,11 @@
           <label class="materials-club-name-field">
             <span>Clubnaam</span>
             <input type="text" name="club_name" value="" placeholder="Bijv. WWNA" data-club-name-input>
+          </label>
+
+          <label class="materials-club-search-field">
+            <span>Zoeken</span>
+            <input type="search" placeholder="Zoek materiaal" autocomplete="off" data-club-material-search>
           </label>
 
           <div class="materials-club-materials" data-club-materials></div>

@@ -8,6 +8,7 @@
   const clubList = form.querySelector("[data-club-list]");
   const materialTemplate = document.getElementById("materialRowTemplate");
   const clubTemplate = document.getElementById("clubRowTemplate");
+  const clubExportModal = form.querySelector("[data-club-export-modal]");
 
   const parseCount = (value) => {
     const number = Number.parseInt(String(value || "0"), 10);
@@ -29,6 +30,8 @@
     return String(input ? input.value : "").trim() || "Nieuwe club";
   };
 
+  const normalizeSearch = (value) => String(value || "").trim().toLowerCase();
+
   const setModalOpen = (clubRow, isOpen) => {
     const modal = clubRow.querySelector("[data-club-modal]");
     if (!modal) {
@@ -48,11 +51,57 @@
     getClubRows().forEach((clubRow) => setModalOpen(clubRow, false));
   };
 
+  const getExportClubCheckboxes = () => (
+    clubExportModal
+      ? Array.from(clubExportModal.querySelectorAll("[data-export-club-checkbox]"))
+      : []
+  );
+
+  const updateClubExportSelection = () => {
+    const checkboxes = getExportClubCheckboxes();
+    const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+    const count = clubExportModal?.querySelector("[data-club-export-count]");
+    const exportButton = clubExportModal?.querySelector("[data-export-selected-clubs]");
+    if (count) {
+      count.textContent = `${selectedCount} van ${checkboxes.length} clubs geselecteerd`;
+    }
+    if (exportButton) {
+      exportButton.disabled = selectedCount === 0;
+    }
+  };
+
+  const setClubExportModalOpen = (isOpen) => {
+    if (!clubExportModal) {
+      return;
+    }
+    clubExportModal.hidden = !isOpen;
+    document.body.classList.toggle("materials-modal-open", isOpen);
+    if (isOpen) {
+      updateClubExportSelection();
+      clubExportModal.querySelector("[data-export-club-checkbox]")?.focus();
+    }
+  };
+
   const syncClubTile = (clubRow) => {
     const title = clubRow.querySelector("[data-club-title]");
     if (title) {
       title.textContent = getClubName(clubRow);
     }
+  };
+
+  const applyClubMaterialFilter = (clubRow) => {
+    const searchInput = clubRow.querySelector("[data-club-material-search]");
+    const query = normalizeSearch(searchInput ? searchInput.value : "");
+
+    clubRow.querySelectorAll("[data-club-material-field]").forEach((field) => {
+      const label = field.querySelector("[data-club-material-label]");
+      const materialName = normalizeSearch(label ? label.textContent : "");
+      field.hidden = Boolean(query) && !materialName.includes(query);
+    });
+  };
+
+  const applyAllClubMaterialFilters = () => {
+    getClubRows().forEach(applyClubMaterialFilter);
   };
 
   const updateChoiceState = (field) => {
@@ -85,6 +134,11 @@
     name.setAttribute("data-club-material-label", "");
     name.textContent = materialName || "Materiaal";
 
+    const available = document.createElement("output");
+    available.className = "materials-choice-available";
+    available.setAttribute("data-club-material-available", "");
+    available.textContent = "Beschikbaar: 0";
+
     const quantity = document.createElement("input");
     quantity.type = "number";
     quantity.name = `quantity__${clubKey}__${materialKey}`;
@@ -96,7 +150,7 @@
     quantity.setAttribute("data-club-quantity", "");
 
     checkWrap.append(checkbox, name);
-    label.append(checkWrap, quantity);
+    label.append(checkWrap, available, quantity);
     return label;
   };
 
@@ -143,11 +197,13 @@
       });
 
       syncClubTile(clubRow);
+      applyClubMaterialFilter(clubRow);
     });
   };
 
   const recalculate = () => {
     syncClubMaterialFields();
+    const availableByMaterial = new Map();
 
     getClubRows().forEach((clubRow) => {
       let clubTotal = 0;
@@ -189,6 +245,19 @@
         availableRowOutput.textContent = String(available);
         availableRowOutput.classList.toggle("materials-negative", available < 0);
       }
+      availableByMaterial.set(materialKey, available);
+    });
+
+    getClubRows().forEach((clubRow) => {
+      clubRow.querySelectorAll("[data-club-material-field]").forEach((field) => {
+        const available = availableByMaterial.get(field.dataset.materialKey) || 0;
+        const output = field.querySelector("[data-club-material-available]");
+        if (output) {
+          output.value = String(available);
+          output.textContent = `Beschikbaar: ${available}`;
+          output.classList.toggle("materials-negative", available < 0);
+        }
+      });
     });
   };
 
@@ -221,6 +290,11 @@
     const removeClubButton = event.target.closest("[data-remove-club]");
     const openClubButton = event.target.closest("[data-open-club-modal]");
     const closeClubButton = event.target.closest("[data-close-club-modal]");
+    const openClubExportButton = event.target.closest("[data-open-club-export-modal]");
+    const closeClubExportButton = event.target.closest("[data-close-club-export-modal]");
+    const selectAllExportClubsButton = event.target.closest("[data-select-all-export-clubs]");
+    const clearExportClubsButton = event.target.closest("[data-clear-export-clubs]");
+    const exportSelectedClubsButton = event.target.closest("[data-export-selected-clubs]");
 
     if (addMaterialButton) {
       addMaterial();
@@ -228,6 +302,35 @@
     }
     if (addClubButton) {
       addClub();
+      return;
+    }
+    if (openClubExportButton) {
+      closeAllClubModals();
+      setClubExportModalOpen(true);
+      return;
+    }
+    if (closeClubExportButton) {
+      setClubExportModalOpen(false);
+      return;
+    }
+    if (selectAllExportClubsButton || clearExportClubsButton) {
+      getExportClubCheckboxes().forEach((checkbox) => {
+        checkbox.checked = Boolean(selectAllExportClubsButton);
+      });
+      updateClubExportSelection();
+      return;
+    }
+    if (exportSelectedClubsButton) {
+      const params = new URLSearchParams();
+      getExportClubCheckboxes().forEach((checkbox) => {
+        if (checkbox.checked) {
+          params.append("club_id", checkbox.value);
+        }
+      });
+      if (params.has("club_id")) {
+        setClubExportModalOpen(false);
+        window.location.assign(`/materialen/clubs/export-pdf?${params.toString()}`);
+      }
       return;
     }
     if (removeMaterialButton) {
@@ -263,6 +366,10 @@
   });
 
   form.addEventListener("change", (event) => {
+    if (event.target.matches("[data-export-club-checkbox]")) {
+      updateClubExportSelection();
+      return;
+    }
     const checkbox = event.target.closest("[data-club-material-toggle]");
     if (!checkbox) {
       return;
@@ -282,8 +389,16 @@
       event.target.matches('input[name="material_name"]') ||
       event.target.matches("[data-material-total-input]") ||
       event.target.matches("[data-club-quantity]") ||
-      event.target.matches("[data-club-name-input]")
+      event.target.matches("[data-club-name-input]") ||
+      event.target.matches("[data-club-material-search]")
     ) {
+      if (event.target.matches("[data-club-material-search]")) {
+        const clubRow = event.target.closest("[data-club-row]");
+        if (clubRow) {
+          applyClubMaterialFilter(clubRow);
+        }
+        return;
+      }
       recalculate();
     }
   });
@@ -291,8 +406,11 @@
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeAllClubModals();
+      setClubExportModalOpen(false);
     }
   });
 
   recalculate();
+  applyAllClubMaterialFilters();
+  updateClubExportSelection();
 })();

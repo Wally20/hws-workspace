@@ -5,6 +5,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ legacy_csrf_token }}">
+    <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+    <meta name="referrer" content="no-referrer">
     <title>Account activeren | HWS Voetbalschool Workspace</title>
     <link rel="stylesheet" href="../static/styles.css?v={{ asset_version }}">
   </head>
@@ -42,8 +44,8 @@
 
         {% if invited_user %}
           <div class="invite-summary">
-            <strong>{{ invited_user.fullName }}</strong>
-            <span>{{ invited_user.systemRole or invited_user.role }}</span>
+            <strong>Beveiligde accountuitnodiging</strong>
+            <span>Vul je eigen gegevens hieronder in.</span>
           </div>
         {% endif %}
 
@@ -154,6 +156,7 @@
         {% endif %}
       </section>
     </main>
-    <script src="../static/trainer-clothing-keys.js?v={{ asset_version }}" defer></script>
+    <script nonce="{{ csp_nonce }}" src="../static/login-background.js?v={{ asset_version }}" defer></script>
+    <script nonce="{{ csp_nonce }}" src="../static/trainer-clothing-keys.js?v={{ asset_version }}" defer></script>
   </body>
 </html>

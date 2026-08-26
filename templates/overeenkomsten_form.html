@@ -230,7 +230,15 @@
 
     <section class="football-days-save football-days-save-all contract-actions">
       {% if contract.id %}
-        <button type="submit" name="action" value="delete" class="subtle-button action-small football-field-danger" onclick="return confirm('Weet je zeker dat je deze overeenkomst wilt verwijderen?');">Verwijder</button>
+        <button
+          type="submit"
+          name="action"
+          value="delete"
+          class="subtle-button action-small football-field-danger"
+          data-confirm-submit
+          data-confirm-message="Weet je zeker dat je deze overeenkomst wilt verwijderen?"
+          data-confirm-value="delete:contract:{{ contract.id }}"
+        >Verwijder</button>
       {% endif %}
       <button type="submit" name="action" value="save" class="refresh-button">Overeenkomst opslaan</button>
     </section>

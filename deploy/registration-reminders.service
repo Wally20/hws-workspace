@@ -4,6 +4,9 @@ After=network.target
 
 [Service]
 Type=oneshot
+User=www-data
+Group=www-data
 WorkingDirectory=/srv/overzicht
 EnvironmentFile=/srv/overzicht/.env
+ExecStartPre=/srv/overzicht/.venv/bin/python manage.py init_storage
 ExecStart=/srv/overzicht/.venv/bin/python manage.py send_registration_reminder_emails

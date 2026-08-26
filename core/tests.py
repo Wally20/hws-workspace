@@ -78,7 +78,9 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
     def build_authenticated_client(self) -> Client:
         client = Client()
         session_store = import_module(settings.SESSION_ENGINE).SessionStore()
-        session_store["user_id"] = legacy.load_trainer_profiles()[0]["id"]
+        profiles = legacy.load_trainer_profiles()
+        admin_profile = next((profile for profile in profiles if profile.get("isAdmin")), profiles[0])
+        session_store["user_id"] = admin_profile["id"]
         session_store["csrf_token"] = self.TEST_CSRF_TOKEN
         session_store["session_started_at"] = int(time.time())
         session_store["session_last_seen_at"] = int(time.time())
@@ -241,6 +243,100 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         )
         self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
         self.assertEqual(pdf_response.content.count(b"/Type /Page\n"), 1)
+
+    def test_contract_pdf_uses_python_fallback_without_libreoffice(self):
+        contract = legacy.normalize_contract(None)
+        contract.update(
+            clubName="VV Volledige Test",
+            clubAddress="Testlaan 12, 7411 AA Deventer",
+            season="2026-2027",
+            startDate="2026-09-01",
+            endDate="2027-05-31",
+            noticePeriod="45 dagen per e-mail",
+            trainingExecutionSummary="Team- en techniektrainingen",
+            trainingExecutionDetails="Eerste helft techniek\nTweede helft partijvorm",
+            extraActivities="Meivakantieclinic voor jeugdleden",
+            trainingLines=[
+                {"day": "Maandag", "time": "18:00", "team": "JO12", "trainingType": "Techniek"}
+            ],
+            costLines=[
+                {
+                    "description": "Teamtraining",
+                    "pricePerTraining": "80,00",
+                    "trainingCount": 10,
+                    "totalAmount": "800,00",
+                },
+                {
+                    "description": "Techniektraining",
+                    "pricePerTraining": "95,00",
+                    "trainingCount": 5,
+                    "totalAmount": "475,00",
+                },
+            ],
+            agendaAttachmentTitle="Bijlage trainingsdagen",
+            agendaAttachmentItems=[
+                {
+                    "key": "voetbaldag|woensdag",
+                    "label": "Voetbaldag - woensdag",
+                    "copyText": "Woensdag 14 oktober 2026",
+                }
+            ],
+        )
+
+        with patch.object(
+            legacy,
+            "convert_contract_docx_to_pdf",
+            side_effect=RuntimeError("LibreOffice ontbreekt"),
+        ):
+            pdf_bytes = legacy.create_contract_pdf(contract)
+        from pypdf import PdfReader
+
+        extracted_text = " ".join(
+            "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf_bytes)).pages).split()
+        )
+
+        self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
+        self.assertGreater(len(pdf_bytes), 1000)
+        for expected_text in (
+            "VV Volledige Test",
+            "Testlaan 12, 7411 AA Deventer",
+            "01-09-2026",
+            "31-05-2027",
+            "45 dagen per e-mail",
+            "Maandag",
+            "JO12",
+            "Team- en techniektrainingen",
+            "Eerste helft techniek",
+            "Tweede helft partijvorm",
+            "Meivakantieclinic voor jeugdleden",
+            "Tarief per training (Teamtraining): €80,00 exclusief btw",
+            "Totaalbedrag (Techniektraining): €475,00 exclusief btw",
+            "Totaalbedrag overeenkomst: €1275,00 exclusief btw",
+            "Bijlage trainingsdagen",
+            "Woensdag 14 oktober 2026",
+            "Bij afmelding door de Club vindt geen restitutie plaats",
+            "Aansprakelijkheid is beperkt tot het bedrag dat door verzekering wordt uitgekeerd",
+            "Op deze overeenkomst is Nederlands recht van toepassing",
+            "Deze overeenkomst vervangt alle eerdere afspraken",
+        ):
+            self.assertIn(expected_text, extracted_text)
+
+    def test_contract_pdf_returns_valid_fallback_when_pypdf_watermarking_fails(self):
+        contract = legacy.normalize_contract(None)
+        contract.update(clubName="VV Zonder Watermerk", season="2026-2027")
+        valid_fallback_pdf = legacy.create_contract_pdf_reportlab_fallback(contract)
+
+        with (
+            patch.object(legacy, "convert_contract_docx_to_pdf", side_effect=RuntimeError("LibreOffice ontbreekt")),
+            patch.object(legacy, "create_contract_pdf_reportlab_fallback", return_value=valid_fallback_pdf),
+            patch.object(legacy, "add_contract_pdf_watermark", side_effect=ValueError("pypdf kon pagina niet lezen")),
+            self.assertLogs(legacy.app.logger.name, level="WARNING") as captured_logs,
+        ):
+            pdf_bytes = legacy.create_contract_pdf(contract)
+
+        self.assertEqual(pdf_bytes, valid_fallback_pdf)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
+        self.assertIn("export zonder watermerk", " ".join(captured_logs.output))
 
     def test_checklist_pdf_is_portrait_a4_with_program_and_checklist_columns(self):
         document = {
@@ -1132,7 +1228,37 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    def test_dashboard_events_post_accepts_valid_csrf_token(self):
+    def test_trainer_can_read_but_cannot_mutate_dashboard_events(self):
+        trainer = {
+            "id": "trainer-123",
+            "fullName": "Test Trainer",
+            "isAdmin": False,
+            "systemRole": "Trainer",
+        }
+        client = self.build_authenticated_client()
+        events = [{"productId": "1", "label": "Clinic", "matchTerms": ["Clinic"]}]
+
+        with (
+            patch.object(legacy, "get_current_user", return_value=trainer),
+            patch.object(legacy, "load_dashboard_events_config", return_value=events),
+            patch.object(legacy, "save_dashboard_events_config") as mocked_save,
+        ):
+            get_response = client.get("/api/dashboard-events", secure=True)
+            post_response = client.post(
+                "/api/dashboard-events",
+                data=json.dumps({"items": events}),
+                content_type="application/json",
+                HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+                secure=True,
+            )
+
+        self.assertEqual(get_response.status_code, 200)
+        self.assertEqual(get_response.json()["items"], events)
+        self.assertEqual(post_response.status_code, 403)
+        self.assertEqual(post_response.json()["error"], "Je hebt geen rechten voor deze actie.")
+        mocked_save.assert_not_called()
+
+    def test_dashboard_events_post_accepts_valid_csrf_token_for_admin(self):
         client = self.build_authenticated_client()
         with patch.object(legacy, "save_dashboard_events_config") as mocked_save:
             response = client.post(
@@ -1434,7 +1560,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 legacy.DATABASE_PATH = original_database_path
                 legacy.clear_local_data_cache()
 
-    def test_authenticated_session_stays_valid_after_old_timestamps(self):
+    def test_authenticated_session_expires_after_old_timestamps(self):
         client = Client()
         session_store = import_module(settings.SESSION_ENGINE).SessionStore()
         session_store["user_id"] = legacy.load_trainer_profiles()[0]["id"]
@@ -1446,7 +1572,9 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         response = client.get("/", secure=True)
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("session_expired=1", response["Location"])
+        self.assertNotIn("user_id", client.session)
 
     def test_security_headers_present(self):
         response = Client().get("/login", secure=True)
@@ -1477,22 +1605,35 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             legacy.prepare_content_upload_entry(album, UploadedFile(), config)
 
     def test_dashboard_falls_back_to_mock_data_for_placeholder_ecwid_config(self):
-        with patch.dict(
-            "os.environ",
-            {
-                "ECWID_STORE_ID": "HIER_JOUW_ECWID_STORE_ID",
-                "ECWID_SECRET_TOKEN": "HIER_JOUW_ECWID_SECRET_TOKEN",
-            },
-            clear=False,
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "ECWID_STORE_ID": "HIER_JOUW_ECWID_STORE_ID",
+                    "ECWID_SECRET_TOKEN": "HIER_JOUW_ECWID_SECRET_TOKEN",
+                },
+                clear=False,
+            ),
+            patch.dict(legacy.orders_cache, {"payload": None, "cached_at": 0.0}, clear=True),
+            patch.object(legacy, "start_background_refresh") as mocked_refresh,
         ):
             response = self.build_authenticated_client().get("/", secure=True)
 
         self.assertEqual(response.status_code, 200)
+        mocked_refresh.assert_called_once_with()
         content = response.content.decode("utf-8")
         self.assertIn("Live Ecwid-koppeling staat nog niet aan.", content)
 
     def test_initial_dashboard_refresh_runs_without_showing_loading_notice(self):
         with (
+            patch.dict(
+                "os.environ",
+                {
+                    "ECWID_STORE_ID": "87654321",
+                    "ECWID_SECRET_TOKEN": "secret_abcdefghijklmnopqrstuvwxyz123456",
+                },
+                clear=False,
+            ),
             patch.dict(legacy.orders_cache, {"payload": None, "cached_at": 0.0}, clear=True),
             patch.object(legacy, "start_background_refresh") as mocked_refresh,
         ):
@@ -1502,17 +1643,31 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIsNone(payload["message"])
         self.assertNotIn("Dashboard wordt op de achtergrond bijgewerkt", str(payload))
 
-    def test_trainer_has_dashboard_access_and_lands_there_after_login(self):
+    def test_trainer_only_has_operational_page_access_and_lands_on_dashboard(self):
         trainer = {"id": "trainer-123", "isAdmin": False, "systemRole": "Trainer"}
 
-        self.assertIn("dashboard", legacy.get_visible_pages_for_user(trainer))
-        self.assertIn("agenda", legacy.get_visible_pages_for_user(trainer))
-        self.assertIn("management", legacy.get_visible_pages_for_user(trainer))
-        self.assertNotIn("planning", legacy.get_visible_pages_for_user(trainer))
-        self.assertIn("marketing", legacy.get_visible_pages_for_user(trainer))
+        self.assertEqual(
+            legacy.get_visible_pages_for_user(trainer),
+            {
+                "dashboard",
+                "agenda",
+                "draaiboeken",
+                "voetbaldagen",
+                "checklists",
+                "kleedkamerbordjes",
+                "samenwerkende-amateurclubs",
+                "oefenstof",
+                "oefeningen-bibliotheek",
+                "trainingen",
+                "profile",
+            },
+        )
+        self.assertFalse(legacy.user_has_permission(trainer, "registrations.manage"))
+        self.assertFalse(legacy.user_has_permission(trainer, "materials.manage"))
+        self.assertFalse(legacy.user_has_permission(trainer, "leads.manage"))
         self.assertEqual(legacy.get_default_post_login_path(trainer), "/")
 
-    def test_trainer_can_open_overview_pages_but_not_restricted_detail_pages(self):
+    def test_trainer_can_open_operational_overviews_but_not_sensitive_overviews(self):
         trainer = {
             "id": "trainer-123",
             "fullName": "Test Trainer",
@@ -1522,19 +1677,14 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         with patch.object(legacy, "get_current_user", return_value=trainer):
             management_response = Client().get("/management", secure=True)
-            planning_response = Client().get("/planning", secure=True)
             marketing_response = Client().get("/marketing", secure=True)
-            api_management_response = Client().get("/management/api", secure=True)
+            draaiboeken_response = Client().get("/draaiboeken", secure=True)
+            oefenstof_response = Client().get("/oefenstof", secure=True)
 
-        self.assertEqual(management_response.status_code, 200)
-        self.assertContains(management_response, "Materialen")
-        self.assertContains(management_response, "Aanmeldingen")
-        self.assertNotContains(management_response, "Planning</span>")
-        self.assertRedirects(planning_response, "/", fetch_redirect_response=False)
-        self.assertEqual(marketing_response.status_code, 200)
-        self.assertContains(marketing_response, "Leads")
-        self.assertNotContains(marketing_response, "Contentplanning")
-        self.assertRedirects(api_management_response, "/", fetch_redirect_response=False)
+        self.assertRedirects(management_response, "/", fetch_redirect_response=False)
+        self.assertRedirects(marketing_response, "/", fetch_redirect_response=False)
+        self.assertEqual(draaiboeken_response.status_code, 200)
+        self.assertEqual(oefenstof_response.status_code, 200)
 
     def test_global_navigation_contains_only_overview_pages(self):
         trainer = {"id": "trainer-123", "isAdmin": False, "systemRole": "Trainer"}
@@ -1546,11 +1696,11 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertEqual(
             navigation_paths,
-            ["/", "/agenda", "/draaiboeken", "/management", "/oefenstof", "/marketing", "/profiel"],
+            ["/", "/agenda", "/draaiboeken", "/oefenstof", "/profiel"],
         )
         self.assertEqual(
             legacy.get_current_workspace_main_navigation_path(trainer, "/materialen"),
-            "/management",
+            "",
         )
         self.assertEqual(
             legacy.get_current_workspace_main_navigation_path(trainer, "/trainingen/maker"),
@@ -1558,11 +1708,154 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         )
         self.assertEqual(
             legacy.get_current_workspace_main_navigation_path(trainer, "/leads"),
-            "/marketing",
+            "",
         )
         self.assertEqual(
             legacy.get_current_workspace_main_navigation_title(trainer, "/materialen"),
-            "Management",
+            "",
+        )
+
+    def test_trainer_sensitive_get_requests_are_denied_before_data_is_loaded(self):
+        trainer = {
+            "id": "trainer-123",
+            "fullName": "Test Trainer",
+            "isAdmin": False,
+            "systemRole": "Trainer",
+        }
+
+        with (
+            patch.object(legacy, "get_current_user", return_value=trainer),
+            patch.object(legacy, "fetch_catalog_products") as mocked_catalog,
+            patch.object(legacy, "fetch_ecwid_orders") as mocked_orders,
+            patch.object(legacy, "load_materials_inventory") as mocked_materials,
+        ):
+            page_responses = [
+                Client().get(path, secure=True)
+                for path in ("/aanmeldingen", "/aanmeldingen/id:101", "/leads", "/materialen", "/trainers")
+            ]
+            api_response = Client().get("/api/orders", secure=True)
+
+        for response in page_responses:
+            self.assertRedirects(response, "/", fetch_redirect_response=False)
+        self.assertEqual(api_response.status_code, 403)
+        self.assertEqual(api_response.json()["error"], "Je hebt geen rechten voor deze actie.")
+        mocked_catalog.assert_not_called()
+        mocked_orders.assert_not_called()
+        mocked_materials.assert_not_called()
+
+    def test_trainer_sensitive_post_and_api_requests_are_denied_before_side_effects(self):
+        trainer = {
+            "id": "trainer-123",
+            "fullName": "Test Trainer",
+            "isAdmin": False,
+            "systemRole": "Trainer",
+        }
+        client = self.build_authenticated_client()
+        api_paths = (
+            "/api/leads/blocked-emails",
+            "/api/registrations/email-status",
+            "/api/registrations/event-email-settings",
+            "/api/registrations/send-event-email",
+            "/api/registrations/sync-emailed-orders",
+            "/api/klanttevredenheid/test-email",
+            "/api/registrations/event-completed",
+            "/api/registrations/event-canceled",
+        )
+
+        with (
+            patch.object(legacy, "get_current_user", return_value=trainer),
+            patch.object(legacy, "save_materials_inventory") as mocked_save_materials,
+            patch.object(legacy, "save_blocked_lead_emails") as mocked_save_blocked,
+            patch.object(legacy, "update_ecwid_order_to_processing") as mocked_update_ecwid,
+            patch.object(legacy, "save_registration_event_email_settings") as mocked_save_email_settings,
+            patch.object(legacy, "send_registration_product_emails") as mocked_send_emails,
+            patch.object(legacy, "sync_emailed_registration_orders_to_ecwid") as mocked_sync_orders,
+            patch.object(legacy, "sync_registration_event_orders_to_delivered") as mocked_deliver_orders,
+            patch.object(legacy, "sync_registration_event_orders_to_returned") as mocked_return_orders,
+        ):
+            materials_response = client.post(
+                "/materialen",
+                {"csrf_token": self.TEST_CSRF_TOKEN},
+                secure=True,
+            )
+            api_responses = [
+                client.post(
+                    path,
+                    data="{}",
+                    content_type="application/json",
+                    secure=True,
+                    HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+                )
+                for path in api_paths
+            ]
+
+        self.assertEqual(materials_response.status_code, 403)
+        for response in api_responses:
+            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.json()["error"], "Je hebt geen rechten voor deze actie.")
+        for mocked_side_effect in (
+            mocked_save_materials,
+            mocked_save_blocked,
+            mocked_update_ecwid,
+            mocked_save_email_settings,
+            mocked_send_emails,
+            mocked_sync_orders,
+            mocked_deliver_orders,
+            mocked_return_orders,
+        ):
+            mocked_side_effect.assert_not_called()
+
+    def test_admin_retains_sensitive_page_and_action_permissions(self):
+        admin = {"id": "admin-123", "isAdmin": True, "systemRole": "Admin"}
+
+        for page_key in ("orders", "leads", "materialen", "trainers"):
+            self.assertTrue(legacy.user_can_access_page(admin, page_key))
+        for permission in ("registrations.manage", "leads.manage", "materials.manage", "trainers.manage"):
+            self.assertTrue(legacy.user_has_permission(admin, permission))
+        self.assertFalse(legacy.user_has_permission(admin, "unknown.manage"))
+
+    def test_admin_registration_mutation_reaches_authorized_handler(self):
+        admin = {"id": "admin-123", "isAdmin": True, "systemRole": "Admin"}
+        client = self.build_authenticated_client()
+
+        with (
+            patch.object(legacy, "get_current_user", return_value=admin),
+            patch.object(legacy, "update_ecwid_order_to_processing", return_value=True) as mocked_update_ecwid,
+            patch.object(legacy, "set_registration_orders_emailed", return_value=["order-1"]) as mocked_set_status,
+        ):
+            response = client.post(
+                "/api/registrations/email-status",
+                data=json.dumps({"productKey": "id:101", "orderIds": ["order-1"], "emailed": True}),
+                content_type="application/json",
+                secure=True,
+                HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+        mocked_update_ecwid.assert_called_once_with("order-1")
+        mocked_set_status.assert_called_once_with("id:101", ["order-1"], True)
+
+    def test_read_only_registration_count_fetch_disables_all_automatic_mutations(self):
+        read_only_payload = {"source": "ecwid", "items": [], "summary": {}}
+
+        with (
+            patch.object(legacy, "get_cached_ecwid_orders_payload", return_value=None),
+            patch.object(
+                legacy,
+                "fetch_orders_from_ecwid",
+                return_value=read_only_payload,
+            ) as mocked_fetch_orders,
+        ):
+            payload = legacy.fetch_ecwid_orders_for_registration_counts(
+                allow_mutations=False,
+                force_refresh=True,
+            )
+
+        self.assertEqual(payload, read_only_payload)
+        mocked_fetch_orders.assert_called_once_with(
+            run_auto_email=False,
+            run_automatic_return_sync=False,
         )
 
     def test_subpage_keeps_its_parent_navigation_active_and_labelled(self):
@@ -1663,15 +1956,73 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         with (
             patch.object(legacy, "get_current_user", return_value=trainer),
-            patch.object(legacy, "fetch_orders_non_blocking", return_value=legacy.get_empty_dashboard_payload()),
+            patch.object(
+                legacy,
+                "fetch_orders_non_blocking",
+                return_value=legacy.get_empty_dashboard_payload(),
+            ) as mocked_fetch_orders,
             patch.object(legacy, "build_trainer_dashboard_week_schedule", return_value=[]),
         ):
             response = Client().get("/", secure=True)
 
         self.assertEqual(response.status_code, 200)
+        mocked_fetch_orders.assert_not_called()
         self.assertContains(response, "Mijn afspraken deze week")
         self.assertNotContains(response, "Inschrijvingen Aankomende Events")
         self.assertNotContains(response, 'id="eventsSummaryCard"')
+
+    def test_trainer_dashboard_api_does_not_fetch_order_or_financial_data(self):
+        trainer = {
+            "id": "trainer-123",
+            "fullName": "Test Trainer",
+            "isAdmin": False,
+            "systemRole": "Trainer",
+        }
+
+        with (
+            patch.object(legacy, "get_current_user", return_value=trainer),
+            patch.object(legacy, "fetch_orders") as mocked_fetch_orders,
+        ):
+            response = Client().get("/api/dashboard-summary?refresh=1", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["summary"], {})
+        self.assertEqual(response.json()["reportSummary"], {})
+        self.assertEqual(response.json()["productSummary"], [])
+        mocked_fetch_orders.assert_not_called()
+
+    def test_trainer_registration_count_api_uses_read_only_ecwid_fetch(self):
+        trainer = {
+            "id": "trainer-123",
+            "fullName": "Test Trainer",
+            "isAdmin": False,
+            "systemRole": "Trainer",
+        }
+        orders_payload = {
+            "items": [
+                {
+                    "fulfillmentStatus": legacy.ECWID_PROCESSING_FULFILLMENT_STATUS,
+                    "items": [{"productId": 101, "quantity": 4}],
+                }
+            ]
+        }
+
+        with (
+            patch.object(legacy, "get_current_user", return_value=trainer),
+            patch.object(
+                legacy,
+                "fetch_ecwid_orders_for_registration_counts",
+                return_value=orders_payload,
+            ) as mocked_fetch_orders,
+        ):
+            response = Client().get(
+                "/api/products/registration-count?product_id=101",
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["registrationCount"], 4)
+        mocked_fetch_orders.assert_called_once_with(allow_mutations=False)
 
     def test_trainer_week_schedule_only_contains_own_upcoming_items_this_week(self):
         trainings = [
@@ -1796,13 +2147,13 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("agenda-event-club-vv-diepenveen", content)
         self.assertIn('class="trainer-week-type">Techniektraining</span>', content)
 
-    def test_orders_page_is_visible_for_all_authenticated_users(self):
+    def test_orders_page_is_admin_only(self):
         self.assertIn("orders", legacy.get_visible_pages_for_user({"id": "admin", "isAdmin": True}))
-        self.assertIn(
+        self.assertNotIn(
             "orders",
             legacy.get_visible_pages_for_user({"id": "social", "isAdmin": False, "systemRole": "Social media beheerder"}),
         )
-        self.assertIn("orders", legacy.get_visible_pages_for_user({"id": "trainer", "isAdmin": False, "systemRole": "Trainer"}))
+        self.assertNotIn("orders", legacy.get_visible_pages_for_user({"id": "trainer", "isAdmin": False, "systemRole": "Trainer"}))
 
     def test_football_day_only_agenda_day_counts_as_no_activity(self):
         summary_day_plans = legacy.add_football_day_only_no_activity_days(
@@ -1860,13 +2211,13 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertEqual(no_activity["count"], 0)
 
-    def test_leads_page_is_visible_for_all_authenticated_users(self):
+    def test_leads_page_is_admin_only(self):
         self.assertIn("leads", legacy.get_visible_pages_for_user({"id": "admin", "isAdmin": True}))
-        self.assertIn(
+        self.assertNotIn(
             "leads",
             legacy.get_visible_pages_for_user({"id": "social", "isAdmin": False, "systemRole": "Social media beheerder"}),
         )
-        self.assertIn("leads", legacy.get_visible_pages_for_user({"id": "trainer", "isAdmin": False, "systemRole": "Trainer"}))
+        self.assertNotIn("leads", legacy.get_visible_pages_for_user({"id": "trainer", "isAdmin": False, "systemRole": "Trainer"}))
 
     def test_spaarpot_is_visible_for_admin_users(self):
         self.assertIn("spaarpot", legacy.get_visible_pages_for_user({"id": "admin", "isAdmin": True}))
@@ -1881,16 +2232,16 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 "id": "1",
                 "invoice_id": "2026-0001",
                 "payments": [
-                    {"payment_date": "2026-01-15", "price": "100.00"},
-                    {"payment_date": "2026-03-20", "price": "50.00"},
-                    {"payment_date": "2026-04-01", "price": "200.00"},
-                    {"payment_date": "2026-04-02", "price": "-25.00"},
+                    {"payment_date": "2026-07-15", "price": "100.00"},
+                    {"payment_date": "2026-09-20", "price": "50.00"},
+                    {"payment_date": "2026-10-01", "price": "200.00"},
+                    {"payment_date": "2026-10-02", "price": "-25.00"},
                 ],
             },
             {
                 "id": "2",
-                "invoice_id": "2025-0009",
-                "payments": [{"payment_date": "2025-12-31", "price": "80.00"}],
+                "invoice_id": "2026-0000",
+                "payments": [{"payment_date": "2026-06-30", "price": "80.00"}],
             },
         ]
 
@@ -1910,14 +2261,14 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             {
                 "id": "1",
                 "invoice_id": "2026-0001",
-                "payments": [{"payment_date": "2026-01-15", "price": "100.00"}],
+                "payments": [{"payment_date": "2026-07-15", "price": "100.00"}],
             }
         ]
         financial_mutations = [
             {
                 "id": "mutation-1",
                 "code": "STR-1001",
-                "date": "2026-02-10",
+                "date": "2026-08-10",
                 "amount": "-250.00",
                 "contra_account_name": "STRIPE",
                 "message": "Stripe payout",
@@ -1926,7 +2277,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             {
                 "id": "mutation-2",
                 "code": "BANK-1002",
-                "date": "2026-02-11",
+                "date": "2026-08-11",
                 "amount": "75.00",
                 "contra_account_name": "Andere klant",
                 "message": "Losse betaling",
@@ -1935,7 +2286,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             {
                 "id": "mutation-3",
                 "code": "STR-1002",
-                "date": "2026-04-14",
+                "date": "2026-10-14",
                 "amount": "929.84",
                 "contra_account_name": "STRIPE TECHNOLOGY EUROPE, LIMITED",
                 "message": "",
@@ -1944,7 +2295,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             {
                 "id": "mutation-4",
                 "code": "STR-1003",
-                "date": "2026-02-12",
+                "date": "2026-08-12",
                 "amount": "-50.00",
                 "contra_account_name": "STRIPE",
                 "message": "Stripe gekoppeld aan verkoopfactuur",
@@ -1970,18 +2321,18 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 {
                     "id": "1",
                     "invoice_id": "2026-0001",
-                    "payments": [{"payment_date": "2026-01-15", "price": "100.00"}],
+                    "payments": [{"payment_date": "2026-07-15", "price": "100.00"}],
                 }
             ]
         )
         entries.append(
             {
                 "source": "manual",
-                "date": "2026-02-01",
-                "dateLabel": "01-02-2026",
+                "date": "2026-07-01",
+                "dateLabel": "01-07-2026",
                 "year": 2026,
-                "quarter": 1,
-                "quarterLabel": "JAN-FEB-MAA",
+                "quarter": 3,
+                "quarterLabel": "JUL-AUG-SEP",
                 "invoiceId": "Handmatig",
                 "contactName": "",
                 "accountLabel": "Reservering trainersvergoedingen",
@@ -2022,14 +2373,14 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                     "id": "1",
                     "invoice_id": "2026-0001",
                     "contact": {"company_name": "Voetbal Ouder", "bank_account": "NL91ABNA0417164300"},
-                    "payments": [{"payment_date": "2026-01-15", "price": "100.00"}],
+                    "payments": [{"payment_date": "2026-07-15", "price": "100.00"}],
                 }
             ],
             "financialMutations": [
                 {
                     "id": "mutation-1",
                     "code": "STR-1001",
-                    "date": "2026-01-20",
+                    "date": "2026-07-20",
                     "amount": "-50.00",
                     "contra_account_name": "STRIPE",
                     "message": "Stripe payout",
@@ -2038,20 +2389,16 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             ],
             "message": None,
         }
-        payload = {
-            "moneybird": moneybird,
-            "message": None,
-            "cachedAt": 1767222000.0,
-        }
+        moneybird["cachedAt"] = 1785542400.0
         manual_entries = [
             {
                 "source": "manual",
                 "id": 1,
-                "date": "2026-01-22",
-                "dateLabel": "22-01-2026",
+                "date": "2026-07-22",
+                "dateLabel": "22-07-2026",
                 "year": 2026,
-                "quarter": 1,
-                "quarterLabel": "JAN-FEB-MAA",
+                "quarter": 3,
+                "quarterLabel": "JUL-AUG-SEP",
                 "invoiceId": "Handmatig",
                 "contactName": "",
                 "accountLabel": "Reservering trainersvergoedingen",
@@ -2062,21 +2409,21 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         with patch.object(legacy, "get_current_user", return_value={"id": "admin", "isAdmin": True}), patch.object(
             legacy,
-            "fetch_orders_non_blocking",
-            return_value=payload,
-        ) as fetch_orders_non_blocking, patch.object(legacy, "fetch_moneybird_summary") as fetch_moneybird_summary, patch.object(
+            "fetch_moneybird_non_blocking",
+            return_value=moneybird,
+        ) as fetch_moneybird_non_blocking, patch.object(legacy, "fetch_moneybird_summary") as fetch_moneybird_summary, patch.object(
             legacy, "load_spaarpot_manual_entries", return_value=manual_entries
         ):
-            response = Client().get("/spaarpot?year=2026", secure=True)
+            response = Client().get("/spaarpot?season=2026", secure=True)
 
         self.assertEqual(response.status_code, 200)
-        fetch_orders_non_blocking.assert_called_once()
+        fetch_moneybird_non_blocking.assert_called_once()
         fetch_moneybird_summary.assert_not_called()
         content = response.content.decode("utf-8")
         self.assertIn("Spaarpot", content)
-        self.assertIn("JAN-FEB-MAA", content)
-        self.assertIn('href="/spaarpot?year=2026&quarter=1"', content)
-        self.assertIn('href="/spaarpot?year=2026&quarter=4"', content)
+        self.assertIn("Jul - Sep", content)
+        self.assertIn('href="/spaarpot?season=2026&quarter=1"', content)
+        self.assertIn('href="/spaarpot?season=2026&quarter=4"', content)
         self.assertIn("2026-0001", content)
         self.assertIn("Voetbal Ouder - NL91ABNA0417164300", content)
         self.assertIn("Stripe STR-1001", content)
@@ -4169,6 +4516,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                     "csrf_token": self.TEST_CSRF_TOKEN,
                     "action": "delete_proposal",
                     "proposal_id": "42",
+                    "delete_confirmation": "delete:proposal:42",
                 },
                 secure=True,
             )
@@ -4396,6 +4744,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 """,
                 extra_profiles,
             )
+        legacy.clear_local_data_cache()
 
         try:
             response = self.build_authenticated_client().get("/trainers", secure=True)
@@ -4445,6 +4794,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                     "DELETE FROM trainer_profiles WHERE id IN (?, ?)",
                     ("trainer-extra-admin-test-1", "trainer-extra-admin-test-2"),
                 )
+            legacy.clear_local_data_cache()
 
     def test_admin_can_create_profile_completion_link_for_existing_trainer(self):
         profile_id = "trainer-invite-flow-test"
@@ -4767,15 +5117,17 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
             alfa_response = Client().get(first_alfa_path, secure=True)
             bravo_response = Client().get(bravo_path, secure=True)
-            self.assertContains(alfa_response, "Trainer Link Alfa")
-            self.assertNotContains(alfa_response, "Trainer Link Bravo")
-            self.assertContains(bravo_response, "Trainer Link Bravo")
-            self.assertNotContains(bravo_response, "Trainer Link Alfa")
+            self.assertContains(alfa_response, "Beveiligde accountuitnodiging")
+            self.assertContains(bravo_response, "Beveiligde accountuitnodiging")
+            self.assertNotContains(alfa_response, "Trainer Link Alfa")
+            self.assertNotContains(alfa_response, "trainer-link-alfa@example.com")
+            self.assertNotContains(bravo_response, "Trainer Link Bravo")
+            self.assertNotContains(bravo_response, "trainer-link-bravo@example.com")
 
             renewed_alfa_path = create_link(profile_ids[0])
             self.assertContains(Client().get(first_alfa_path, secure=True), "niet geldig of is al gebruikt")
-            self.assertContains(Client().get(renewed_alfa_path, secure=True), "Trainer Link Alfa")
-            self.assertContains(Client().get(bravo_path, secure=True), "Trainer Link Bravo")
+            self.assertContains(Client().get(renewed_alfa_path, secure=True), "Beveiligde accountuitnodiging")
+            self.assertContains(Client().get(bravo_path, secure=True), "Beveiligde accountuitnodiging")
         finally:
             with legacy.get_db_connection() as connection:
                 connection.executemany("DELETE FROM trainer_profiles WHERE id = ?", [(profile_id,) for profile_id in profile_ids])

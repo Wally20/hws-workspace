@@ -7,14 +7,13 @@ User=www-data
 Group=www-data
 WorkingDirectory=/srv/overzicht
 EnvironmentFile=/srv/overzicht/.env
-ExecStart=/srv/overzicht/.venv/bin/gunicorn \
+ExecStart=/srv/overzicht/scripts/start.sh \
     --workers 2 \
-    --threads 4 \
+    --threads 2 \
     --bind 127.0.0.1:8011 \
     --access-logfile - \
     --error-logfile - \
-    --timeout 120 \
-    config.wsgi:application
+    --timeout 120
 Restart=always
 RestartSec=5
 

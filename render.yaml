@@ -3,8 +3,8 @@ services:
     name: hws-workspace
     runtime: python
     plan: starter
-    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
-    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+    buildCommand: pip install -r requirements.txt && ./scripts/check_release.sh && python manage.py collectstatic --noinput
+    startCommand: ./scripts/start.sh --bind 0.0.0.0:$PORT --workers 2 --threads 2 --timeout 120
     healthCheckPath: /login
     disk:
       name: workspace-storage
@@ -25,14 +25,28 @@ services:
         value: "1"
       - key: SESSION_COOKIE_SAMESITE
         value: Lax
+      - key: SESSION_IDLE_TIMEOUT_SECONDS
+        value: "3600"
+      - key: SESSION_ABSOLUTE_TIMEOUT_SECONDS
+        value: "43200"
+      - key: SESSION_EXPIRE_AT_BROWSER_CLOSE
+        value: "1"
+      - key: TRAINER_INVITE_TTL_HOURS
+        value: "48"
       - key: PREFERRED_URL_SCHEME
         value: https
       - key: DATA_DIR
         value: /opt/render/project/src/storage/data
+      - key: SQLITE_BUSY_TIMEOUT_MS
+        value: "30000"
+      - key: STORAGE_BACKUP_RETENTION
+        value: "7"
       - key: LOCAL_UPLOAD_ROOT
         value: /opt/render/project/src/storage/uploads
       - key: REVERSE_PROXY_HOPS
         value: "1"
+      - key: LOGIN_IP_RATE_LIMIT_MULTIPLIER
+        value: "5"
       - key: DJANGO_SECRET_KEY
         sync: false
       - key: FLASK_SECRET_KEY
@@ -107,5 +121,7 @@ services:
         value: exercise-videos
       - key: BUNNY_VIDEO_MAX_UPLOAD_MB
         value: "5000"
+      - key: LOCAL_VIDEO_MAX_UPLOAD_MB
+        value: "250"
       - key: BUNNY_VIDEO_ALLOWED_TYPES
         value: video/mp4,video/webm,video/quicktime

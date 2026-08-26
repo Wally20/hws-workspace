@@ -204,6 +204,11 @@ function scoreWorkspaceSearchPage(page, queryParts) {
   }, 0);
 }
 
+function getWorkspaceSearchPagePath(page) {
+  const path = String(page?.path || "").trim();
+  return path.startsWith("/") && !path.startsWith("//") ? path : "/";
+}
+
 function initWorkspacePageSearch() {
   const pages = getWorkspaceSearchPages();
   if (!pages.length || document.querySelector("[data-workspace-search-root]")) {
@@ -214,16 +219,20 @@ function initWorkspacePageSearch() {
   let selectedSection = "Alle";
   let activeIndex = 0;
   let filteredPages = pages.slice();
+  let focusBeforeSearch = null;
 
   const root = document.createElement("div");
   root.className = "workspace-search-root";
   root.dataset.workspaceSearchRoot = "1";
   root.innerHTML = `
-    <button class="workspace-search-fab" type="button" aria-label="Pagina zoeken" aria-expanded="false">
-      <span aria-hidden="true">?</span>
+    <button class="workspace-search-fab" type="button" aria-label="Pagina zoeken" aria-expanded="false" aria-controls="workspaceSearchPanel" aria-keyshortcuts="/ Control+K Meta+K" title="Pagina zoeken (/)">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="11" cy="11" r="6.5"></circle>
+        <path d="m16 16 4 4"></path>
+      </svg>
     </button>
-    <div class="workspace-search-backdrop" data-search-close hidden></div>
-    <section class="workspace-search-panel" role="dialog" aria-modal="true" aria-labelledby="workspaceSearchTitle" hidden>
+    <button class="workspace-search-backdrop" type="button" data-search-close aria-label="Zoeken sluiten" tabindex="-1" hidden></button>
+    <section class="workspace-search-panel" id="workspaceSearchPanel" role="dialog" aria-modal="true" aria-labelledby="workspaceSearchTitle" hidden>
       <div class="workspace-search-header">
         <div>
           <p class="workspace-search-eyebrow">Snel navigeren</p>
@@ -240,11 +249,11 @@ function initWorkspacePageSearch() {
           <circle cx="11" cy="11" r="6.5"></circle>
           <path d="m16 16 4 4"></path>
         </svg>
-        <input id="workspaceSearchInput" type="search" autocomplete="off" placeholder="Zoek op pagina, onderdeel, taak of URL">
+        <input id="workspaceSearchInput" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="workspaceSearchResults" aria-describedby="workspaceSearchMeta" autocomplete="off" placeholder="Zoek op pagina, onderdeel, taak of URL">
       </label>
-      <div class="workspace-search-filters" role="listbox" aria-label="Filter op onderdeel"></div>
-      <div class="workspace-search-meta" aria-live="polite"></div>
-      <div class="workspace-search-results" role="listbox" aria-label="Zoekresultaten"></div>
+      <div class="workspace-search-filters" role="group" aria-label="Filter op onderdeel"></div>
+      <div class="workspace-search-meta" id="workspaceSearchMeta" aria-live="polite"></div>
+      <div class="workspace-search-results" id="workspaceSearchResults" role="listbox" aria-label="Zoekresultaten"></div>
     </section>
   `;
 
@@ -260,12 +269,36 @@ function initWorkspacePageSearch() {
   const closeElements = root.querySelectorAll("[data-search-close]");
 
   function renderFilters() {
-    filtersElement.innerHTML = sections
-      .map((section) => {
-        const isActive = section === selectedSection;
-        return `<button class="workspace-search-filter${isActive ? " is-active" : ""}" type="button" data-section="${section}" aria-selected="${isActive ? "true" : "false"}">${section}</button>`;
-      })
-      .join("");
+    filtersElement.replaceChildren();
+    sections.forEach((section) => {
+      const isActive = section === selectedSection;
+      const button = document.createElement("button");
+      button.className = `workspace-search-filter${isActive ? " is-active" : ""}`;
+      button.type = "button";
+      button.dataset.section = section;
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      button.textContent = section;
+      filtersElement.append(button);
+    });
+  }
+
+  function updateActiveResult({ scroll = false } = {}) {
+    const results = Array.from(resultsElement.querySelectorAll("[data-result-index]"));
+    results.forEach((result, index) => {
+      const isActive = index === activeIndex;
+      result.classList.toggle("is-active", isActive);
+      result.setAttribute("aria-selected", isActive ? "true" : "false");
+    });
+
+    const activeResult = results[activeIndex];
+    if (activeResult) {
+      input.setAttribute("aria-activedescendant", activeResult.id);
+      if (scroll) {
+        activeResult.scrollIntoView({ block: "nearest" });
+      }
+    } else {
+      input.removeAttribute("aria-activedescendant");
+    }
   }
 
   function renderResults() {
@@ -279,44 +312,81 @@ function initWorkspacePageSearch() {
 
     activeIndex = Math.min(activeIndex, Math.max(filteredPages.length - 1, 0));
     metaElement.textContent = `${filteredPages.length} ${filteredPages.length === 1 ? "pagina" : "pagina's"} gevonden`;
+    resultsElement.replaceChildren();
 
     if (!filteredPages.length) {
-      resultsElement.innerHTML = `<div class="workspace-search-empty">Geen pagina gevonden</div>`;
+      const empty = document.createElement("div");
+      empty.className = "workspace-search-empty";
+      empty.textContent = "Geen pagina gevonden";
+      resultsElement.append(empty);
+      input.removeAttribute("aria-activedescendant");
       return;
     }
 
-    resultsElement.innerHTML = filteredPages
-      .map((page, index) => `
-        <a class="workspace-search-result${index === activeIndex ? " is-active" : ""}" href="${page.path}" role="option" aria-selected="${index === activeIndex ? "true" : "false"}" data-result-index="${index}">
-          <span class="workspace-search-result-main">
-            <strong>${page.title}</strong>
-            <small>${page.description}</small>
-          </span>
-          <span class="workspace-search-result-side">
-            <span>${page.section}</span>
-            <code>${page.path}</code>
-          </span>
-        </a>
-      `)
-      .join("");
+    filteredPages.forEach((page, index) => {
+      const result = document.createElement("a");
+      const path = getWorkspaceSearchPagePath(page);
+      result.className = "workspace-search-result";
+      result.href = path;
+      result.id = `workspaceSearchResult${index}`;
+      result.setAttribute("role", "option");
+      result.dataset.resultIndex = String(index);
+
+      const main = document.createElement("span");
+      main.className = "workspace-search-result-main";
+      const title = document.createElement("strong");
+      title.textContent = String(page.title || "Pagina");
+      const description = document.createElement("small");
+      description.textContent = String(page.description || "");
+      main.append(title, description);
+
+      const side = document.createElement("span");
+      side.className = "workspace-search-result-side";
+      const section = document.createElement("span");
+      section.textContent = String(page.section || "Algemeen");
+      const code = document.createElement("code");
+      code.textContent = path;
+      side.append(section, code);
+
+      result.append(main, side);
+      resultsElement.append(result);
+    });
+    updateActiveResult();
   }
 
   function openSearch() {
+    if (!panel.hidden) {
+      input.focus();
+      return;
+    }
+    focusBeforeSearch = document.activeElement instanceof HTMLElement ? document.activeElement : fab;
+    closeWorkspaceNavigation();
     panel.hidden = false;
     backdrop.hidden = false;
     fab.setAttribute("aria-expanded", "true");
+    input.setAttribute("aria-expanded", "true");
     document.body.classList.add("workspace-search-open");
     activeIndex = 0;
     renderResults();
-    window.setTimeout(() => input.focus(), 20);
+    window.requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
   }
 
   function closeSearch() {
+    if (panel.hidden) {
+      return;
+    }
     panel.hidden = true;
     backdrop.hidden = true;
     fab.setAttribute("aria-expanded", "false");
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
     document.body.classList.remove("workspace-search-open");
-    fab.focus();
+    const focusTarget = focusBeforeSearch?.isConnected ? focusBeforeSearch : fab;
+    focusBeforeSearch = null;
+    focusTarget.focus();
   }
 
   function goToActiveResult() {
@@ -329,7 +399,13 @@ function initWorkspacePageSearch() {
   renderFilters();
   renderResults();
 
-  fab.addEventListener("click", openSearch);
+  fab.addEventListener("click", () => {
+    if (panel.hidden) {
+      openSearch();
+    } else {
+      closeSearch();
+    }
+  });
   closeElements.forEach((element) => element.addEventListener("click", closeSearch));
   input.addEventListener("input", () => {
     activeIndex = 0;
@@ -348,20 +424,25 @@ function initWorkspacePageSearch() {
     input.focus();
   });
 
-  resultsElement.addEventListener("mousemove", (event) => {
+  resultsElement.addEventListener("pointerover", (event) => {
     const result = event.target.closest("[data-result-index]");
     if (!result) {
       return;
     }
     activeIndex = Number(result.dataset.resultIndex || 0);
-    renderResults();
+    updateActiveResult();
   });
 
   document.addEventListener("keydown", (event) => {
     const isOpen = !panel.hidden;
-    const isTyping = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement;
+    const target = event.target;
+    const isTyping = target instanceof HTMLInputElement
+      || target instanceof HTMLTextAreaElement
+      || target instanceof HTMLSelectElement
+      || (target instanceof HTMLElement && target.isContentEditable);
+    const usesSearchShortcut = event.key === "/" || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k");
 
-    if (!isOpen && event.key === "/" && !isTyping) {
+    if (!isOpen && usesSearchShortcut && !isTyping) {
       event.preventDefault();
       openSearch();
       return;
@@ -374,24 +455,155 @@ function initWorkspacePageSearch() {
     if (event.key === "Escape") {
       event.preventDefault();
       closeSearch();
-    } else if (event.key === "ArrowDown") {
+    } else if (event.key === "Tab") {
+      const focusable = Array.from(panel.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+        .filter((element) => !element.closest("[hidden]"));
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (first && last && event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (first && last && !event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    } else if (event.key === "ArrowDown" && target === input) {
       event.preventDefault();
       activeIndex = Math.min(activeIndex + 1, Math.max(filteredPages.length - 1, 0));
-      renderResults();
-    } else if (event.key === "ArrowUp") {
+      updateActiveResult({ scroll: true });
+    } else if (event.key === "ArrowUp" && target === input) {
       event.preventDefault();
       activeIndex = Math.max(activeIndex - 1, 0);
-      renderResults();
-    } else if (event.key === "Enter") {
+      updateActiveResult({ scroll: true });
+    } else if (event.key === "Enter" && target === input) {
       event.preventDefault();
       goToActiveResult();
     }
   });
 }
 
+function initSectionTileSearch() {
+  document.querySelectorAll("[data-tile-search-root]").forEach((root) => {
+    const input = root.querySelector("[data-tile-search-input]");
+    const items = Array.from(root.querySelectorAll("[data-tile-search-item]"));
+    const status = root.querySelector("[data-tile-search-status]");
+    const empty = root.querySelector("[data-tile-search-empty]");
+    if (!(input instanceof HTMLInputElement) || !items.length) {
+      return;
+    }
+
+    const applyFilter = () => {
+      const queryParts = normalizeWorkspaceSearchText(input.value).split(/\s+/).filter(Boolean);
+      let visibleCount = 0;
+      items.forEach((item) => {
+        const text = normalizeWorkspaceSearchText(item.textContent);
+        const isVisible = queryParts.every((part) => text.includes(part));
+        item.hidden = !isVisible;
+        if (isVisible) {
+          visibleCount += 1;
+        }
+      });
+      if (status) {
+        status.textContent = `${visibleCount} van ${items.length} ${items.length === 1 ? "onderdeel" : "onderdelen"}`;
+      }
+      if (empty) {
+        empty.hidden = visibleCount > 0;
+      }
+    };
+
+    input.addEventListener("input", applyFilter);
+    applyFilter();
+  });
+}
+
+function initAccessibleModalDialogs() {
+  const modalRoots = Array.from(document.querySelectorAll(".agenda-modal"));
+  modalRoots.forEach((modal, index) => {
+    const dialog = modal.querySelector(":scope > .agenda-modal-dialog");
+    if (!(dialog instanceof HTMLElement)) {
+      return;
+    }
+
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    if (!dialog.hasAttribute("aria-label") && !dialog.hasAttribute("aria-labelledby")) {
+      const title = dialog.querySelector("h1, h2, h3");
+      if (title) {
+        if (!title.id) {
+          title.id = `hwsModalTitle${index + 1}`;
+        }
+        dialog.setAttribute("aria-labelledby", title.id);
+      } else {
+        dialog.setAttribute("aria-label", "Dialoogvenster");
+      }
+    }
+    if (!dialog.hasAttribute("tabindex")) {
+      dialog.tabIndex = -1;
+    }
+
+    let wasOpen = false;
+    let focusBeforeOpen = null;
+    const focusableSelector = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    const handleVisibility = () => {
+      const isOpen = !modal.hidden;
+      if (isOpen && !wasOpen) {
+        if (!modal.contains(document.activeElement) && document.activeElement instanceof HTMLElement) {
+          focusBeforeOpen = document.activeElement;
+        }
+        window.requestAnimationFrame(() => {
+          if (modal.hidden || modal.contains(document.activeElement)) {
+            return;
+          }
+          const firstFocusable = Array.from(dialog.querySelectorAll(focusableSelector))
+            .find((element) => !element.closest("[hidden]"));
+          (firstFocusable || dialog).focus();
+        });
+      } else if (!isOpen && wasOpen && focusBeforeOpen?.isConnected) {
+        focusBeforeOpen.focus();
+        focusBeforeOpen = null;
+      }
+      wasOpen = isOpen;
+    };
+
+    dialog.addEventListener("keydown", (event) => {
+      if (event.key !== "Tab" || modal.hidden) {
+        return;
+      }
+      const openModals = modalRoots.filter((candidate) => !candidate.hidden);
+      if (openModals[openModals.length - 1] !== modal) {
+        return;
+      }
+      const focusable = Array.from(dialog.querySelectorAll(focusableSelector))
+        .filter((element) => !element.closest("[hidden]"));
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
+
+    new MutationObserver(handleVisibility).observe(modal, { attributes: true, attributeFilter: ["hidden"] });
+    handleVisibility();
+  });
+}
+
+initWorkspacePageSearch();
+initSectionTileSearch();
+initAccessibleModalDialogs();
+
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/service-worker.js?v=2026-07-22-exercise-layout-4", { updateViaCache: "none" }).then((registration) => {
+    navigator.serviceWorker.register("/service-worker.js?v=2026-08-26-safe-activation", { updateViaCache: "none" }).then((registration) => {
       registration.update().catch(() => {});
     }).catch(() => {});
   });

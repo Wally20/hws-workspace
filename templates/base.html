@@ -186,6 +186,7 @@
     </div>
     <script id="workspaceSearchPages" type="application/json" nonce="{{ csp_nonce }}">{{ workspace_search_pages|tojson }}</script>
     {% block scripts %}{% endblock %}
+    <script nonce="{{ csp_nonce }}" src="/static/destructive-actions.js?v={{ asset_version }}" defer></script>
     <script nonce="{{ csp_nonce }}" src="/static/base.js?v={{ asset_version }}" defer></script>
   </body>
 </html>

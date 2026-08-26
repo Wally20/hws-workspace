@@ -14,9 +14,12 @@ import hashlib
 import hmac
 import html
 import base64
+import ipaddress
 import mimetypes
 import unicodedata
 import zipfile
+from contextlib import contextmanager
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -43,6 +46,11 @@ try:
 except ImportError:  # pragma: no cover - optional in local development until requirements are installed.
     WebPushException = None
     webpush = None
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Render and the supported development platform provide fcntl.
+    fcntl = None
 
 
 ECWID_API_BASE = "https://app.ecwid.com/api/v3"
@@ -472,9 +480,17 @@ def get_file_cache_fingerprint(path: str) -> Tuple[int, int]:
     return (stat_result.st_mtime_ns, stat_result.st_size)
 
 
+def get_database_cache_fingerprint() -> Tuple[int, int, int, int]:
+    database_fingerprint = get_file_cache_fingerprint(DATABASE_PATH)
+    wal_fingerprint = get_file_cache_fingerprint(f"{DATABASE_PATH}-wal")
+    return (*database_fingerprint, *wal_fingerprint)
+
+
 def get_cached_local_data(cache_name: str, cache_args: Tuple[Any, ...], loader: Callable[[], Any]) -> Any:
     now = time.time()
-    fingerprint = get_file_cache_fingerprint(DATABASE_PATH)
+    # In WAL mode committed writes can live in app.db-wal while app.db itself is
+    # unchanged. Include both files so a commit never leaves this cache stale.
+    fingerprint = get_database_cache_fingerprint()
     cache_key = (cache_name, *cache_args)
 
     with local_data_cache_lock:
@@ -502,12 +518,14 @@ def clear_local_data_cache() -> None:
 
 DEFAULT_PASSWORD_HASH_METHOD = "scrypt" if hasattr(hashlib, "scrypt") else "pbkdf2:sha256"
 PASSWORD_HASH_METHOD = os.getenv("PASSWORD_HASH_METHOD", "").strip() or DEFAULT_PASSWORD_HASH_METHOD
-SESSION_PERSISTENT_SECONDS = max(86400, int(os.getenv("SESSION_PERSISTENT_SECONDS", "34560000") or "34560000"))
-SESSION_IDLE_TIMEOUT_SECONDS = max(300, int(os.getenv("SESSION_IDLE_TIMEOUT_SECONDS", "3600") or "3600"))
-SESSION_ABSOLUTE_TIMEOUT_SECONDS = max(
-    SESSION_IDLE_TIMEOUT_SECONDS,
-    int(os.getenv("SESSION_ABSOLUTE_TIMEOUT_SECONDS", str(SESSION_PERSISTENT_SECONDS)) or str(SESSION_PERSISTENT_SECONDS)),
-)
+# These values are re-read after .env has been loaded. Keeping the initial
+# defaults finite also avoids accidentally restoring the former 400-day
+# session lifetime when the application is imported outside Django.
+SESSION_PERSISTENT_SECONDS = 43200
+SESSION_IDLE_TIMEOUT_SECONDS = 3600
+SESSION_ABSOLUTE_TIMEOUT_SECONDS = 43200
+REVERSE_PROXY_HOPS = 0
+TRAINER_INVITE_TTL_HOURS = 48
 CSRF_TOKEN_LENGTH = 48
 GENERIC_AUTH_ERROR_MESSAGE = "De combinatie van inloggegevens is ongeldig of de actie kon niet worden voltooid."
 ALLOWED_IMAGE_EXTENSIONS = {
@@ -988,6 +1006,7 @@ def get_current_workspace_main_navigation_title(user: Optional[Dict[str, Any]], 
     )
 
 
+@lru_cache(maxsize=1)
 def get_asset_version() -> str:
     latest_mtime = 0
     static_root = os.path.join(os.path.dirname(__file__), "static")
@@ -1049,13 +1068,18 @@ def get_env_int(name: str, default: int) -> int:
 
 
 PASSWORD_HASH_METHOD = get_env("PASSWORD_HASH_METHOD") or PASSWORD_HASH_METHOD
-SESSION_PERSISTENT_SECONDS = max(86400, get_env_int("SESSION_PERSISTENT_SECONDS", SESSION_PERSISTENT_SECONDS))
+SESSION_PERSISTENT_SECONDS = max(300, get_env_int("SESSION_PERSISTENT_SECONDS", SESSION_PERSISTENT_SECONDS))
 SESSION_IDLE_TIMEOUT_SECONDS = max(300, get_env_int("SESSION_IDLE_TIMEOUT_SECONDS", SESSION_IDLE_TIMEOUT_SECONDS))
 SESSION_ABSOLUTE_TIMEOUT_SECONDS = max(
     SESSION_IDLE_TIMEOUT_SECONDS,
-    get_env_int("SESSION_ABSOLUTE_TIMEOUT_SECONDS", max(SESSION_ABSOLUTE_TIMEOUT_SECONDS, SESSION_PERSISTENT_SECONDS)),
+    get_env_int("SESSION_ABSOLUTE_TIMEOUT_SECONDS", SESSION_PERSISTENT_SECONDS),
 )
+REVERSE_PROXY_HOPS = max(0, get_env_int("REVERSE_PROXY_HOPS", REVERSE_PROXY_HOPS))
+LOGIN_IP_RATE_LIMIT_MULTIPLIER = max(2, get_env_int("LOGIN_IP_RATE_LIMIT_MULTIPLIER", 5))
+TRAINER_INVITE_TTL_HOURS = min(168, max(1, get_env_int("TRAINER_INVITE_TTL_HOURS", TRAINER_INVITE_TTL_HOURS)))
 AGENDA_SCHOOL_REGION = (get_env("AGENDA_SCHOOL_REGION") or "midden").strip().lower() or "midden"
+SQLITE_BUSY_TIMEOUT_MS = min(120_000, max(1_000, get_env_int("SQLITE_BUSY_TIMEOUT_MS", 30_000)))
+STORAGE_BACKUP_RETENTION = min(30, max(1, get_env_int("STORAGE_BACKUP_RETENTION", 7)))
 
 
 def is_placeholder_value(value: str) -> bool:
@@ -1142,21 +1166,20 @@ def configure_app() -> None:
         SESSION_COOKIE_SECURE=session_cookie_secure_default,
         SESSION_COOKIE_SAMESITE=get_env("SESSION_COOKIE_SAMESITE") or "Lax",
         PREFERRED_URL_SCHEME=get_env("PREFERRED_URL_SCHEME") or "https",
-        PERMANENT_SESSION_LIFETIME=timedelta(seconds=SESSION_PERSISTENT_SECONDS),
+        PERMANENT_SESSION_LIFETIME=timedelta(seconds=SESSION_ABSOLUTE_TIMEOUT_SECONDS),
     )
 
     if trusted_hosts:
         app.config["TRUSTED_HOSTS"] = trusted_hosts
 
-    proxy_hops = max(0, get_env_int("REVERSE_PROXY_HOPS", 1))
-    if proxy_hops:
+    if REVERSE_PROXY_HOPS:
         app.wsgi_app = ProxyFix(
             app.wsgi_app,
-            x_for=proxy_hops,
-            x_proto=proxy_hops,
-            x_host=proxy_hops,
-            x_port=proxy_hops,
-            x_prefix=proxy_hops,
+            x_for=REVERSE_PROXY_HOPS,
+            x_proto=REVERSE_PROXY_HOPS,
+            x_host=REVERSE_PROXY_HOPS,
+            x_port=REVERSE_PROXY_HOPS,
+            x_prefix=REVERSE_PROXY_HOPS,
         )
 
 
@@ -1164,9 +1187,6 @@ configure_app()
 
 
 def is_request_secure() -> bool:
-    forwarded_proto = str(request.headers.get("X-Forwarded-Proto", "") or "").split(",")[0].strip().lower()
-    if forwarded_proto:
-        return forwarded_proto == "https"
     return bool(getattr(request, "is_secure", False))
 
 
@@ -1179,15 +1199,36 @@ def should_skip_https_redirect() -> bool:
     return host in {"localhost", "127.0.0.1", "testserver"}
 
 
+def normalize_ip_address(value: Any) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    try:
+        return ipaddress.ip_address(normalized).compressed
+    except ValueError:
+        return ""
+
+
 def get_client_ip() -> str:
+    """Return the proxy-verified client address used for rate-limit keys.
+
+    A proxy appends the address it received to the right of X-Forwarded-For.
+    Selecting from that trusted side prevents a caller-provided prefix from
+    changing the identity. Forwarding headers are ignored unless an explicit
+    proxy-hop count is configured.
+    """
+
+    peer_address = normalize_ip_address(getattr(request, "remote_addr", "")) or "unknown"
+    if REVERSE_PROXY_HOPS <= 0:
+        return peer_address
+
     forwarded_for = str(request.headers.get("X-Forwarded-For", "") or "").strip()
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
-    for header_name in ("X-Real-IP", "CF-Connecting-IP"):
-        header_value = str(request.headers.get(header_name, "") or "").strip()
-        if header_value:
-            return header_value
-    return str(getattr(request, "remote_addr", "") or "unknown").strip() or "unknown"
+    forwarded_chain = [part.strip() for part in forwarded_for.split(",") if part.strip()]
+    if len(forwarded_chain) < REVERSE_PROXY_HOPS:
+        return peer_address
+
+    trusted_candidate = normalize_ip_address(forwarded_chain[-REVERSE_PROXY_HOPS])
+    return trusted_candidate or peer_address
 
 
 def hash_password(password: str) -> str:
@@ -1251,14 +1292,51 @@ def validate_csrf_token() -> Optional[Any]:
     return csrf_error_response()
 
 
+def delete_confirmation_is_valid(record_type: str, record_id: Any) -> bool:
+    expected = f"delete:{str(record_type or '').strip()}:{str(record_id or '').strip()}"
+    submitted = str(request.form.get("delete_confirmation", "") or "").strip()
+    return bool(submitted) and hmac.compare_digest(submitted, expected)
+
+
+def invalidate_authenticated_session() -> None:
+    flush_session = getattr(session, "flush", None)
+    if callable(flush_session):
+        flush_session()
+        return
+    # Flask's standalone signed-cookie session has no server-side key. Clearing
+    # it is the compatible fallback; Django uses flush() above to delete the
+    # old server-side session record.
+    session.clear()
+
+
 def rotate_authenticated_session(user_id: str) -> None:
     session.clear()
+    cycle_session_key = getattr(session, "cycle_key", None)
+    if callable(cycle_session_key):
+        cycle_session_key()
     session.permanent = True
     session["user_id"] = user_id
     session["csrf_token"] = secrets.token_urlsafe(36)
     now = int(time.time())
     session["session_started_at"] = now
     session["session_last_seen_at"] = now
+
+
+def session_timeout_response() -> Any:
+    invalidate_authenticated_session()
+    ensure_csrf_token()
+    message = "Je sessie is verlopen. Log opnieuw in om verder te gaan."
+    if request.path.startswith("/api/"):
+        return jsonify({"error": message, "code": "session_expired"}), 401
+    return redirect(url_for("login_page", next=request.path, session_expired="1"))
+
+
+def parse_session_timestamp(value: Any) -> Optional[int]:
+    try:
+        timestamp = int(value)
+    except (TypeError, ValueError):
+        return None
+    return timestamp if timestamp > 0 else None
 
 
 def handle_session_timeout() -> Optional[Any]:
@@ -1268,8 +1346,28 @@ def handle_session_timeout() -> Optional[Any]:
         return None
 
     now = int(time.time())
-    if not session.get("session_started_at"):
+    started_at = parse_session_timestamp(session.get("session_started_at"))
+    last_seen_at = parse_session_timestamp(session.get("session_last_seen_at"))
+
+    # Existing sessions created before timestamps were introduced receive a
+    # fresh bounded lifetime once, avoiding a disruptive deployment logout.
+    if started_at is None:
+        started_at = now
         session["session_started_at"] = now
+    if last_seen_at is None:
+        last_seen_at = now
+
+    # A timestamp too far in the future indicates corrupt session state. A
+    # small grace period prevents harmless host-clock adjustments logging out
+    # users.
+    clock_skew_tolerance = 300
+    if started_at > now + clock_skew_tolerance or last_seen_at > now + clock_skew_tolerance:
+        return session_timeout_response()
+    if now - started_at >= SESSION_ABSOLUTE_TIMEOUT_SECONDS:
+        return session_timeout_response()
+    if now - last_seen_at >= SESSION_IDLE_TIMEOUT_SECONDS:
+        return session_timeout_response()
+
     session["session_last_seen_at"] = now
     session.permanent = True
     ensure_csrf_token()
@@ -1283,14 +1381,27 @@ def get_rate_limit_rule(path: str) -> Optional[Tuple[int, int, str]]:
     return None
 
 
-def apply_rate_limit(max_attempts: int, window_seconds: int, scope: str) -> Optional[int]:
+def build_rate_limit_request_keys(scope: str) -> List[str]:
     user = get_current_user()
     identity = str(user["id"]) if user is not None else ""
-    request_key = f"{scope}:{get_client_ip()}:{identity}:{request.path}"
+    client_ip = get_client_ip()
+    request_key = f"{scope}:ip:{client_ip}:user:{identity}:path:{request.path}"
+
     if scope == "login":
-        request_key = f"{request_key}:{request.form.get('email', '').strip().lower()[:120]}"
+        login_identifier = request.form.get("email", "").strip().lower()[:254]
+        identifier_hash = hashlib.sha256(login_identifier.encode("utf-8")).hexdigest()
+        return [
+            f"{scope}:ip:{client_ip}:path:{request.path}",
+            f"{scope}:account:{identifier_hash}:path:{request.path}",
+        ]
     if scope == "invite":
-        request_key = f"{request_key}:{request.path.rsplit('/', 1)[-1]}"
+        token_hash = hashlib.sha256(request.path.rsplit("/", 1)[-1].encode("utf-8")).hexdigest()
+        request_key = f"{request_key}:token:{token_hash}"
+    return [request_key]
+
+
+def apply_rate_limit(max_attempts: int, window_seconds: int, scope: str) -> Optional[int]:
+    request_keys = build_rate_limit_request_keys(scope)
 
     now = time.time()
     window_start = now - window_seconds
@@ -1301,23 +1412,29 @@ def apply_rate_limit(max_attempts: int, window_seconds: int, scope: str) -> Opti
             "DELETE FROM rate_limit_attempts WHERE created_at < ?",
             (window_start,),
         )
-        row = connection.execute(
-            """
-            SELECT COUNT(*) AS total, MIN(created_at) AS first_attempt
-            FROM rate_limit_attempts
-            WHERE request_key = ? AND created_at >= ?
-            """,
-            (request_key, window_start),
-        ).fetchone()
-        total_attempts = int(row["total"] or 0)
-        first_attempt = float(row["first_attempt"] or now)
-        if total_attempts >= max_attempts:
-            retry_after = max(1, int(window_seconds - (now - first_attempt)))
-            return retry_after
+        for request_key in request_keys:
+            request_limit = max_attempts
+            if scope == "login" and ":ip:" in request_key:
+                # Keep targeted account protection strict while allowing a
+                # school, club or family to share one public IP address.
+                request_limit *= LOGIN_IP_RATE_LIMIT_MULTIPLIER
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS total, MIN(created_at) AS first_attempt
+                FROM rate_limit_attempts
+                WHERE request_key = ? AND created_at >= ?
+                """,
+                (request_key, window_start),
+            ).fetchone()
+            total_attempts = int(row["total"] or 0)
+            first_attempt = float(row["first_attempt"] or now)
+            if total_attempts >= request_limit:
+                retry_after = max(1, int(window_seconds - (now - first_attempt)))
+                return retry_after
 
-        connection.execute(
+        connection.executemany(
             "INSERT INTO rate_limit_attempts (request_key, created_at) VALUES (?, ?)",
-            (request_key, now),
+            [(request_key, now) for request_key in request_keys],
         )
     return None
 
@@ -1463,6 +1580,13 @@ def get_exercise_video_storage_config() -> Dict[str, Any]:
         )
         if not value
     ]
+    bunny_enabled = not missing_config
+    local_max_upload_mb = max(1, get_env_int("LOCAL_VIDEO_MAX_UPLOAD_MB", 250))
+    max_upload_mb = (
+        EXERCISE_VIDEO_MAX_UPLOAD_MB
+        if bunny_enabled
+        else min(EXERCISE_VIDEO_MAX_UPLOAD_MB, local_max_upload_mb)
+    )
 
     return {
         "region": content_config["region"],
@@ -1471,11 +1595,11 @@ def get_exercise_video_storage_config() -> Dict[str, Any]:
         "api_access_key": content_config["api_access_key"],
         "public_base": public_base,
         "base_path": base_path,
-        "max_upload_mb": EXERCISE_VIDEO_MAX_UPLOAD_MB,
-        "max_request_mb": max(EXERCISE_VIDEO_MAX_UPLOAD_MB, content_config["max_request_mb"]),
+        "max_upload_mb": max_upload_mb,
+        "max_request_mb": max(max_upload_mb, content_config["max_request_mb"]),
         "allowed_types": allowed_types,
         "missing_config": missing_config,
-        "bunny_enabled": not missing_config,
+        "bunny_enabled": bunny_enabled,
         "local_upload_root": content_config["local_upload_root"],
     }
 
@@ -4348,9 +4472,23 @@ def get_default_dashboard_events() -> List[Dict[str, Any]]:
 
 def get_db_connection() -> sqlite3.Connection:
     os.makedirs(DATA_DIR, exist_ok=True)
-    connection = sqlite3.connect(DATABASE_PATH, timeout=30)
+    connection = sqlite3.connect(DATABASE_PATH, timeout=SQLITE_BUSY_TIMEOUT_MS / 1000)
+    connection.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
+    connection.execute("PRAGMA synchronous = NORMAL")
     connection.row_factory = sqlite3.Row
     return connection
+
+
+def configure_storage_database() -> None:
+    """Persist WAL mode and validate the connection settings used at runtime."""
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with sqlite3.connect(DATABASE_PATH, timeout=SQLITE_BUSY_TIMEOUT_MS / 1000) as connection:
+        connection.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
+        journal_mode = str(connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]).lower()
+        if journal_mode != "wal":
+            raise RuntimeError(f"SQLite WAL-modus kon niet worden ingeschakeld (huidige modus: {journal_mode}).")
+        connection.execute("PRAGMA synchronous = NORMAL")
 
 
 def bootstrap_seed_data_files() -> None:
@@ -4374,7 +4512,9 @@ def sync_seed_workspace_data() -> None:
     if not os.path.exists(source_db_path) or not os.path.exists(DATABASE_PATH):
         return
 
-    with sqlite3.connect(DATABASE_PATH, timeout=30) as connection:
+    with sqlite3.connect(DATABASE_PATH, timeout=SQLITE_BUSY_TIMEOUT_MS / 1000) as connection:
+        connection.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
+        connection.execute("PRAGMA synchronous = NORMAL")
         connection.execute("ATTACH DATABASE ? AS seed", (source_db_path,))
         target_tables = {
             str(row[0])
@@ -4484,6 +4624,7 @@ def sync_seed_workspace_data() -> None:
                     ON seed_album.id = seed_photo.album_id
                 JOIN content_albums AS live_album
                     ON live_album.slug = seed_album.slug
+                   AND live_album.deleted_at IS NULL
                 WHERE NOT EXISTS (
                     SELECT 1
                     FROM content_photos AS live_photo
@@ -4827,7 +4968,8 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
                 slug TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                deleted_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS content_photos (
@@ -4841,6 +4983,7 @@ def init_db() -> None:
                 file_size INTEGER NOT NULL DEFAULT 0,
                 storage_backend TEXT NOT NULL DEFAULT 'local',
                 uploaded_at TEXT NOT NULL,
+                deleted_at TEXT,
                 FOREIGN KEY (album_id) REFERENCES content_albums(id)
             );
 
@@ -5149,6 +5292,13 @@ def init_db() -> None:
         if "is_scheduled" not in social_ideas_columns:
             connection.execute("ALTER TABLE social_media_ideas ADD COLUMN is_scheduled INTEGER NOT NULL DEFAULT 0")
 
+        content_album_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(content_albums)").fetchall()
+        }
+        if "deleted_at" not in content_album_columns:
+            connection.execute("ALTER TABLE content_albums ADD COLUMN deleted_at TEXT")
+
         content_photo_columns = {
             row["name"]
             for row in connection.execute("PRAGMA table_info(content_photos)").fetchall()
@@ -5161,6 +5311,8 @@ def init_db() -> None:
             connection.execute("ALTER TABLE content_photos ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0")
         if "storage_backend" not in content_photo_columns:
             connection.execute("ALTER TABLE content_photos ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'local'")
+        if "deleted_at" not in content_photo_columns:
+            connection.execute("ALTER TABLE content_photos ADD COLUMN deleted_at TEXT")
 
         exercise_columns = {
             row["name"]
@@ -5447,15 +5599,108 @@ def migrate_agenda_trainings_json_to_db() -> None:
         save_agenda_trainings(trainings)
 
 
-def run_storage_migrations() -> None:
-    bootstrap_seed_data_files()
-    init_db()
-    migrate_football_days_playbook_to_playbooks()
-    migrate_dashboard_events_json_to_db()
-    migrate_agenda_trainings_json_to_db()
-    sync_seed_workspace_data()
-    seed_workspace_tables()
-    ensure_admin_account()
+def create_storage_backup() -> Optional[str]:
+    """Create and atomically publish a consistent SQLite snapshot before migrations."""
+
+    if not os.path.isfile(DATABASE_PATH) or os.path.getsize(DATABASE_PATH) == 0:
+        return None
+
+    backup_dir = os.path.join(DATA_DIR, "backups")
+    os.makedirs(backup_dir, mode=0o700, exist_ok=True)
+
+    # A previous process can only leave these files behind if it stopped before
+    # publication. The migration lock guarantees that no active backup uses them.
+    for stale_path in Path(backup_dir).glob(".app-backup-*.tmp"):
+        stale_path.unlink()
+
+    timestamp = datetime.now(ZoneInfo("UTC")).strftime("%Y%m%dT%H%M%S%fZ")
+    backup_path = os.path.join(backup_dir, f"app-{timestamp}.sqlite3")
+    file_descriptor, temporary_path = tempfile.mkstemp(
+        prefix=".app-backup-",
+        suffix=".tmp",
+        dir=backup_dir,
+    )
+    os.close(file_descriptor)
+    os.chmod(temporary_path, 0o600)
+
+    source_connection: Optional[sqlite3.Connection] = None
+    backup_connection: Optional[sqlite3.Connection] = None
+    try:
+        try:
+            source_uri = f"{Path(DATABASE_PATH).resolve().as_uri()}?mode=ro"
+            source_connection = sqlite3.connect(
+                source_uri,
+                uri=True,
+                timeout=SQLITE_BUSY_TIMEOUT_MS / 1000,
+            )
+            source_connection.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
+            backup_connection = sqlite3.connect(temporary_path)
+            source_connection.backup(backup_connection)
+            quick_check = str(backup_connection.execute("PRAGMA quick_check").fetchone()[0]).lower()
+            if quick_check != "ok":
+                raise RuntimeError(f"SQLite-backupvalidatie is mislukt: {quick_check}")
+            backup_connection.commit()
+        finally:
+            if backup_connection is not None:
+                backup_connection.close()
+            if source_connection is not None:
+                source_connection.close()
+    except Exception:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+        raise
+
+    with open(temporary_path, "rb") as backup_file:
+        os.fsync(backup_file.fileno())
+    os.replace(temporary_path, backup_path)
+
+    try:
+        backup_directory_fd = os.open(backup_dir, os.O_RDONLY)
+        try:
+            os.fsync(backup_directory_fd)
+        finally:
+            os.close(backup_directory_fd)
+    except OSError:
+        # Directory fsync is not available on every supported filesystem. The
+        # backup file itself has already been synced and atomically renamed.
+        pass
+
+    retained_backups = sorted(Path(backup_dir).glob("app-*.sqlite3"), reverse=True)
+    for expired_backup in retained_backups[STORAGE_BACKUP_RETENTION:]:
+        expired_backup.unlink()
+
+    return backup_path
+
+
+@contextmanager
+def storage_migration_lock():
+    """Serialize explicit legacy SQLite bootstrap and migration commands."""
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    lock_path = os.path.join(DATA_DIR, ".storage-migrations.lock")
+    with open(lock_path, "a+", encoding="utf-8") as lock_file:
+        if fcntl is not None:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def run_storage_migrations() -> Optional[str]:
+    with storage_migration_lock():
+        bootstrap_seed_data_files()
+        backup_path = create_storage_backup()
+        configure_storage_database()
+        init_db()
+        migrate_football_days_playbook_to_playbooks()
+        migrate_dashboard_events_json_to_db()
+        migrate_agenda_trainings_json_to_db()
+        sync_seed_workspace_data()
+        seed_workspace_tables()
+        ensure_admin_account()
+        return backup_path
 
 
 def load_dashboard_events_config() -> List[Dict[str, Any]]:
@@ -9374,6 +9619,26 @@ def get_cached_ecwid_orders_payload() -> Optional[Dict[str, Any]]:
     return payload
 
 
+def fetch_ecwid_orders_for_registration_counts(
+    *,
+    allow_mutations: bool,
+    force_refresh: bool = False,
+) -> Dict[str, Any]:
+    """Load aggregate inputs without letting trainer reads mutate Ecwid."""
+    if allow_mutations:
+        return fetch_ecwid_orders(force_refresh=force_refresh)
+
+    if not force_refresh:
+        cached_payload = get_cached_ecwid_orders_payload()
+        if cached_payload is not None:
+            return cached_payload
+
+    return fetch_orders_from_ecwid(
+        run_auto_email=False,
+        run_automatic_return_sync=False,
+    )
+
+
 def build_football_days_registration_counts(
     playbooks: List[Dict[str, Any]],
     orders: List[Dict[str, Any]],
@@ -9396,6 +9661,7 @@ def attach_football_days_registration_counts(
     playbooks: List[Dict[str, Any]],
     *,
     cached_only: bool = False,
+    allow_mutations: bool = True,
 ) -> List[Dict[str, Any]]:
     product_ids = {
         str(playbook.get("ecwidProductId") or "").strip()
@@ -9406,7 +9672,13 @@ def attach_football_days_registration_counts(
         return playbooks
 
     try:
-        orders_payload = get_cached_ecwid_orders_payload() if cached_only else fetch_ecwid_orders()
+        orders_payload = (
+            get_cached_ecwid_orders_payload()
+            if cached_only
+            else fetch_ecwid_orders_for_registration_counts(
+                allow_mutations=allow_mutations,
+            )
+        )
     except requests.RequestException:
         return playbooks
     if orders_payload is None:
@@ -9627,7 +9899,12 @@ def format_football_cycle_date_range(start_value: Any, end_value: Any) -> str:
     return start_label or end_label or "cyclus nog in te vullen"
 
 
-def normalize_football_days_export_payload(payload: Dict[str, Any], playbook_type: str = "voetbaldagen") -> Dict[str, Any]:
+def normalize_football_days_export_payload(
+    payload: Dict[str, Any],
+    playbook_type: str = "voetbaldagen",
+    *,
+    allow_registration_mutations: bool = True,
+) -> Dict[str, Any]:
     data = payload if isinstance(payload, dict) else {}
     context = get_football_playbook_context(data.get("playbookType") or playbook_type)
     title = str(data.get("title") or context["defaultTitle"]).strip() or context["defaultTitle"]
@@ -9651,7 +9928,10 @@ def normalize_football_days_export_payload(payload: Dict[str, Any], playbook_typ
         include_staff_setup_tasks = True
     if product_id or product_name or product_sku:
         try:
-            orders_payload = fetch_ecwid_orders(force_refresh=True)
+            orders_payload = fetch_ecwid_orders_for_registration_counts(
+                allow_mutations=allow_registration_mutations,
+                force_refresh=True,
+            )
             registration_count = str(
                 count_ecwid_product_registrations(
                     orders_payload.get("items", []),
@@ -11108,7 +11388,14 @@ def export_football_playbook_pdf(playbook_type: str):
         return access_redirect
 
     payload = request.get_json(silent=True) or {}
-    data = normalize_football_days_export_payload(payload, context["playbookType"])
+    data = normalize_football_days_export_payload(
+        payload,
+        context["playbookType"],
+        allow_registration_mutations=user_has_permission(
+            get_current_user(),
+            "registrations.manage",
+        ),
+    )
     try:
         pdf_bytes = create_football_days_pdf(data)
     except RuntimeError as exc:
@@ -11133,7 +11420,14 @@ def export_football_playbook_pptx(playbook_type: str):
         return access_redirect
 
     payload = request.get_json(silent=True) or {}
-    data = normalize_football_days_export_payload(payload, context["playbookType"])
+    data = normalize_football_days_export_payload(
+        payload,
+        context["playbookType"],
+        allow_registration_mutations=user_has_permission(
+            get_current_user(),
+            "registrations.manage",
+        ),
+    )
     try:
         pptx_bytes = create_football_days_pptx(data)
     except RuntimeError as exc:
@@ -12113,12 +12407,105 @@ def add_contract_watermark_relationship_xml(xml_bytes: bytes) -> bytes:
     return XmlElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
+def fill_contract_dynamic_paragraphs_xml(xml_bytes: bytes, contract: Dict[str, Any]) -> bytes:
+    """Fill variable contract copy that is not represented by a single placeholder.
+
+    Keeping these values in the Word document first makes that filled document the
+    single content source for both DOCX and pure-Python PDF exports.
+    """
+    root = XmlElementTree.fromstring(xml_bytes)
+    body = root.find("w:body", DOCX_XML_NAMESPACES)
+    if body is None:
+        return xml_bytes
+
+    paragraphs = [child for child in body if child.tag.rsplit("}", 1)[-1] == "p"]
+
+    def paragraph_text(paragraph: XmlElementTree.Element) -> str:
+        return "".join(
+            text_node.text or ""
+            for text_node in paragraph.findall(".//w:t", DOCX_XML_NAMESPACES)
+        ).strip()
+
+    notice_period = str(contract.get("noticePeriod") or CONTRACT_DEFAULTS["noticePeriod"]).strip().rstrip(".")
+    for paragraph in paragraphs:
+        if paragraph_text(paragraph).startswith("Opzegging is mogelijk met een opzegtermijn van"):
+            set_docx_container_text(
+                paragraph,
+                f"Opzegging is mogelijk met een opzegtermijn van {notice_period}.",
+            )
+            break
+
+    extra_activities = str(contract.get("extraActivities") or CONTRACT_DEFAULTS["extraActivities"]).strip()
+    if extra_activities != CONTRACT_DEFAULTS["extraActivities"]:
+        extra_activity_paragraphs = [
+            paragraph
+            for paragraph in paragraphs
+            if paragraph_text(paragraph) == "Voetbaldagen"
+            or paragraph_text(paragraph).startswith("Techniektrainingen (bijv.")
+            or paragraph_text(paragraph).startswith("Deze vinden plaats zonder veldhuur")
+        ]
+        if extra_activity_paragraphs:
+            set_docx_container_text(extra_activity_paragraphs[0], extra_activities)
+            for paragraph in extra_activity_paragraphs[1:]:
+                body.remove(paragraph)
+
+    cost_paragraphs: Dict[str, XmlElementTree.Element] = {}
+    for paragraph in paragraphs:
+        text = paragraph_text(paragraph)
+        if text.startswith("Tarief per training:"):
+            cost_paragraphs["rate"] = paragraph
+        elif text.startswith("Aantal trainingen:"):
+            cost_paragraphs["count"] = paragraph
+        elif text.startswith("Totaalbedrag:"):
+            cost_paragraphs["total"] = paragraph
+
+    if set(cost_paragraphs) == {"rate", "count", "total"}:
+        cost_lines = get_contract_cost_lines(contract)
+        if not cost_lines:
+            cost_lines = [
+                {
+                    "description": "",
+                    "pricePerTraining": "0,00",
+                    "trainingCount": 0,
+                    "totalAmount": "0,00",
+                }
+            ]
+
+        insertion_index = min(list(body).index(paragraph) for paragraph in cost_paragraphs.values())
+        for paragraph in cost_paragraphs.values():
+            body.remove(paragraph)
+
+        generated_paragraphs: List[XmlElementTree.Element] = []
+        for line in cost_lines:
+            description = str(line.get("description") or "").strip()
+            suffix = f" ({description})" if description else ""
+            values = {
+                "rate": f"Tarief per training{suffix}: €{str(line.get('pricePerTraining') or '0,00').strip()} exclusief btw",
+                "count": f"Aantal trainingen{suffix}: {int(line.get('trainingCount') or 0)}",
+                "total": f"Totaalbedrag{suffix}: €{str(line.get('totalAmount') or '0,00').strip()} exclusief btw",
+            }
+            for key in ("rate", "count", "total"):
+                paragraph = copy.deepcopy(cost_paragraphs[key])
+                set_docx_container_text(paragraph, values[key])
+                generated_paragraphs.append(paragraph)
+
+        if len(cost_lines) > 1:
+            total_decimal = sum(parse_decimal_amount(line.get("totalAmount")) for line in cost_lines)
+            total_paragraph = copy.deepcopy(cost_paragraphs["total"])
+            set_docx_container_text(
+                total_paragraph,
+                f"Totaalbedrag overeenkomst: €{format_contract_money(total_decimal)} exclusief btw",
+            )
+            generated_paragraphs.append(total_paragraph)
+
+        for offset, paragraph in enumerate(generated_paragraphs):
+            body.insert(insertion_index + offset, paragraph)
+
+    return XmlElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
 def fill_contract_document_xml(xml_bytes: bytes, contract: Dict[str, Any]) -> bytes:
     xml_text = xml_bytes.decode("utf-8")
-    xml_text = xml_text.replace(
-        "<w:t>Tarief: €[BEDRAG]</w:t><w:br/><w:t>Aantal trainingen: [AANTAL]</w:t><w:br/><w:t>Totaal: €[TOTAAL]</w:t>",
-        build_docx_line_run(contract_cost_lines_for_docx(contract)),
-    )
     replacements = build_contract_replacements(contract)
     for placeholder, value in replacements.items():
         xml_text = xml_text.replace(placeholder, html.escape(value))
@@ -12132,12 +12519,12 @@ def fill_contract_document_xml(xml_bytes: bytes, contract: Dict[str, Any]) -> by
     )
     execution_details = str(contract.get("trainingExecutionDetails") or CONTRACT_DEFAULTS["trainingExecutionDetails"]).strip()
     xml_text = xml_text.replace("<w:t>[Variabel per club]</w:t>", build_docx_line_run(execution_details.splitlines()))
-    xml_text = xml_text.replace("Voetbaldagen en techniektrainingen mogelijk zonder veldhuur", html.escape(str(contract.get("extraActivities") or "")))
     xml_text = xml_text.replace(
         "Bij afwezigheid van een HWS-trainer wordt de training verrekend",
         "Bij afwezigheid van een HWS-trainer wordt de training verrekend op de eerstvolgende factuur",
     )
-    xml_output = fill_contract_training_table_xml(xml_text.encode("utf-8"), contract)
+    xml_output = fill_contract_dynamic_paragraphs_xml(xml_text.encode("utf-8"), contract)
+    xml_output = fill_contract_training_table_xml(xml_output, contract)
     xml_output = apply_contract_word_page_breaks_xml(xml_output)
     xml_output = adjust_contract_header_logo_xml(xml_output)
     xml_output = append_contract_agenda_attachment_xml(xml_output, contract)
@@ -12213,7 +12600,26 @@ def convert_contract_docx_to_pdf(docx_bytes: bytes) -> bytes:
 
 
 def create_contract_pdf(contract: Dict[str, Any]) -> bytes:
-    return add_contract_pdf_watermark(convert_contract_docx_to_pdf(create_contract_docx(contract)))
+    docx_bytes = create_contract_docx(contract)
+    try:
+        pdf_bytes = convert_contract_docx_to_pdf(docx_bytes)
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        # The Render image does not include LibreOffice by default. Keep PDF
+        # export available by rendering the same filled DOCX content with the
+        # pure-Python renderer instead of maintaining a shorter second contract.
+        pdf_bytes = create_contract_pdf_reportlab_fallback(contract, docx_bytes=docx_bytes)
+    return add_contract_pdf_watermark_safely(pdf_bytes)
+
+
+def add_contract_pdf_watermark_safely(pdf_bytes: bytes) -> bytes:
+    """Return a valid unwatermarked PDF if optional watermarking ever fails."""
+    if not os.path.exists(CONTRACT_WATERMARK_PATH):
+        return pdf_bytes
+    try:
+        return add_contract_pdf_watermark(pdf_bytes)
+    except Exception as exc:  # watermarking must never discard an otherwise valid contract
+        app.logger.warning("PDF-watermerk kon niet worden toegevoegd; export zonder watermerk: %s", exc)
+        return pdf_bytes
 
 
 def add_contract_pdf_watermark(pdf_bytes: bytes) -> bytes:
@@ -12261,92 +12667,217 @@ def add_contract_pdf_watermark(pdf_bytes: bytes) -> bytes:
     return output.getvalue()
 
 
-def create_contract_pdf_reportlab_fallback(contract: Dict[str, Any]) -> bytes:
+def extract_contract_docx_render_blocks(docx_bytes: bytes) -> List[Dict[str, Any]]:
+    """Read paragraphs and tables from the already-filled contract DOCX."""
+
+    def container_text(container: XmlElementTree.Element) -> str:
+        fragments: List[str] = []
+        for element in container.iter():
+            local_name = element.tag.rsplit("}", 1)[-1]
+            if local_name == "t":
+                fragments.append(element.text or "")
+            elif local_name == "tab":
+                fragments.append("\t")
+            elif local_name == "br" and element.get(f"{{{DOCX_XML_NAMESPACES['w']}}}type") != "page":
+                fragments.append("\n")
+        return "".join(fragments).strip()
+
+    with zipfile.ZipFile(BytesIO(docx_bytes), "r") as archive:
+        document_root = XmlElementTree.fromstring(archive.read("word/document.xml"))
+    body = document_root.find("w:body", DOCX_XML_NAMESPACES)
+    if body is None:
+        raise RuntimeError("Het ingevulde contract bevat geen leesbare documentinhoud.")
+
+    blocks: List[Dict[str, Any]] = []
+    for child in body:
+        local_name = child.tag.rsplit("}", 1)[-1]
+        if local_name == "p":
+            page_break = child.find("w:pPr/w:pageBreakBefore", DOCX_XML_NAMESPACES) is not None
+            page_break = page_break or any(
+                line_break.get(f"{{{DOCX_XML_NAMESPACES['w']}}}type") == "page"
+                for line_break in child.findall(".//w:br", DOCX_XML_NAMESPACES)
+            )
+            text = container_text(child)
+            if page_break:
+                blocks.append({"type": "page_break"})
+            if not text:
+                continue
+            sizes = []
+            for size_node in child.findall(".//w:sz", DOCX_XML_NAMESPACES):
+                try:
+                    sizes.append(int(size_node.get(f"{{{DOCX_XML_NAMESPACES['w']}}}val") or 0))
+                except ValueError:
+                    continue
+            blocks.append(
+                {
+                    "type": "paragraph",
+                    "text": text,
+                    "bold": child.find(".//w:b", DOCX_XML_NAMESPACES) is not None,
+                    "heading": child.find("w:pPr/w:outlineLvl", DOCX_XML_NAMESPACES) is not None,
+                    "list": child.find("w:pPr/w:numPr", DOCX_XML_NAMESPACES) is not None,
+                    "font_size": max(sizes, default=0),
+                }
+            )
+            continue
+
+        if local_name != "tbl":
+            continue
+        rows: List[List[str]] = []
+        for row in child.findall("w:tr", DOCX_XML_NAMESPACES):
+            values = [container_text(cell) for cell in row.findall("w:tc", DOCX_XML_NAMESPACES)]
+            if values:
+                rows.append(values)
+        if rows:
+            blocks.append({"type": "table", "rows": rows})
+    return blocks
+
+
+def create_contract_pdf_reportlab_fallback(
+    contract: Dict[str, Any],
+    *,
+    docx_bytes: Optional[bytes] = None,
+) -> bytes:
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.units import mm
-        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+        from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     except ImportError as exc:
         raise RuntimeError("PDF-export is niet beschikbaar omdat ReportLab ontbreekt.") from exc
+
+    source_docx = docx_bytes if docx_bytes is not None else create_contract_docx(contract)
+    blocks = extract_contract_docx_render_blocks(source_docx)
+    if not blocks:
+        raise RuntimeError("Het ingevulde contract bevat geen inhoud voor PDF-export.")
 
     buffer = BytesIO()
     document = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        leftMargin=20 * mm,
-        rightMargin=20 * mm,
-        topMargin=18 * mm,
-        bottomMargin=18 * mm,
+        leftMargin=19 * mm,
+        rightMargin=19 * mm,
+        topMargin=17 * mm,
+        bottomMargin=17 * mm,
         title=contract.get("title") or "Overeenkomst",
+        author="HWS Voetbalschool",
     )
     styles = {
-        "title": ParagraphStyle("ContractTitle", fontName="Helvetica-Bold", fontSize=17, leading=21, spaceAfter=12),
-        "heading": ParagraphStyle("ContractHeading", fontName="Helvetica-Bold", fontSize=11.5, leading=15, spaceBefore=10, spaceAfter=5),
-        "body": ParagraphStyle("ContractBody", fontName="Helvetica", fontSize=9.5, leading=13, spaceAfter=4),
-        "small": ParagraphStyle("ContractSmall", fontName="Helvetica", fontSize=8.8, leading=12),
+        "title": ParagraphStyle("ContractTitle", fontName="Helvetica-Bold", fontSize=17, leading=20, spaceAfter=9),
+        "subtitle": ParagraphStyle("ContractSubtitle", fontName="Helvetica-Bold", fontSize=10.5, leading=14, spaceAfter=8),
+        "heading": ParagraphStyle(
+            "ContractHeading",
+            fontName="Helvetica-Bold",
+            fontSize=11.5,
+            leading=14,
+            spaceBefore=8,
+            spaceAfter=4,
+            keepWithNext=True,
+        ),
+        "subheading": ParagraphStyle(
+            "ContractSubheading",
+            fontName="Helvetica-Bold",
+            fontSize=9,
+            leading=12,
+            spaceBefore=3,
+            spaceAfter=2,
+            keepWithNext=True,
+        ),
+        "body": ParagraphStyle("ContractBody", fontName="Helvetica", fontSize=8.6, leading=11.2, spaceAfter=3),
+        "list": ParagraphStyle(
+            "ContractList",
+            fontName="Helvetica",
+            fontSize=8.6,
+            leading=11.2,
+            leftIndent=4 * mm,
+            firstLineIndent=-3 * mm,
+            spaceAfter=2,
+        ),
+        "table": ParagraphStyle("ContractTable", fontName="Helvetica", fontSize=8, leading=10),
+        "table_header": ParagraphStyle("ContractTableHeader", fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=colors.white),
     }
 
     def p(text: Any, style: str = "body") -> Paragraph:
         escaped = html.escape(str(text or "")).replace("\n", "<br/>")
         return Paragraph(escaped or "-", styles[style])
 
-    story = [
-        p(f"OVEREENKOMST VAN OPDRACHT HWS VOETBALSCHOOL - {contract.get('clubName') or 'Naam club'} - {contract.get('season') or 'Seizoen'}", "title"),
-        p("1. Duur van de Overeenkomst", "heading"),
-        p(f"Startdatum: {format_contract_date(contract.get('startDate')) or '-'}\nEinddatum: {format_contract_date(contract.get('endDate')) or '-'}\nOpzegtermijn: {contract.get('noticePeriod') or '-'}"),
-        p("2. Trainingen", "heading"),
-    ]
-
-    schedule_rows = [["Dag", "Tijd", "Team", "Type"]]
-    for line in contract.get("trainingLines") or []:
-        schedule_rows.append([
-            str(line.get("day") or "-"),
-            str(line.get("time") or "-"),
-            str(line.get("team") or "-"),
-            str(line.get("trainingType") or "-"),
-        ])
-    schedule_table = Table(schedule_rows, colWidths=[34 * mm, 30 * mm, 55 * mm, 47 * mm], repeatRows=1)
-    schedule_table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#111111")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
-                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#C8C8C8")),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ]
+    story: List[Any] = []
+    page_has_content = False
+    for block in blocks:
+        block_type = block.get("type")
+        if block_type == "page_break":
+            if page_has_content:
+                story.append(PageBreak())
+                page_has_content = False
+            continue
+        if block_type == "paragraph":
+            text = str(block.get("text") or "").strip()
+            if not text:
+                continue
+            if text == "HWS VOETBALSCHOOL":
+                style = "title"
+            elif text.startswith("HWS VOETBALSCHOOL –") or int(block.get("font_size") or 0) >= 32:
+                style = "subtitle"
+            elif block.get("heading") or re.match(r"^\d+\.\s", text):
+                style = "heading"
+            elif block.get("list"):
+                text = f"• {text}"
+                style = "list"
+            elif block.get("bold"):
+                style = "subheading"
+            else:
+                style = "body"
+            story.append(p(text, style))
+            page_has_content = True
+            continue
+        if block_type != "table":
+            continue
+        raw_rows = block.get("rows") or []
+        if not raw_rows:
+            continue
+        column_count = max(len(row) for row in raw_rows)
+        if column_count == 4:
+            column_widths = [31 * mm, 29 * mm, 47 * mm, 65 * mm]
+        else:
+            column_widths = [172 * mm / column_count] * column_count
+        table_rows = []
+        for row_index, row in enumerate(raw_rows):
+            table_rows.append(
+                [
+                    p(row[column_index] if column_index < len(row) else "", "table_header" if row_index == 0 else "table")
+                    for column_index in range(column_count)
+                ]
+            )
+        table = Table(table_rows, colWidths=column_widths, repeatRows=1, splitByRow=1)
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#111111")),
+                    ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#BDBDBD")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]
+            )
         )
-    )
-    story.extend(
-        [
-            schedule_table,
-            Spacer(1, 5 * mm),
-            p("3. Materialen en faciliteiten", "heading"),
-            p(f"HWS: {contract.get('hwsMaterials') or '-'}\nClub: {contract.get('clubMaterials') or '-'}"),
-            p("4. Extra activiteiten", "heading"),
-            p(contract.get("extraActivities") or "-"),
-            p("5. Kosten", "heading"),
-            p(f"Tarief: EUR {contract.get('pricePerTraining') or '-'}\nAantal trainingen: {contract.get('trainingCount') or 0}\nTotaal: EUR {contract.get('totalAmount') or '-'}"),
-            p("6. Afgelastingen", "heading"),
-            p(f"{contract.get('minPlayers') or '-'}\nWeer: {contract.get('weatherCancellation') or '-'}\nHWS afwezig: {contract.get('hwsAbsence') or '-'}"),
-            p("7. Aansprakelijkheid", "heading"),
-            p(f"{contract.get('liability') or '-'}\n{contract.get('participationRisk') or '-'}"),
-            p("8. Evaluatie", "heading"),
-            p(CONTRACT_DEFAULTS["evaluationMoments"]),
-            p("9. Ondertekening", "heading"),
-            p("HWS en Club ondertekenen hieronder"),
-        ]
-    )
+        story.extend([table, Spacer(1, 2 * mm)])
+        page_has_content = True
 
-    document.build(story)
+    def draw_contract_page(pdf_canvas: Any, _: Any) -> None:
+        page_width, page_height = A4
+        pdf_canvas.saveState()
+        pdf_canvas.setStrokeColor(colors.HexColor("#D6D6D6"))
+        pdf_canvas.setLineWidth(0.6)
+        pdf_canvas.rect(9 * mm, 9 * mm, page_width - 18 * mm, page_height - 18 * mm)
+        pdf_canvas.setFillColor(colors.HexColor("#666666"))
+        pdf_canvas.setFont("Helvetica", 7)
+        pdf_canvas.drawString(19 * mm, 11.5 * mm, "HWS Voetbalschool")
+        pdf_canvas.drawRightString(page_width - 19 * mm, 11.5 * mm, f"Pagina {pdf_canvas.getPageNumber()}")
+        pdf_canvas.restoreState()
+
+    document.build(story, onFirstPage=draw_contract_page, onLaterPages=draw_contract_page)
     buffer.seek(0)
     return buffer.read()
 
@@ -13160,6 +13691,7 @@ def ensure_content_album_records_exist() -> int:
             FROM content_photos cp
             LEFT JOIN content_albums ca ON ca.id = cp.album_id
             WHERE ca.id IS NULL
+              AND cp.deleted_at IS NULL
             GROUP BY cp.album_id
             ORDER BY cp.album_id ASC
             """
@@ -13376,6 +13908,7 @@ def find_content_album_by_title(title: str) -> Optional[Dict[str, Any]]:
             SELECT id
             FROM content_albums
             WHERE lower(trim(title)) = lower(trim(?))
+              AND deleted_at IS NULL
             ORDER BY created_at ASC, id ASC
             LIMIT 1
             """,
@@ -13394,7 +13927,7 @@ def load_content_album(album_id: int) -> Optional[Dict[str, Any]]:
             """
             SELECT id, title, slug, created_at
             FROM content_albums
-            WHERE id = ?
+            WHERE id = ? AND deleted_at IS NULL
             """,
             (album_id,),
         ).fetchone()
@@ -13408,7 +13941,7 @@ def load_content_album(album_id: int) -> Optional[Dict[str, Any]]:
                 MIN(uploaded_at) AS first_uploaded_at,
                 MAX(uploaded_at) AS last_uploaded_at
             FROM content_photos
-            WHERE album_id = ?
+            WHERE album_id = ? AND deleted_at IS NULL
             """,
             (album_id,),
         ).fetchone()
@@ -13417,7 +13950,7 @@ def load_content_album(album_id: int) -> Optional[Dict[str, Any]]:
             """
             SELECT image_url
             FROM content_photos
-            WHERE album_id = ?
+            WHERE album_id = ? AND deleted_at IS NULL
             ORDER BY uploaded_at ASC, id ASC
             LIMIT 1
             """,
@@ -13455,7 +13988,10 @@ def load_content_album_summaries() -> List[Dict[str, Any]]:
                 MIN(p.uploaded_at) AS first_uploaded_at,
                 MAX(p.uploaded_at) AS last_uploaded_at
             FROM content_albums a
-            LEFT JOIN content_photos p ON p.album_id = a.id
+            LEFT JOIN content_photos p
+              ON p.album_id = a.id
+             AND p.deleted_at IS NULL
+            WHERE a.deleted_at IS NULL
             GROUP BY a.id
             ORDER BY COALESCE(MAX(p.uploaded_at), a.created_at) DESC, a.id DESC
             """
@@ -13468,6 +14004,7 @@ def load_content_album_summaries() -> List[Dict[str, Any]]:
             INNER JOIN (
                 SELECT album_id, MIN(id) AS first_photo_id
                 FROM content_photos
+                WHERE deleted_at IS NULL
                 GROUP BY album_id
             ) first_photos
                 ON first_photos.album_id = cp.album_id
@@ -13495,6 +14032,39 @@ def load_content_album_summaries() -> List[Dict[str, Any]]:
     return albums
 
 
+def load_deleted_content_album_summaries() -> List[Dict[str, Any]]:
+    """Return recoverable albums for the admin trash view."""
+
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                a.id,
+                a.title,
+                a.deleted_at,
+                COUNT(p.id) AS photo_count
+            FROM content_albums a
+            LEFT JOIN content_photos p
+              ON p.album_id = a.id
+             AND p.deleted_at IS NULL
+            WHERE a.deleted_at IS NOT NULL
+            GROUP BY a.id
+            ORDER BY a.deleted_at DESC, a.id DESC
+            """
+        ).fetchall()
+
+    return [
+        {
+            "id": int(row["id"]),
+            "title": str(row["title"] or "").strip(),
+            "photoCount": int(row["photo_count"] or 0),
+            "deletedAt": str(row["deleted_at"] or "").strip(),
+            "deletedAtDisplay": format_datetime_display(str(row["deleted_at"] or "").strip()),
+        }
+        for row in rows
+    ]
+
+
 def load_content_album_photos(album_id: int) -> List[Dict[str, Any]]:
     ensure_content_album_records_exist()
     with get_db_connection() as connection:
@@ -13512,7 +14082,7 @@ def load_content_album_photos(album_id: int) -> List[Dict[str, Any]]:
                 storage_backend,
                 uploaded_at
             FROM content_photos
-            WHERE album_id = ?
+            WHERE album_id = ? AND deleted_at IS NULL
             ORDER BY uploaded_at ASC, id ASC
             """,
             (album_id,),
@@ -13536,6 +14106,51 @@ def load_content_album_photos(album_id: int) -> List[Dict[str, Any]]:
             }
         )
     return photos
+
+
+def load_deleted_content_album_photos(album_id: int) -> List[Dict[str, Any]]:
+    """Return soft-deleted photos while retaining their original files."""
+
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                id,
+                album_id,
+                image_url,
+                remote_path,
+                file_name,
+                original_name,
+                content_type,
+                file_size,
+                storage_backend,
+                uploaded_at,
+                deleted_at
+            FROM content_photos
+            WHERE album_id = ? AND deleted_at IS NOT NULL
+            ORDER BY deleted_at DESC, id DESC
+            """,
+            (album_id,),
+        ).fetchall()
+
+    return [
+        {
+            "id": int(row["id"]),
+            "albumId": int(row["album_id"]),
+            "imageUrl": str(row["image_url"] or "").strip(),
+            "remotePath": str(row["remote_path"] or "").strip(),
+            "fileName": str(row["file_name"] or "").strip(),
+            "originalName": str(row["original_name"] or "").strip(),
+            "contentType": str(row["content_type"] or "").strip(),
+            "fileSize": int(row["file_size"] or 0),
+            "storageBackend": str(row["storage_backend"] or "local").strip(),
+            "uploadedAt": str(row["uploaded_at"] or "").strip(),
+            "uploadedAtDisplay": format_datetime_display(str(row["uploaded_at"] or "").strip()),
+            "deletedAt": str(row["deleted_at"] or "").strip(),
+            "deletedAtDisplay": format_datetime_display(str(row["deleted_at"] or "").strip()),
+        }
+        for row in rows
+    ]
 
 
 def store_content_photo(
@@ -13621,24 +14236,31 @@ def store_content_photos(album_id: int, uploaded_items: List[Dict[str, Any]]) ->
 
 
 def delete_content_photo(photo_id: int, album_id: int) -> bool:
+    """Move a photo to the recoverable trash without touching its file."""
+
     with get_db_connection() as connection:
-        row = connection.execute(
+        cursor = connection.execute(
             """
-            SELECT id, remote_path, storage_backend
-            FROM content_photos
-            WHERE id = ? AND album_id = ?
+            UPDATE content_photos
+            SET deleted_at = ?
+            WHERE id = ? AND album_id = ? AND deleted_at IS NULL
+            """,
+            (datetime.utcnow().isoformat(), photo_id, album_id),
+        )
+        return cursor.rowcount == 1
+
+
+def restore_content_photo(photo_id: int, album_id: int) -> bool:
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE content_photos
+            SET deleted_at = NULL
+            WHERE id = ? AND album_id = ? AND deleted_at IS NOT NULL
             """,
             (photo_id, album_id),
-        ).fetchone()
-        if row is None:
-            return False
-        connection.execute("DELETE FROM content_photos WHERE id = ?", (photo_id,))
-
-    delete_content_file(
-        str(row["remote_path"] or "").strip(),
-        str(row["storage_backend"] or "local").strip(),
-    )
-    return True
+        )
+        return cursor.rowcount == 1
 
 
 def delete_empty_content_album(album_id: int) -> None:
@@ -13648,27 +14270,41 @@ def delete_empty_content_album(album_id: int) -> None:
             (album_id,),
         ).fetchone()
         if row is None:
-            connection.execute("DELETE FROM content_albums WHERE id = ?", (album_id,))
+            connection.execute(
+                "DELETE FROM content_albums WHERE id = ? AND deleted_at IS NULL",
+                (album_id,),
+            )
 
 
 def delete_content_album(album_id: int) -> bool:
-    photos = load_content_album_photos(album_id)
-    album = load_content_album(album_id)
-    if album is None:
-        return False
-
-    for photo in photos:
-        delete_content_file(photo["remotePath"], photo["storageBackend"])
-
     with get_db_connection() as connection:
-        connection.execute("DELETE FROM content_photos WHERE album_id = ?", (album_id,))
-        connection.execute("DELETE FROM content_albums WHERE id = ?", (album_id,))
-    return True
+        cursor = connection.execute(
+            """
+            UPDATE content_albums
+            SET deleted_at = ?
+            WHERE id = ? AND deleted_at IS NULL
+            """,
+            (datetime.utcnow().isoformat(), album_id),
+        )
+        return cursor.rowcount == 1
+
+
+def restore_content_album(album_id: int) -> bool:
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE content_albums
+            SET deleted_at = NULL
+            WHERE id = ? AND deleted_at IS NOT NULL
+            """,
+            (album_id,),
+        )
+        return cursor.rowcount == 1
 
 
 def resolve_content_album_id(selected_album_id: int, new_album_title: str) -> Optional[int]:
     if selected_album_id:
-        return selected_album_id
+        return selected_album_id if load_content_album(selected_album_id) is not None else None
     normalized_title = new_album_title.strip()
     if normalized_title:
         with content_album_lock:
@@ -13850,75 +14486,127 @@ def filter_agenda_trainings_for_user(
     ]
 
 
-def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
+ADMIN_PAGE_KEYS = frozenset(
+    {
+        "dashboard",
+        "agenda",
+        "draaiboeken",
+        "voetbaldagen",
+        "checklists",
+        "kleedkamerbordjes",
+        "samenwerkende-amateurclubs",
+        "management",
+        "planning",
+        "api",
+        "customer-satisfaction",
+        "materialen",
+        "orders",
+        "leads",
+        "financien",
+        "revenue",
+        "spaarpot",
+        "trainer-fees",
+        "begroting",
+        "voorstellen-maker",
+        "overeenkomsten",
+        "oefenstof",
+        "oefeningen-bibliotheek",
+        "trainingen",
+        "exercise-videos",
+        "marketing",
+        "social-media",
+        "content",
+        "trainers",
+        "profile",
+    }
+)
+
+# Trainers only receive the operational pages needed for their own work. Pages
+# containing customer, lead, order, finance or inventory data are deliberately
+# absent. Unknown roles receive no implicit access beyond their own profile.
+TRAINER_PAGE_KEYS = frozenset(
+    {
+        "dashboard",
+        "agenda",
+        "draaiboeken",
+        "voetbaldagen",
+        "checklists",
+        "kleedkamerbordjes",
+        "samenwerkende-amateurclubs",
+        "oefenstof",
+        "oefeningen-bibliotheek",
+        "trainingen",
+        "profile",
+    }
+)
+
+ADMIN_ACTION_PERMISSIONS = frozenset(
+    {
+        "dashboard-events.manage",
+        "exercises.manage",
+        "leads.manage",
+        "materials.manage",
+        "registrations.manage",
+        "trainers.manage",
+    }
+)
+
+
+def get_permissions_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
     if not user:
         return set()
-    if user.get("isAdmin"):
-        return {
-            "dashboard",
-            "agenda",
-            "draaiboeken",
-            "voetbaldagen",
-            "checklists",
-            "kleedkamerbordjes",
-            "samenwerkende-amateurclubs",
-            "management",
-            "planning",
-            "api",
-            "customer-satisfaction",
-            "materialen",
-            "orders",
-            "leads",
-            "financien",
-            "revenue",
-            "spaarpot",
-            "trainer-fees",
-            "begroting",
-            "voorstellen-maker",
-            "overeenkomsten",
-            "oefenstof",
-            "oefeningen-bibliotheek",
-            "trainingen",
-            "exercise-videos",
-            "marketing",
-            "social-media",
-            "content",
-            "trainers",
-            "profile",
-        }
-    visible_pages = {"materialen", "orders", "leads", "draaiboeken", "voetbaldagen", "checklists", "kleedkamerbordjes", "samenwerkende-amateurclubs", "oefenstof", "oefeningen-bibliotheek", "trainingen", "profile"}
-    if is_trainer_user(user):
-        visible_pages.update({"dashboard", "agenda"})
 
-    # Users enter detail pages through their overview tiles. Whenever one of
-    # those tiles is available, its overview must be available in the menu too.
-    overview_children = {
-        "draaiboeken": {"voetbaldagen", "checklists", "kleedkamerbordjes", "samenwerkende-amateurclubs"},
-        "management": {"planning", "api", "customer-satisfaction", "materialen", "begroting", "voorstellen-maker", "overeenkomsten", "orders", "trainers"},
-        "oefenstof": {"oefeningen-bibliotheek", "trainingen", "exercise-videos"},
-        "financien": {"revenue", "spaarpot", "trainer-fees"},
-        "marketing": {"social-media", "content", "leads"},
+    permissions = {"page:profile"}
+    if user.get("isAdmin"):
+        permissions.update(f"page:{page_key}" for page_key in ADMIN_PAGE_KEYS)
+        permissions.update(ADMIN_ACTION_PERMISSIONS)
+    elif is_trainer_user(user):
+        permissions.update(f"page:{page_key}" for page_key in TRAINER_PAGE_KEYS)
+    return permissions
+
+
+def user_has_permission(user: Optional[Dict[str, Any]], permission: str) -> bool:
+    normalized_permission = str(permission or "").strip()
+    if not normalized_permission:
+        return False
+    return normalized_permission in get_permissions_for_user(user)
+
+
+def get_visible_pages_for_user(user: Optional[Dict[str, Any]]) -> Set[str]:
+    return {
+        permission.removeprefix("page:")
+        for permission in get_permissions_for_user(user)
+        if permission.startswith("page:")
     }
-    for overview_page, child_pages in overview_children.items():
-        if visible_pages.intersection(child_pages):
-            visible_pages.add(overview_page)
-    return visible_pages
 
 
 def user_can_access_page(user: Optional[Dict[str, Any]], page_key: str) -> bool:
-    return page_key in get_visible_pages_for_user(user)
+    return user_has_permission(user, f"page:{page_key}")
 
 
-def require_page_access(page_key: str) -> Optional[Any]:
-    user = get_current_user()
-    if user is None:
-        return redirect(url_for("login_page", next=request.path))
-    if user_can_access_page(user, page_key):
-        return None
+def permission_denied_response(user: Dict[str, Any]) -> Any:
+    if request.path.startswith("/api/") or request_prefers_json():
+        return jsonify({"error": "Je hebt geen rechten voor deze actie."}), 403
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        return "Je hebt geen rechten voor deze actie.", 403
+
     fallback_page = "dashboard" if user_can_access_page(user, "dashboard") else "profile"
     if fallback_page == "dashboard":
         return redirect(url_for("index"))
     return redirect(url_for("personal_profile_page"))
+
+
+def require_permission(permission: str) -> Optional[Any]:
+    user = get_current_user()
+    if user is None:
+        return redirect(url_for("login_page", next=request.path))
+    if user_has_permission(user, permission):
+        return None
+    return permission_denied_response(user)
+
+
+def require_page_access(page_key: str) -> Optional[Any]:
+    return require_permission(f"page:{page_key}")
 
 
 def parse_non_negative_int(value: Any) -> int:
@@ -16267,12 +16955,42 @@ def normalize_username_seed(value: str) -> str:
     return normalized or "gebruiker"
 
 
-def build_invite_expiry(days: int = 14) -> str:
-    return (datetime.utcnow() + timedelta(days=days)).replace(microsecond=0).isoformat()
+def build_invite_expiry(hours: Optional[int] = None) -> str:
+    ttl_hours = TRAINER_INVITE_TTL_HOURS if hours is None else min(168, max(1, int(hours)))
+    return (datetime.utcnow() + timedelta(hours=ttl_hours)).replace(microsecond=0).isoformat()
 
 
 def create_invite_token() -> str:
     return secrets.token_urlsafe(32)
+
+
+def trainer_row_is_active_admin(row: Optional[sqlite3.Row]) -> bool:
+    if row is None:
+        return False
+    system_role = normalize_system_role(str(row["system_role"] or row["role"] or ""))
+    is_admin = bool(row["is_admin"]) or role_grants_admin_access(system_role)
+    return is_admin and str(row["status"] or "").strip().casefold() == "actief"
+
+
+def ensure_active_admin_will_remain(connection: sqlite3.Connection, profile_id: str) -> None:
+    normalized_profile_id = profile_id.strip()
+    target = connection.execute(
+        "SELECT is_admin, system_role, role, status FROM trainer_profiles WHERE id = ?",
+        (normalized_profile_id,),
+    ).fetchone()
+    if not trainer_row_is_active_admin(target):
+        return
+
+    other_rows = connection.execute(
+        """
+        SELECT is_admin, system_role, role, status
+        FROM trainer_profiles
+        WHERE id != ?
+        """,
+        (normalized_profile_id,),
+    ).fetchall()
+    if not any(trainer_row_is_active_admin(row) for row in other_rows):
+        raise ValueError("De laatste actieve admin moet admin blijven.")
 
 
 def update_trainer_profile(
@@ -16298,6 +17016,9 @@ def update_trainer_profile(
     key_sets: Optional[List[Dict[str, str]]] = None,
 ) -> None:
     with get_db_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        if not is_admin:
+            ensure_active_admin_will_remain(connection, profile_id)
         if trainer_fees is None:
             connection.execute(
                 """
@@ -16431,6 +17152,8 @@ def update_trainer_clothing_and_keys(
 
 def delete_trainer_profile(profile_id: str) -> None:
     with get_db_connection() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        ensure_active_admin_will_remain(connection, profile_id)
         connection.execute("DELETE FROM trainer_profiles WHERE id = ?", (profile_id.strip(),))
     clear_local_data_cache()
 
@@ -16542,30 +17265,49 @@ def build_admin_content_debug_summary(repaired_albums: Optional[int] = None) -> 
         counts_row = connection.execute(
             """
             SELECT
-                (SELECT COUNT(*) FROM content_albums) AS album_count,
-                (SELECT COUNT(*) FROM content_photos) AS photo_count,
+                (SELECT COUNT(*) FROM content_albums WHERE deleted_at IS NULL) AS album_count,
+                (
+                    SELECT COUNT(*)
+                    FROM content_photos cp
+                    JOIN content_albums ca ON ca.id = cp.album_id
+                    WHERE cp.deleted_at IS NULL AND ca.deleted_at IS NULL
+                ) AS photo_count,
+                (SELECT COUNT(*) FROM content_albums WHERE deleted_at IS NOT NULL) AS deleted_album_count,
+                (SELECT COUNT(*) FROM content_photos WHERE deleted_at IS NOT NULL) AS deleted_photo_count,
                 (
                     SELECT COUNT(*)
                     FROM content_photos cp
                     LEFT JOIN content_albums ca ON ca.id = cp.album_id
-                    WHERE ca.id IS NULL
+                    WHERE ca.id IS NULL AND cp.deleted_at IS NULL
                 ) AS orphan_photo_count,
-                (SELECT COUNT(*) FROM exercises) AS exercise_count,
-                (SELECT COUNT(*) FROM faq_items) AS faq_count,
-                (SELECT COUNT(*) FROM training_plans) AS training_plan_count,
-                (SELECT COUNT(*) FROM workflow_documents) AS workflow_document_count
+                (SELECT COUNT(*) FROM exercises) AS exercise_count
             """
         ).fetchone()
+        available_tables = {
+            str(row["name"])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        optional_counts = {}
+        for table_name in ("faq_items", "training_plans", "workflow_documents"):
+            optional_counts[table_name] = (
+                int(connection.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0])
+                if table_name in available_tables
+                else 0
+            )
 
     return {
         "albums": int(counts_row["album_count"] or 0) if counts_row is not None else 0,
         "photos": int(counts_row["photo_count"] or 0) if counts_row is not None else 0,
+        "deletedAlbums": int(counts_row["deleted_album_count"] or 0) if counts_row is not None else 0,
+        "deletedPhotos": int(counts_row["deleted_photo_count"] or 0) if counts_row is not None else 0,
         "orphanPhotos": int(counts_row["orphan_photo_count"] or 0) if counts_row is not None else 0,
         "repairedAlbums": repaired_albums,
         "exercises": int(counts_row["exercise_count"] or 0) if counts_row is not None else 0,
-        "faqItems": int(counts_row["faq_count"] or 0) if counts_row is not None else 0,
-        "trainingPlans": int(counts_row["training_plan_count"] or 0) if counts_row is not None else 0,
-        "workflowDocuments": int(counts_row["workflow_document_count"] or 0) if counts_row is not None else 0,
+        "faqItems": optional_counts["faq_items"],
+        "trainingPlans": optional_counts["training_plans"],
+        "workflowDocuments": optional_counts["workflow_documents"],
     }
 
 
@@ -16911,6 +17653,7 @@ def accept_trainer_invite(
     key_sets: Optional[List[Dict[str, str]]] = None,
 ) -> None:
     username = build_internal_username(full_name, email, exclude_profile_id=profile_id)
+    accepted_at = utcnow_iso()
     with get_db_connection() as connection:
         cursor = connection.execute(
             """
@@ -16925,14 +17668,16 @@ def accept_trainer_invite(
                 postal_code = ?,
                 bank_account_number = ?,
                 bank_account_name = ?,
-                knvb_license = ?,
-                education = ?,
+                knvb_license = COALESCE(NULLIF(trim(?), ''), knvb_license),
+                education = COALESCE(NULLIF(trim(?), ''), education),
                 password_hash = ?,
                 invite_token = NULL,
                 invite_expires_at = NULL,
                 invite_accepted_at = ?,
                 status = 'Actief'
             WHERE id = ? AND invite_token = ?
+              AND invite_expires_at IS NOT NULL
+              AND invite_expires_at >= ?
             """,
             (
                 full_name.strip(),
@@ -16947,9 +17692,10 @@ def accept_trainer_invite(
                 knvb_license.strip(),
                 education.strip(),
                 hash_password(password),
-                utcnow_iso(),
+                accepted_at,
                 profile_id.strip(),
                 invite_token.strip(),
+                accepted_at,
             ),
         )
         if cursor.rowcount != 1:
@@ -17013,10 +17759,7 @@ def ensure_admin_account() -> None:
 
 
 def require_admin_user() -> Optional[Any]:
-    user = get_current_user()
-    if user is None or not user.get("isAdmin"):
-        return require_page_access("dashboard")
-    return None
+    return require_permission("trainers.manage")
 
 
 def get_default_post_login_path(user: Dict[str, Any]) -> str:
@@ -17828,7 +18571,10 @@ def search_catalog_products(keyword: str) -> List[Dict[str, Any]]:
     return filtered_products[:20]
 
 
-def fetch_orders_from_ecwid(run_auto_email: bool = True) -> Dict[str, Any]:
+def fetch_orders_from_ecwid(
+    run_auto_email: bool = True,
+    run_automatic_return_sync: bool = True,
+) -> Dict[str, Any]:
     config = get_config()
     if not config["store_id"] or not config["secret_token"]:
         return {
@@ -17880,17 +18626,23 @@ def fetch_orders_from_ecwid(run_auto_email: bool = True) -> Dict[str, Any]:
             ),
         }
 
-    automatic_return_sync = sync_refunded_orders_to_returned(all_orders)
-    if automatic_return_sync["syncedOrderIds"]:
-        app.logger.info(
-            "%s terugbetaalde Ecwid-bestelling(en) automatisch op geretourneerd gezet.",
-            len(automatic_return_sync["syncedOrderIds"]),
-        )
-    if automatic_return_sync["failedOrderIds"]:
-        app.logger.warning(
-            "%s terugbetaalde Ecwid-bestelling(en) konden niet automatisch op geretourneerd worden gezet.",
-            len(automatic_return_sync["failedOrderIds"]),
-        )
+    automatic_return_sync = {
+        "matchedOrderIds": [],
+        "syncedOrderIds": [],
+        "failedOrderIds": [],
+    }
+    if run_automatic_return_sync:
+        automatic_return_sync = sync_refunded_orders_to_returned(all_orders)
+        if automatic_return_sync["syncedOrderIds"]:
+            app.logger.info(
+                "%s terugbetaalde Ecwid-bestelling(en) automatisch op geretourneerd gezet.",
+                len(automatic_return_sync["syncedOrderIds"]),
+            )
+        if automatic_return_sync["failedOrderIds"]:
+            app.logger.warning(
+                "%s terugbetaalde Ecwid-bestelling(en) konden niet automatisch op geretourneerd worden gezet.",
+                len(automatic_return_sync["failedOrderIds"]),
+            )
 
     normalized_orders = [normalize_order(order) for order in all_orders]
     if run_auto_email:
@@ -19130,11 +19882,13 @@ def get_empty_dashboard_payload(message: Optional[str] = None) -> Dict[str, Any]
 
 def fetch_orders_non_blocking() -> Dict[str, Any]:
     now = time.time()
+    config_fingerprint = get_external_cache_fingerprint(include_moneybird=True)
     with cache_lock:
         cached_payload = orders_cache.get("payload")
         cached_at = float(orders_cache.get("cached_at") or 0.0)
+        cached_fingerprint = orders_cache.get("config_fingerprint")
 
-    if cached_payload is not None:
+    if cached_payload is not None and cached_fingerprint == config_fingerprint:
         payload = dict(cached_payload)
         payload["cachedAt"] = cached_at
         if now - cached_at >= CACHE_TTL_SECONDS:
@@ -19142,7 +19896,13 @@ def fetch_orders_non_blocking() -> Dict[str, Any]:
         return payload
 
     start_background_refresh()
-    return get_empty_dashboard_payload()
+    config = get_config()
+    missing_ecwid_message = (
+        "Live Ecwid-koppeling staat nog niet aan. Voeg ECWID_STORE_ID en ECWID_SECRET_TOKEN toe."
+        if not config["store_id"] or not config["secret_token"]
+        else None
+    )
+    return get_empty_dashboard_payload(missing_ecwid_message)
 
 
 def format_cache_timestamp(timestamp: float) -> str:
@@ -19186,8 +19946,30 @@ def parse_iso_datetime(value: str) -> Optional[datetime]:
 def invite_is_expired(user: Dict[str, Any]) -> bool:
     expires_at = parse_iso_datetime(user.get("inviteExpiresAt", ""))
     if expires_at is None:
-        return False
-    return expires_at < datetime.utcnow()
+        return True
+    return expires_at <= datetime.utcnow()
+
+
+def build_public_invite_form_state(user: Dict[str, Any]) -> Dict[str, Any]:
+    """Build an empty public form without echoing stored trainer PII."""
+
+    return {
+        "firstName": "",
+        "lastName": "",
+        "email": "",
+        "phone": "",
+        "address": "",
+        "city": "",
+        "postalCode": "",
+        "bankAccountNumber": "",
+        "bankAccountName": "",
+        "knvbLicense": "",
+        "education": "",
+        "clothingItems": normalize_trainer_clothing_items([]),
+        "keySets": [],
+        "noKeySets": False,
+        "inviteRequiresClothingKeys": bool(user.get("inviteRequiresClothingKeys")),
+    }
 
 
 def parse_iso_date(value: str) -> Optional[date]:
@@ -20179,17 +20961,17 @@ def mock_orders() -> List[Dict[str, Any]]:
         },
     ]
 
-
-run_storage_migrations()
-
-
 @app.route("/login", methods=["GET", "POST"])
 def login_page() -> str:
     existing_user = get_current_user()
     if existing_user is not None and request.method == "GET":
         return redirect(get_default_post_login_path(existing_user))
 
-    login_error = ""
+    login_error = (
+        "Je sessie is verlopen. Log opnieuw in om verder te gaan."
+        if request.args.get("session_expired", "").strip() == "1"
+        else ""
+    )
     next_path = request.args.get("next", "").strip() or request.form.get("next", "").strip()
 
     if request.method == "POST":
@@ -20211,8 +20993,8 @@ def login_page() -> str:
 
 @app.route("/uitnodiging/<invite_token>", methods=["GET", "POST"])
 def invite_accept_page(invite_token: str) -> str:
-    invited_user = get_user_by_invite_token(invite_token)
-    if invited_user is None:
+    invite_record = get_user_by_invite_token(invite_token)
+    if invite_record is None:
         return render_template(
             "invite_accept.html",
             invited_user=None,
@@ -20221,16 +21003,16 @@ def invite_accept_page(invite_token: str) -> str:
             invite_success="",
         )
 
-    if invite_is_expired(invited_user):
+    if invite_is_expired(invite_record):
         return render_template(
             "invite_accept.html",
-            invited_user=invited_user,
+            invited_user=None,
             invite_can_submit=False,
             invite_error="Deze aanmeldlink is verlopen. Maak een nieuwe uitnodiging aan voor dit teamlid.",
             invite_success="",
         )
 
-    invited_user = dict(invited_user)
+    invited_user = build_public_invite_form_state(invite_record)
     invite_error = ""
     invite_success = ""
 
@@ -20252,7 +21034,7 @@ def invite_accept_page(invite_token: str) -> str:
         clothing_items = None
         key_sets = None
         clothing_keys_error = ""
-        if invited_user.get("inviteRequiresClothingKeys"):
+        if invite_record.get("inviteRequiresClothingKeys"):
             submitted_clothing_items = [
                 {
                     "key": key,
@@ -20273,8 +21055,8 @@ def invite_accept_page(invite_token: str) -> str:
             except ValueError as exc:
                 clothing_keys_error = str(exc)
         else:
-            submitted_clothing_items = invited_user.get("clothingItems", [])
-            submitted_key_sets = invited_user.get("keySets", [])
+            submitted_clothing_items = []
+            submitted_key_sets = []
 
         invited_user = {
             **invited_user,
@@ -20311,7 +21093,7 @@ def invite_accept_page(invite_token: str) -> str:
             invite_error = "Vul alle verplichte gegevens in."
         elif not is_valid_email_address(email):
             invite_error = "Vul een geldig e-mailadres in."
-        elif trainer_email_exists(email, exclude_profile_id=invited_user["id"]):
+        elif trainer_email_exists(email, exclude_profile_id=invite_record["id"]):
             invite_error = "Dit e-mailadres is al gekoppeld aan een ander account."
         elif clothing_keys_error:
             invite_error = clothing_keys_error
@@ -20322,7 +21104,7 @@ def invite_accept_page(invite_token: str) -> str:
         else:
             try:
                 accept_trainer_invite(
-                    invited_user["id"],
+                    invite_record["id"],
                     invite_token,
                     full_name,
                     email,
@@ -20343,17 +21125,11 @@ def invite_accept_page(invite_token: str) -> str:
             except ValueError as exc:
                 invite_error = str(exc)
             else:
-                refreshed_user = get_user_by_id(invited_user["id"])
+                refreshed_user = get_user_by_id(invite_record["id"])
                 if refreshed_user is not None:
                     rotate_authenticated_session(refreshed_user["id"])
                     return redirect(get_default_post_login_path(refreshed_user))
                 invite_success = "Je gegevens zijn opgeslagen en je account is geactiveerd."
-
-    if "firstName" not in invited_user:
-        name_parts = invited_user.get("fullName", "").split()
-        invited_user["firstName"] = name_parts[0] if name_parts else ""
-        invited_user["lastName"] = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
-    invited_user.setdefault("noKeySets", False)
 
     return render_template(
         "invite_accept.html",
@@ -20367,7 +21143,7 @@ def invite_accept_page(invite_token: str) -> str:
 
 @app.post("/logout")
 def logout_page():
-    session.clear()
+    invalidate_authenticated_session()
     return redirect(url_for("login_page"))
 
 
@@ -20378,8 +21154,12 @@ def index() -> str:
         return access_redirect
 
     user = get_current_user()
-    payload = fetch_orders_non_blocking()
+    payload = get_empty_dashboard_payload() if is_trainer_user(user) else fetch_orders_non_blocking()
     dashboard_payload = build_dashboard_frontend_payload(payload)
+    if is_trainer_user(user):
+        dashboard_payload["summary"] = {}
+        dashboard_payload["reportSummary"] = {}
+        dashboard_payload["productSummary"] = []
     return render_template(
         "index.html",
         active_page="dashboard",
@@ -20567,7 +21347,7 @@ def leads_page() -> str:
 
 @app.post("/api/leads/blocked-emails")
 def api_save_leads_blocked_emails():
-    access_redirect = require_page_access("leads")
+    access_redirect = require_permission("leads.manage")
     if access_redirect is not None:
         return access_redirect
 
@@ -22276,6 +23056,9 @@ def materialen_page() -> str:
 
     saved = False
     if request.method == "POST":
+        access_redirect = require_permission("materials.manage")
+        if access_redirect is not None:
+            return access_redirect
         save_materials_inventory(build_materials_inventory_from_form())
         saved = True
 
@@ -22459,7 +23242,7 @@ def export_registration_team_assignment(product_key: str):
 
 @app.post("/api/registrations/email-status")
 def api_update_registration_email_status():
-    access_redirect = require_page_access("orders")
+    access_redirect = require_permission("registrations.manage")
     if access_redirect is not None:
         return access_redirect
 
@@ -22500,7 +23283,7 @@ def api_update_registration_email_status():
 
 @app.post("/api/registrations/event-email-settings")
 def api_save_registration_event_email_settings():
-    access_redirect = require_page_access("orders")
+    access_redirect = require_permission("registrations.manage")
     if access_redirect is not None:
         return access_redirect
 
@@ -22534,7 +23317,7 @@ def api_save_registration_event_email_settings():
 
 @app.post("/api/registrations/send-event-email")
 def api_send_registration_event_email():
-    access_redirect = require_page_access("orders")
+    access_redirect = require_permission("registrations.manage")
     if access_redirect is not None:
         return access_redirect
 
@@ -22588,7 +23371,7 @@ def api_send_registration_event_email():
 
 @app.post("/api/registrations/sync-emailed-orders")
 def api_sync_emailed_registration_orders():
-    access_redirect = require_page_access("orders")
+    access_redirect = require_permission("registrations.manage")
     if access_redirect is not None:
         return access_redirect
 
@@ -22634,7 +23417,7 @@ def api_sync_emailed_registration_orders():
 
 @app.post("/api/klanttevredenheid/test-email")
 def api_send_customer_satisfaction_test_email():
-    access_redirect = require_page_access("orders")
+    access_redirect = require_permission("registrations.manage")
     if access_redirect is not None:
         return access_redirect
     if not registration_auto_email_is_configured():
@@ -22689,7 +23472,7 @@ def api_send_customer_satisfaction_test_email():
 
 @app.post("/api/registrations/event-completed")
 def api_complete_registration_event():
-    access_redirect = require_page_access("orders")
+    access_redirect = require_permission("registrations.manage")
     if access_redirect is not None:
         return access_redirect
 
@@ -22817,7 +23600,7 @@ def api_complete_registration_event():
 
 @app.post("/api/registrations/event-canceled")
 def api_cancel_registration_event():
-    access_redirect = require_page_access("orders")
+    access_redirect = require_permission("registrations.manage")
     if access_redirect is not None:
         return access_redirect
 
@@ -22964,10 +23747,15 @@ def automatic_invoices_page() -> str:
             )
         if action == "delete_setting":
             setting_id = request.form.get("setting_id", type=int)
-            if setting_id:
+            if setting_id and delete_confirmation_is_valid("automatic-invoice-setting", setting_id):
                 delete_automatic_invoice_setting(setting_id)
                 return redirect(url_for("automatic_invoices_page", success="Automatische factuurinstelling verwijderd."))
-            return redirect(url_for("automatic_invoices_page", error="Deze instelling kon niet worden verwijderd."))
+            return redirect(
+                url_for(
+                    "automatic_invoices_page",
+                    error="Verwijderen is niet bevestigd; de instelling is behouden.",
+                )
+            )
         if action == "process_today":
             result = process_automatic_invoices(date.today())
             processed_count = len(result.get("processed", []))
@@ -23389,25 +24177,28 @@ def personal_profile_page() -> str:
         if trainer_email_exists(email, exclude_profile_id=user["id"]):
             return redirect(url_for("personal_profile_page", error="Dit e-mailadres is al gekoppeld aan een ander account."))
 
-        update_trainer_profile(
-            user["id"],
-            full_name,
-            email,
-            build_internal_username(full_name, email, exclude_profile_id=user["id"]),
-            member_type,
-            system_role,
-            knvb_license,
-            education,
-            phone,
-            address,
-            city,
-            postal_code,
-            bank_account_number,
-            bank_account_name,
-            notes,
-            availability_days,
-            is_admin,
-        )
+        try:
+            update_trainer_profile(
+                user["id"],
+                full_name,
+                email,
+                build_internal_username(full_name, email, exclude_profile_id=user["id"]),
+                member_type,
+                system_role,
+                knvb_license,
+                education,
+                phone,
+                address,
+                city,
+                postal_code,
+                bank_account_number,
+                bank_account_name,
+                notes,
+                availability_days,
+                is_admin,
+            )
+        except ValueError as exc:
+            return redirect(url_for("personal_profile_page", error=str(exc)))
         return redirect(url_for("personal_profile_page", success="Profiel opgeslagen."))
 
     profile = dict(user)
@@ -23536,28 +24327,31 @@ def trainers_page() -> str:
                 except ValueError as exc:
                     return redirect(url_for("trainers_page", error=str(exc)))
 
-            update_trainer_profile(
-                profile_id,
-                full_name,
-                email,
-                build_internal_username(full_name, email, exclude_profile_id=profile_id),
-                member_type,
-                system_role,
-                knvb_license,
-                education,
-                phone,
-                address,
-                city,
-                postal_code,
-                bank_account_number,
-                bank_account_name,
-                notes,
-                availability_days,
-                is_admin,
-                trainer_fees,
-                clothing_items,
-                key_sets,
-            )
+            try:
+                update_trainer_profile(
+                    profile_id,
+                    full_name,
+                    email,
+                    build_internal_username(full_name, email, exclude_profile_id=profile_id),
+                    member_type,
+                    system_role,
+                    knvb_license,
+                    education,
+                    phone,
+                    address,
+                    city,
+                    postal_code,
+                    bank_account_number,
+                    bank_account_name,
+                    notes,
+                    availability_days,
+                    is_admin,
+                    trainer_fees,
+                    clothing_items,
+                    key_sets,
+                )
+            except ValueError as exc:
+                return redirect(url_for("trainers_page", error=str(exc)))
             return redirect(url_for("trainers_page", success="Teamlid opgeslagen."))
         if action == "delete":
             profile_id = request.form.get("profile_id", "").strip()
@@ -23570,12 +24364,10 @@ def trainers_page() -> str:
                 return redirect(url_for("trainers_page", error="Dit teamlid bestaat niet meer."))
             if current_user is not None and current_user.get("id") == profile_id:
                 return redirect(url_for("trainers_page", error="Je kunt je eigen account niet verwijderen."))
-            if existing_profile.get("isAdmin"):
-                admin_count = sum(1 for item in load_trainer_profiles() if item.get("isAdmin"))
-                if admin_count <= 1:
-                    return redirect(url_for("trainers_page", error="De laatste admin kan niet worden verwijderd."))
-
-            delete_trainer_profile(profile_id)
+            try:
+                delete_trainer_profile(profile_id)
+            except ValueError as exc:
+                return redirect(url_for("trainers_page", error=str(exc)))
             return redirect(url_for("trainers_page", success="Teamlid verwijderd."))
 
         first_name = request.form.get("first_name", "").strip()
@@ -24020,6 +24812,11 @@ def oefeningen_bibliotheek_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
+    user = get_current_user()
+    can_manage_exercises = user_has_permission(user, "exercises.manage")
+    if request.method == "POST" and not can_manage_exercises:
+        return permission_denied_response(user)
+
     success = request.args.get("success", "").strip()
     error = request.args.get("error", "").strip()
 
@@ -24065,6 +24862,7 @@ def oefeningen_bibliotheek_page() -> str:
                 age_groups=list(EXERCISE_AGE_GROUP_OPTIONS),
                 import_preview=add_exercise_field_svgs(preview_exercises),
                 import_preview_id=preview_id,
+                can_manage_exercises=can_manage_exercises,
                 success=f"{len(preview_exercises)} nieuwe oefeningen gevonden.{skipped_message} Controleer de preview en upload daarna wat je wilt bewaren.",
                 error="",
             )
@@ -24107,6 +24905,7 @@ def oefeningen_bibliotheek_page() -> str:
                 age_groups=list(EXERCISE_AGE_GROUP_OPTIONS),
                 import_preview=add_exercise_field_svgs(remaining_preview),
                 import_preview_id=preview_id if remaining_preview else "",
+                can_manage_exercises=can_manage_exercises,
                 success="Oefening geupload." if imported_count else "Geen oefening geupload.",
                 error="",
             )
@@ -24122,6 +24921,7 @@ def oefeningen_bibliotheek_page() -> str:
         age_groups=list(EXERCISE_AGE_GROUP_OPTIONS),
         import_preview=[],
         import_preview_id="",
+        can_manage_exercises=can_manage_exercises,
         success=success,
         error=error,
     )
@@ -24997,7 +25797,13 @@ def render_football_playbook_edit_page(playbook_type: str, playbook_id: int) -> 
         playbook["staff"] = [{"name": "", "role": "", "setupTask": ""}]
     if not playbook["program"]:
         playbook["program"] = [{"startTime": "", "endTime": "", "activity": "", "icon": "clock"}]
-    attach_football_days_registration_counts([playbook])
+    attach_football_days_registration_counts(
+        [playbook],
+        allow_mutations=user_has_permission(
+            get_current_user(),
+            "registrations.manage",
+        ),
+    )
 
     return render_template(
         "voetbaldagen_form.html",
@@ -25078,9 +25884,15 @@ def voorstellen_maker_page() -> str:
             )
         elif action == "delete_proposal":
             proposal_id = request.form.get("proposal_id", type=int)
-            if proposal_id:
+            if proposal_id and delete_confirmation_is_valid("proposal", proposal_id):
                 delete_proposal(proposal_id)
                 return redirect(url_for("voorstellen_maker_page", success="Voorstel verwijderd."))
+            return redirect(
+                url_for(
+                    "voorstellen_maker_page",
+                    error="Verwijderen is niet bevestigd; het voorstel is behouden.",
+                )
+            )
 
     return render_template(
         "voorstellen_maker.html",
@@ -25105,6 +25917,14 @@ def voorstellen_maker_detail_page(proposal_id: int) -> str:
     if request.method == "POST":
         action = request.form.get("action", "").strip()
         if action == "delete_proposal":
+            if not delete_confirmation_is_valid("proposal", proposal_id):
+                return redirect(
+                    url_for(
+                        "voorstellen_maker_detail_page",
+                        proposal_id=proposal_id,
+                        error="Verwijderen is niet bevestigd; het voorstel is behouden.",
+                    )
+                )
             delete_proposal(proposal_id)
             return redirect(url_for("voorstellen_maker_page", success="Voorstel verwijderd."))
 
@@ -25218,6 +26038,14 @@ def overeenkomsten_edit_page(contract_id: int) -> str:
     if request.method == "POST":
         action = request.form.get("action", "save").strip() or "save"
         if action == "delete":
+            if not delete_confirmation_is_valid("contract", contract_id):
+                return redirect(
+                    url_for(
+                        "overeenkomsten_edit_page",
+                        contract_id=contract_id,
+                        error="Verwijderen is niet bevestigd; de overeenkomst is behouden.",
+                    )
+                )
             with get_db_connection() as connection:
                 connection.execute("DELETE FROM contracts WHERE id = ?", (contract_id,))
             clear_local_data_cache()
@@ -25464,13 +26292,22 @@ def content_page() -> str:
             album_id = request.form.get("album_id", type=int)
             if not album_id:
                 return redirect(url_for("content_page", error="Geen album geselecteerd om te verwijderen."))
-            try:
-                deleted = delete_content_album(album_id)
-            except requests.RequestException:
-                return redirect(url_for("content_page", error="Album verwijderen mislukt. Probeer het opnieuw."))
+            if not delete_confirmation_is_valid("content-album", album_id):
+                return redirect(
+                    url_for(
+                        "content_page",
+                        error="Verwijderen is niet bevestigd; het fotoalbum is behouden.",
+                    )
+                )
+            deleted = delete_content_album(album_id)
             if not deleted:
                 return redirect(url_for("content_page", error="Het gekozen album kon niet worden gevonden."))
-            return redirect(url_for("content_page", success="Fotoalbum verwijderd."))
+            return redirect(url_for("content_page", success="Fotoalbum is naar de prullenbak verplaatst en kan worden hersteld."))
+        if action == "restore_album":
+            album_id = request.form.get("album_id", type=int)
+            if not album_id or not restore_content_album(album_id):
+                return redirect(url_for("content_page", error="Het gekozen fotoalbum kon niet worden hersteld."))
+            return redirect(url_for("content_page", success="Fotoalbum is hersteld."))
 
     repaired_albums = ensure_content_album_records_exist()
     albums = load_content_album_summaries()
@@ -25478,6 +26315,7 @@ def content_page() -> str:
         "content.html",
         active_page="content",
         albums=albums,
+        deleted_albums=load_deleted_content_album_summaries() if can_manage_content(user) else [],
         content_storage=build_content_storage_status(),
         content_debug=(
             build_admin_content_debug_summary(repaired_albums=repaired_albums)
@@ -25525,21 +26363,42 @@ def content_album_page(album_id: int) -> str:
             photo_id = request.form.get("photo_id", type=int)
             if not photo_id:
                 return redirect(url_for("content_album_page", album_id=album_id, error="Geen foto geselecteerd om te verwijderen."))
-            try:
-                deleted = delete_content_photo(photo_id, album_id)
-            except requests.RequestException:
-                return redirect(url_for("content_album_page", album_id=album_id, error="Foto verwijderen mislukt. Probeer het opnieuw."))
+            if not delete_confirmation_is_valid("content-photo", photo_id):
+                return redirect(
+                    url_for(
+                        "content_album_page",
+                        album_id=album_id,
+                        error="Verwijderen is niet bevestigd; de foto is behouden.",
+                    )
+                )
+            deleted = delete_content_photo(photo_id, album_id)
             if not deleted:
                 return redirect(url_for("content_album_page", album_id=album_id, error="De gekozen foto kon niet worden gevonden."))
-            return redirect(url_for("content_album_page", album_id=album_id, success="Foto verwijderd."))
+            return redirect(
+                url_for(
+                    "content_album_page",
+                    album_id=album_id,
+                    success="Foto is naar de prullenbak verplaatst en kan worden hersteld.",
+                )
+            )
+        if action == "restore_photo":
+            photo_id = request.form.get("photo_id", type=int)
+            if not photo_id or not restore_content_photo(photo_id, album_id):
+                return redirect(url_for("content_album_page", album_id=album_id, error="De gekozen foto kon niet worden hersteld."))
+            return redirect(url_for("content_album_page", album_id=album_id, success="Foto is hersteld."))
         if action == "delete_album":
-            try:
-                deleted = delete_content_album(album_id)
-            except requests.RequestException:
-                return redirect(url_for("content_album_page", album_id=album_id, error="Album verwijderen mislukt. Probeer het opnieuw."))
+            if not delete_confirmation_is_valid("content-album", album_id):
+                return redirect(
+                    url_for(
+                        "content_album_page",
+                        album_id=album_id,
+                        error="Verwijderen is niet bevestigd; het fotoalbum is behouden.",
+                    )
+                )
+            deleted = delete_content_album(album_id)
             if not deleted:
                 return redirect(url_for("content_page", error="Het gekozen album kon niet worden gevonden."))
-            return redirect(url_for("content_page", success="Fotoalbum verwijderd."))
+            return redirect(url_for("content_page", success="Fotoalbum is naar de prullenbak verplaatst en kan worden hersteld."))
 
     photos = load_content_album_photos(album_id)
     return render_template(
@@ -25547,6 +26406,7 @@ def content_album_page(album_id: int) -> str:
         active_page="content",
         album=album,
         photos=photos,
+        deleted_photos=load_deleted_content_album_photos(album_id) if can_manage_content(user) else [],
         content_storage=build_content_storage_status(),
         can_manage_content=can_manage_content(user),
         success=request.args.get("success", "").strip(),
@@ -25662,15 +26522,18 @@ def api_dashboard_summary():
         return access_redirect
 
     try:
-        force_refresh = request.args.get("refresh") == "1"
-        payload = fetch_orders(force_refresh=force_refresh)
-        frontend_payload = build_dashboard_frontend_payload(payload)
         user = get_current_user()
         if user is not None and not user.get("isAdmin"):
+            frontend_payload = build_dashboard_frontend_payload(get_empty_dashboard_payload())
             frontend_payload["summary"] = {}
             frontend_payload["reportSummary"] = {}
+            frontend_payload["productSummary"] = []
             frontend_payload["monthlyRevenueSeries"] = []
             frontend_payload["moneybird"] = {}
+        else:
+            force_refresh = request.args.get("refresh") == "1"
+            payload = fetch_orders(force_refresh=force_refresh)
+            frontend_payload = build_dashboard_frontend_payload(payload)
         return jsonify(frontend_payload)
     except requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else 502
@@ -25710,7 +26573,12 @@ def api_product_registration_count():
         return jsonify({"productId": "", "registrationCount": 0})
 
     try:
-        orders_payload = fetch_ecwid_orders()
+        orders_payload = fetch_ecwid_orders_for_registration_counts(
+            allow_mutations=user_has_permission(
+                get_current_user(),
+                "registrations.manage",
+            ),
+        )
         return jsonify(
             {
                 "productId": product_id,
@@ -25755,7 +26623,12 @@ def football_playbook_registration_counts_api(playbook_type: str):
         playbooks = [playbook for playbook in playbooks if int(playbook.get("id") or 0) in requested_ids]
 
     try:
-        orders_payload = fetch_ecwid_orders()
+        orders_payload = fetch_ecwid_orders_for_registration_counts(
+            allow_mutations=user_has_permission(
+                get_current_user(),
+                "registrations.manage",
+            ),
+        )
         return jsonify(
             {
                 "counts": build_football_days_registration_counts(playbooks, orders_payload.get("items", [])),
@@ -25780,7 +26653,7 @@ def api_dashboard_events():
 
 @app.post("/api/dashboard-events")
 def api_save_dashboard_events():
-    access_redirect = require_page_access("dashboard")
+    access_redirect = require_permission("dashboard-events.manage")
     if access_redirect is not None:
         return access_redirect
 
@@ -25968,11 +26841,18 @@ def web_manifest():
 
 @app.after_request
 def set_response_headers(response):
-    if request.method == "GET" and response.status_code == 200:
+    is_public_invite = request.path.startswith("/uitnodiging/")
+    if request.method == "GET" and response.status_code == 200 and not is_public_invite:
         response.add_etag()
         response.make_conditional(request)
 
-    if request.path in {"/manifest.webmanifest", "/service-worker.js"}:
+    if is_public_invite:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+        response.headers["Referrer-Policy"] = "no-referrer"
+    elif request.path in {"/manifest.webmanifest", "/service-worker.js"}:
         response.cache_control.public = True
         response.cache_control.max_age = 60 if request.path == "/service-worker.js" else 3600
     elif request.path.startswith("/static/"):

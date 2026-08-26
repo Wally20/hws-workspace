@@ -4,4 +4,6 @@ __pycache__/
 data/app.db
 data/*.db-shm
 data/*.db-wal
+data/.storage-migrations.lock
+data/backups/
 data/django_sessions/

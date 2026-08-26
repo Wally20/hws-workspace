@@ -79,7 +79,13 @@
                 </div>
               {% endif %}
 
-              <form method="post" action="/financien/automatisch-facturen" onsubmit="return confirm('Weet je zeker dat je deze automatische factuurinstelling wilt verwijderen?');">
+              <form
+                method="post"
+                action="/financien/automatisch-facturen"
+                data-confirm-submit
+                data-confirm-message="Weet je zeker dat je deze automatische factuurinstelling wilt verwijderen?"
+                data-confirm-value="delete:automatic-invoice-setting:{{ setting.id }}"
+              >
                 <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
                 <input type="hidden" name="action" value="delete_setting">
                 <input type="hidden" name="setting_id" value="{{ setting.id }}">

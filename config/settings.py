@@ -49,6 +49,10 @@ def env_int(name: str, default: int) -> int:
 
 
 DATA_DIR = Path(env("DATA_DIR", str(BASE_DIR / "data")) or (BASE_DIR / "data")).resolve()
+LOCAL_UPLOAD_ROOT = Path(
+    env("LOCAL_UPLOAD_ROOT", str(BASE_DIR / "static" / "uploads"))
+    or (BASE_DIR / "static" / "uploads")
+).resolve()
 
 
 DEBUG = env_bool("DJANGO_DEBUG", default=env("FLASK_DEBUG", "0") != "0")
@@ -120,6 +124,8 @@ MIDDLEWARE = [
     "django.middleware.gzip.GZipMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "core.middleware.LegacyRequestMiddleware",
     "core.middleware.LegacyLoginRequiredMiddleware",
     "core.middleware.LegacyResponseHeadersMiddleware",
@@ -149,14 +155,27 @@ SESSION_COOKIE_NAME = env("SESSION_COOKIE_NAME", "overzicht_session")
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", default=not DEBUG)
 SESSION_COOKIE_SAMESITE = env("SESSION_COOKIE_SAMESITE", "Lax")
-SESSION_COOKIE_AGE = max(86400, env_int("SESSION_COOKIE_AGE", env_int("SESSION_PERSISTENT_SECONDS", 34560000)))
-SESSION_EXPIRE_AT_BROWSER_CLOSE = False
-SECURE_BROWSER_XSS_FILTER = False
+SESSION_IDLE_TIMEOUT_SECONDS = max(300, env_int("SESSION_IDLE_TIMEOUT_SECONDS", 3600))
+SESSION_ABSOLUTE_TIMEOUT_SECONDS = max(
+    SESSION_IDLE_TIMEOUT_SECONDS,
+    env_int("SESSION_ABSOLUTE_TIMEOUT_SECONDS", env_int("SESSION_PERSISTENT_SECONDS", 43200)),
+)
+SESSION_COOKIE_AGE = min(
+    SESSION_ABSOLUTE_TIMEOUT_SECONDS,
+    max(300, env_int("SESSION_COOKIE_AGE", SESSION_ABSOLUTE_TIMEOUT_SECONDS)),
+)
+SESSION_EXPIRE_AT_BROWSER_CLOSE = env_bool("SESSION_EXPIRE_AT_BROWSER_CLOSE", default=True)
+CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
+CSRF_COOKIE_SAMESITE = SESSION_COOKIE_SAMESITE
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
 SECURE_HSTS_SECONDS = 31536000 if SESSION_COOKIE_SECURE else 0
 SECURE_HSTS_INCLUDE_SUBDOMAINS = SESSION_COOKIE_SECURE
 SECURE_HSTS_PRELOAD = False
+# Preload is intentionally disabled until every present and future subdomain can
+# be guaranteed HTTPS-only. HSTS itself remains enabled in production.
+SILENCED_SYSTEM_CHECKS = ["security.W021"]
 SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 SECURE_SSL_REDIRECT = env_bool("FORCE_HTTPS", default=SESSION_COOKIE_SECURE)
 SECURE_REDIRECT_EXEMPT = [r"^healthz$"]
@@ -171,12 +190,20 @@ STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 if HAS_WHITENOISE:
-    STATICFILES_STORAGE = "whitenoise.storage.CompressedStaticFilesStorage"
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+        },
+    }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-USE_X_FORWARDED_HOST = True
+REVERSE_PROXY_HOPS = max(0, env_int("REVERSE_PROXY_HOPS", 0))
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if REVERSE_PROXY_HOPS else None
+USE_X_FORWARDED_HOST = REVERSE_PROXY_HOPS > 0
 
 CONTENT_UPLOAD_MAX_REQUEST_MB = max(15, env_int("CONTENT_UPLOAD_MAX_REQUEST_MB", 250))
 CONTENT_UPLOAD_MAX_FILES = max(1, env_int("CONTENT_UPLOAD_MAX_FILES", 500))

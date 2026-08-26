@@ -1,25 +1,13 @@
-self.HWS_WORKSPACE_RELEASE = "2026-07-22-exercise-layout-4";
+self.HWS_WORKSPACE_RELEASE = "2026-08-26-safe-activation";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    self.clients.claim().then(async () => {
-      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      await Promise.all(
-        clients.map((client) => {
-          const clientUrl = new URL(client.url);
-          if (clientUrl.origin !== self.location.origin || typeof client.navigate !== "function") {
-            return undefined;
-          }
-          clientUrl.searchParams.set("app-release", self.HWS_WORKSPACE_RELEASE);
-          return client.navigate(clientUrl.href);
-        })
-      );
-    })
-  );
+  // Claim open tabs without navigating them. Reloading here can discard text in
+  // an unsaved form merely because a new service-worker version was deployed.
+  event.waitUntil(self.clients.claim());
 });
 
 self.addEventListener("push", (event) => {
@@ -46,9 +34,24 @@ self.addEventListener("push", (event) => {
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
+function getSafeNotificationUrl(rawUrl) {
+  try {
+    const targetUrl = new URL(rawUrl || "/", self.location.origin);
+    if (
+      targetUrl.origin === self.location.origin &&
+      (targetUrl.protocol === "https:" || targetUrl.protocol === "http:")
+    ) {
+      return targetUrl.href;
+    }
+  } catch (error) {
+    // Invalid and cross-origin notification targets safely fall back home.
+  }
+  return new URL("/", self.location.origin).href;
+}
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = new URL(event.notification.data?.url || "/", self.location.origin).href;
+  const targetUrl = getSafeNotificationUrl(event.notification.data?.url);
 
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {

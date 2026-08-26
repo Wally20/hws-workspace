@@ -265,6 +265,12 @@ class LegacySessionProxy:
     def clear(self) -> None:
         get_current_request().session.clear()
 
+    def cycle_key(self) -> None:
+        get_current_request().session.cycle_key()
+
+    def flush(self) -> None:
+        get_current_request().session.flush()
+
 
 def legacy_render_template(template_name: str, **context: Any) -> HttpResponse:
     request = get_current_request()

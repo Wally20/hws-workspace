@@ -69,9 +69,9 @@
 
     {% if not is_trainer_dashboard_user %}
     <article class="summary-card compact-summary-card" id="eventsSummaryCard">
-      <p class="panel-title">Inschrijvingen Aankomende Events</p>
+      <p class="panel-title" id="eventsSummaryTitle">Inschrijvingen Aankomende Events</p>
       <div class="panel-actions">
-        <button type="button" id="editEventsButton" class="subtle-button">Bewerk</button>
+        <button type="button" id="editEventsButton" class="subtle-button" aria-controls="eventEditor" aria-expanded="false">Bewerk</button>
       </div>
       <div class="compact-stat-list" id="eventsStatList">
         {% for product in product_summary %}
@@ -82,14 +82,14 @@
         {% endfor %}
       </div>
 
-      <div id="eventEditor" class="event-editor" hidden>
-        <div id="selectedEvents" class="selected-events"></div>
+      <div id="eventEditor" class="event-editor" role="region" aria-labelledby="eventsSummaryTitle" hidden>
+        <div id="selectedEvents" class="selected-events" aria-live="polite"></div>
         <div class="event-search">
           <div class="event-search-row">
-            <input id="eventSearchInput" type="search" placeholder="Zoek event in Ecwid-producten">
-            <button type="button" id="eventSearchButton" class="subtle-button">+</button>
+            <input id="eventSearchInput" type="search" aria-label="Zoek event in Ecwid-producten" placeholder="Zoek event in Ecwid-producten">
+            <button type="button" id="eventSearchButton" class="subtle-button" aria-label="Event zoeken">+</button>
           </div>
-          <div id="eventSearchResults" class="event-search-results"></div>
+          <div id="eventSearchResults" class="event-search-results" aria-live="polite"></div>
         </div>
         <div class="editor-actions">
           <button type="button" id="saveEventsButton" class="subtle-button subtle-button-strong">Opslaan</button>

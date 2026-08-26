@@ -6,6 +6,7 @@ from core import views
 
 
 urlpatterns = [
+    path("static/uploads/<path:upload_path>", views.local_upload, name="local_upload"),
     path("login", views.login_page, name="login_page"),
     path("uitnodiging/<str:invite_token>", views.invite_accept_page, name="invite_accept_page"),
     path("logout", views.logout_page, name="logout_page"),
