@@ -97,6 +97,7 @@ class StorageHardeningTests(SimpleTestCase):
             return recorder
 
         with (
+            patch.dict(os.environ, {"SYNC_BUNDLED_SEED_DATA": "1"}),
             patch.object(legacy, "bootstrap_seed_data_files", side_effect=record("bootstrap")),
             patch.object(legacy, "create_storage_backup", side_effect=record("backup", "/tmp/safe.sqlite3")),
             patch.object(legacy, "configure_storage_database", side_effect=record("configure")),
@@ -115,6 +116,24 @@ class StorageHardeningTests(SimpleTestCase):
             call_order,
             ["bootstrap", "backup", "configure", "init", "playbooks", "dashboard", "agenda", "sync", "seed", "admin"],
         )
+
+    def test_existing_storage_does_not_merge_bundled_seed_data_by_default(self):
+        with (
+            patch.dict(os.environ, {"SYNC_BUNDLED_SEED_DATA": "0"}),
+            patch.object(legacy, "bootstrap_seed_data_files"),
+            patch.object(legacy, "create_storage_backup"),
+            patch.object(legacy, "configure_storage_database"),
+            patch.object(legacy, "init_db"),
+            patch.object(legacy, "migrate_football_days_playbook_to_playbooks"),
+            patch.object(legacy, "migrate_dashboard_events_json_to_db"),
+            patch.object(legacy, "migrate_agenda_trainings_json_to_db"),
+            patch.object(legacy, "sync_seed_workspace_data") as sync_seed_data,
+            patch.object(legacy, "seed_workspace_tables"),
+            patch.object(legacy, "ensure_admin_account"),
+        ):
+            legacy.run_storage_migrations()
+
+        sync_seed_data.assert_not_called()
 
     def test_backup_failure_stops_before_database_mutation(self):
         with (

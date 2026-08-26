@@ -35,6 +35,7 @@ DATA_DIR=/var/lib/overzicht/data
 LOCAL_UPLOAD_ROOT=/var/lib/overzicht/uploads
 SQLITE_BUSY_TIMEOUT_MS=30000
 STORAGE_BACKUP_RETENTION=7
+SYNC_BUNDLED_SEED_DATA=0
 FLASK_SECRET_KEY=<lange-random-secret>
 TRUSTED_HOSTS=www.workspace.hwsvoetbalschool.nl
 SESSION_COOKIE_NAME=overzicht_session
@@ -265,6 +266,10 @@ cd /srv/overzicht
 ```
 
 Het initialisatiecommando zet SQLite duurzaam in WAL-modus. Iedere applicatieverbinding gebruikt daarnaast `synchronous=NORMAL` en een instelbare busy timeout. Het productieproces is beperkt tot twee workers met twee threads om de gelijktijdige schrijfdruk op SQLite beheersbaar te houden.
+
+`SYNC_BUNDLED_SEED_DATA` blijft in productie op `0`. Alleen bij een bewust
+eenmalig herstel mag je deze variabele tijdelijk op `1` zetten; anders kan
+gebundelde ontwikkeldata opnieuw in een bestaande productiedatabase verschijnen.
 
 De meegeleverde periodieke `systemd`-services voeren hetzelfde commando als `ExecStartPre` en als gebruiker `www-data` uit. Daardoor kunnen facturen, registratiemails en spaarpotmeldingen ook op een nieuwe server nooit vóór de opslaginitialisatie starten, zonder root-owned databasebestanden achter te laten.
 

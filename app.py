@@ -5697,7 +5697,13 @@ def run_storage_migrations() -> Optional[str]:
         migrate_football_days_playbook_to_playbooks()
         migrate_dashboard_events_json_to_db()
         migrate_agenda_trainings_json_to_db()
-        sync_seed_workspace_data()
+        # Existing production databases are authoritative. Re-importing rows
+        # from the bundled development database on every restart can resurrect
+        # deliberately removed accounts or content. New external data
+        # directories are already bootstrapped in full above; merging seed rows
+        # into an existing database therefore requires an explicit one-off opt-in.
+        if get_env_bool("SYNC_BUNDLED_SEED_DATA", default=False):
+            sync_seed_workspace_data()
         seed_workspace_tables()
         ensure_admin_account()
         return backup_path
