@@ -407,6 +407,9 @@
       <div>
         <p class="panel-title">Overzicht dagplanning</p>
         <p class="feature-list-subtitle">{{ agenda_summary_filter_description }}</p>
+        <p class="feature-list-subtitle" id="agendaSummaryCopyFeedback" aria-live="polite">
+          Klik op een dagregel of het aantal om de onderliggende datums te kopiëren.
+        </p>
       </div>
       <div class="feature-filter-group agenda-plan-summary-filters" aria-label="Filter tegels dagplanning">
         {% for option in agenda_summary_filter_options %}
@@ -440,6 +443,8 @@
                   data-agenda-summary-weekday="{{ detail.label }}"
                   data-agenda-summary-copy="{{ detail.copyText }}"
                   data-agenda-summary-dates="{% for day in detail.days %}{{ day.date }}{% if not loop.last %},{% endif %}{% endfor %}"
+                  aria-label="Kopieer {{ detail.label }} voor {{ item.label }}"
+                  title="Kopieer {{ detail.label }} voor {{ item.label }}"
                 >
                   <span>{{ detail.label }}</span>
                   <span class="compact-stat-value">{{ detail.count }}</span>

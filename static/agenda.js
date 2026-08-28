@@ -26,6 +26,7 @@ const agendaGrid = document.querySelector("#agendaGrid");
 const agendaPlanSurfaces = document.querySelectorAll("[data-agenda-plan-surface]");
 const agendaLabelsRoot = document.querySelector("[data-agenda-school-region]");
 const agendaSummaryCopyButtons = document.querySelectorAll("[data-agenda-summary-copy-button]");
+const agendaSummaryCopyFeedback = document.querySelector("#agendaSummaryCopyFeedback");
 const agendaWeekJumpToggle = document.querySelector("#agendaWeekJumpToggle");
 const agendaWeekJumpPanel = document.querySelector("#agendaWeekJumpPanel");
 const agendaWeekJumpForm = document.querySelector("#agendaWeekJumpForm");
@@ -240,9 +241,14 @@ function normalizeText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
-function copyTextWithFallback(value) {
+async function copyTextWithFallback(value) {
   if (navigator.clipboard?.writeText) {
-    return navigator.clipboard.writeText(value);
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch (error) {
+      // Fall back to a temporary textarea when Clipboard API access is denied.
+    }
   }
 
   const textArea = document.createElement("textarea");
@@ -253,9 +259,11 @@ function copyTextWithFallback(value) {
   textArea.style.opacity = "0";
   document.body.appendChild(textArea);
   textArea.select();
-  document.execCommand("copy");
+  const copied = document.execCommand("copy");
   textArea.remove();
-  return Promise.resolve();
+  if (!copied) {
+    throw new Error("Copy command failed");
+  }
 }
 
 function setSummaryCopyState(button, stateText) {
@@ -283,9 +291,16 @@ async function copyAgendaSummaryDays(button) {
   try {
     await copyTextWithFallback(copyText);
     setSummaryCopyState(button, `${weekdayLabel} voor ${summaryLabel} gekopieerd`);
+    if (agendaSummaryCopyFeedback) {
+      const dateCount = getDatesFromCsv(button.dataset.agendaSummaryDates).length;
+      agendaSummaryCopyFeedback.textContent = `${dateCount} ${dateCount === 1 ? "datum" : "datums"} gekopieerd: ${summaryLabel} - ${weekdayLabel}.`;
+    }
   } catch (error) {
     console.error("Dagen konden niet worden gekopieerd.", error);
     setSummaryCopyState(button, "Kopieren mislukt");
+    if (agendaSummaryCopyFeedback) {
+      agendaSummaryCopyFeedback.textContent = "Kopiëren mislukt. Probeer het opnieuw.";
+    }
   }
 }
 
@@ -912,18 +927,9 @@ agendaPlannerForm?.addEventListener("submit", () => {
 agendaSummaryCopyButtons.forEach((button) => {
   const summaryLabel = button.dataset.agendaSummaryLabel || "deze tegel";
   const weekdayLabel = button.dataset.agendaSummaryWeekday || "deze dag";
-  const dates = getDatesFromCsv(button.dataset.agendaSummaryDates);
-  const actionLabel = dates.length > 0 ? "Gebruik" : "Kopieer";
-  button.setAttribute("aria-label", `${actionLabel} ${weekdayLabel} voor ${summaryLabel}`);
-  button.setAttribute("title", `${actionLabel} ${weekdayLabel} voor ${summaryLabel}`);
-  button.addEventListener("click", () => {
-    if (dates.length > 0 && agendaBulkModal) {
-      setBulkModalOpen(true);
-      setAgendaBulkDatesSelected(dates, true);
-      return;
-    }
-    copyAgendaSummaryDays(button);
-  });
+  button.setAttribute("aria-label", `Kopieer ${weekdayLabel} voor ${summaryLabel}`);
+  button.setAttribute("title", `Kopieer ${weekdayLabel} voor ${summaryLabel}`);
+  button.addEventListener("click", () => copyAgendaSummaryDays(button));
 });
 
 agendaBulkDateInputs.forEach((input) => {

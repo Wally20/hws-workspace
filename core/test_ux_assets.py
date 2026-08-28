@@ -92,3 +92,15 @@ class UxAssetRegressionTests(SimpleTestCase):
         self.assertIn(".workspace-brand img", stylesheet)
         self.assertIn("width: 54px", stylesheet)
         self.assertIn("height: 54px", stylesheet)
+
+    def test_agenda_summary_rows_copy_dates_directly(self):
+        source = self.read_project_file("static/agenda.js")
+        template = self.read_project_file("templates/agenda.html")
+        copy_handler = source.split("agendaSummaryCopyButtons.forEach", 1)[1].split(
+            "agendaBulkDateInputs.forEach", 1
+        )[0]
+
+        self.assertIn('button.addEventListener("click", () => copyAgendaSummaryDays(button));', copy_handler)
+        self.assertNotIn("setBulkModalOpen", copy_handler)
+        self.assertIn('id="agendaSummaryCopyFeedback"', template)
+        self.assertIn('data-agenda-summary-copy="{{ detail.copyText }}"', template)
