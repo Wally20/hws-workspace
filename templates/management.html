@@ -10,77 +10,68 @@
     </div>
   </header>
 
-  <div class="section-tile-directory" data-tile-search-root>
-    <label class="section-tile-search" for="managementTileSearch">
-      <span>Vind een onderdeel</span>
-      <input id="managementTileSearch" type="search" placeholder="Zoek bijvoorbeeld planning, team of aanmeldingen" autocomplete="off" aria-controls="managementTileGrid" data-tile-search-input>
-    </label>
-    <p class="section-tile-search-status" aria-live="polite" data-tile-search-status></p>
-
-    <section class="training-home-grid oefenstof-home-grid management-home-grid" id="managementTileGrid" aria-label="Management">
-      {% if 'planning' in visible_pages %}
-      <a class="summary-card training-home-tile" href="/planning" data-tile-search-item>
+  <section class="training-home-grid oefenstof-home-grid management-home-grid" aria-label="Management">
+    {% if 'planning' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/planning">
         <span class="panel-title">Planning</span>
         <span class="feature-list-subtitle">Maak, bewaar en exporteer programma's als overzichtelijke planningstabel.</span>
       </a>
-      {% endif %}
+    {% endif %}
 
     {% if 'api' in visible_pages %}
-      <a class="summary-card training-home-tile" href="/management/api" data-tile-search-item>
+      <a class="summary-card training-home-tile" href="/management/api">
         <span class="panel-title">API</span>
         <span class="feature-list-subtitle">Koppel alle agenda-afspraken veilig aan een ander project of persoonlijke agenda.</span>
       </a>
     {% endif %}
 
     {% if 'customer-satisfaction' in visible_pages %}
-      <a class="summary-card training-home-tile" href="/management/klanttevredenheid" data-tile-search-item>
+      <a class="summary-card training-home-tile" href="/management/klanttevredenheid">
         <span class="panel-title">Klanttevredenheid</span>
         <span class="feature-list-subtitle">Bekijk alle ingevulde reviews en gemiddelde scores per product.</span>
       </a>
     {% endif %}
 
     {% if 'materialen' in visible_pages %}
-      <a class="summary-card training-home-tile" href="/materialen" data-tile-search-item>
+      <a class="summary-card training-home-tile" href="/materialen">
         <span class="panel-title">Materialen</span>
         <span class="feature-list-subtitle">Beheer totale voorraad, clubmateriaal en vrije opslag.</span>
       </a>
     {% endif %}
 
     {% if 'begroting' in visible_pages %}
-      <a class="summary-card training-home-tile" href="/begroting" data-tile-search-item>
+      <a class="summary-card training-home-tile" href="/begroting">
         <span class="panel-title">Begroting</span>
         <span class="feature-list-subtitle">Koppel agenda-activiteiten aan inkomsten en trainerbudget per seizoen.</span>
       </a>
     {% endif %}
 
     {% if 'voorstellen-maker' in visible_pages %}
-      <a class="summary-card training-home-tile" href="/voorstellen-maker" data-tile-search-item>
+      <a class="summary-card training-home-tile" href="/voorstellen-maker">
         <span class="panel-title">Voorstellen maker</span>
         <span class="feature-list-subtitle">Maak en beheer voorstellen voor samenwerkingen en trainingen.</span>
       </a>
     {% endif %}
 
     {% if 'overeenkomsten' in visible_pages %}
-      <a class="summary-card training-home-tile" href="/overeenkomsten" data-tile-search-item>
+      <a class="summary-card training-home-tile" href="/overeenkomsten">
         <span class="panel-title">Overeenkomsten</span>
         <span class="feature-list-subtitle">Leg afspraken vast en exporteer overeenkomsten.</span>
       </a>
     {% endif %}
 
     {% if 'orders' in visible_pages %}
-      <a class="summary-card training-home-tile" href="/aanmeldingen" data-tile-search-item>
+      <a class="summary-card training-home-tile" href="/aanmeldingen">
         <span class="panel-title">Aanmeldingen</span>
         <span class="feature-list-subtitle">Bekijk inschrijvingen en details per product.</span>
       </a>
     {% endif %}
 
     {% if 'trainers' in visible_pages %}
-      <a class="summary-card training-home-tile" href="/trainers" data-tile-search-item>
+      <a class="summary-card training-home-tile" href="/trainers">
         <span class="panel-title">Team</span>
         <span class="feature-list-subtitle">Beheer teamleden, rollen en uitnodigingen.</span>
       </a>
     {% endif %}
-    </section>
-    <p class="section-tile-search-empty" data-tile-search-empty hidden>Geen managementonderdeel gevonden. Probeer een andere zoekterm.</p>
-  </div>
+  </section>
 {% endblock %}
