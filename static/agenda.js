@@ -32,6 +32,7 @@ const agendaWeekJumpPanel = document.querySelector("#agendaWeekJumpPanel");
 const agendaWeekJumpForm = document.querySelector("#agendaWeekJumpForm");
 const agendaWeekJumpInput = document.querySelector("#agendaWeekJumpInput");
 const agendaClubOptionsByTrainingTypeNode = document.querySelector("#agendaClubOptionsByTrainingType");
+const agendaTrainerPickerInstances = [];
 
 document.addEventListener("DOMContentLoaded", () => {
   const shouldUseWideAgendaLayout = window.innerWidth > 980 && window.innerWidth <= 1280;
@@ -57,11 +58,390 @@ if (agendaClubOptionsByTrainingTypeNode) {
   }
 }
 
+function normalizeAgendaTrainerSearch(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("nl-NL")
+    .trim();
+}
+
+function getAgendaTrainerOptionName(option) {
+  return (option.dataset.trainerName || option.textContent || "").trim();
+}
+
+function getSafeAgendaTrainerAvatarUrl(value) {
+  const normalizedValue = String(value || "").trim();
+  if (!normalizedValue) {
+    return "";
+  }
+
+  try {
+    const avatarUrl = new URL(normalizedValue, window.location.href);
+    return avatarUrl.protocol === "https:" || avatarUrl.protocol === "http:" ? avatarUrl.href : "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+function createAgendaTrainerAvatar(option, compact = false) {
+  const avatar = document.createElement("span");
+  avatar.className = `agenda-trainer-avatar${compact ? " agenda-trainer-avatar-compact" : ""}`;
+  avatar.setAttribute("aria-hidden", "true");
+
+  const initials = (option.dataset.trainerInitials || "TR").trim().slice(0, 3).toUpperCase() || "TR";
+  const avatarUrl = getSafeAgendaTrainerAvatarUrl(option.dataset.trainerAvatarUrl);
+  if (!avatarUrl) {
+    avatar.textContent = initials;
+    return avatar;
+  }
+
+  const image = document.createElement("img");
+  image.src = avatarUrl;
+  image.alt = "";
+  image.loading = "lazy";
+  image.decoding = "async";
+  image.addEventListener("error", () => {
+    avatar.classList.remove("agenda-trainer-avatar-has-image");
+    avatar.textContent = initials;
+  }, { once: true });
+  avatar.classList.add("agenda-trainer-avatar-has-image");
+  avatar.appendChild(image);
+  return avatar;
+}
+
+function closeAgendaTrainerPickers(exceptInstance = null) {
+  agendaTrainerPickerInstances.forEach((pickerInstance) => {
+    if (pickerInstance !== exceptInstance) {
+      pickerInstance.close();
+    }
+  });
+}
+
+function initAgendaTrainerPicker(root, pickerIndex) {
+  const select = root.querySelector("[data-agenda-trainer-select]");
+  if (!(select instanceof HTMLSelectElement) || root.classList.contains("is-enhanced")) {
+    return;
+  }
+
+  const options = Array.from(select.options);
+  const help = root.querySelector("[data-agenda-trainer-help]");
+  const pickerId = select.id || `agendaTrainerPicker${pickerIndex + 1}`;
+  const searchId = `${pickerId}Search`;
+  const panelId = `${pickerId}Options`;
+  const listId = `${panelId}List`;
+
+  const interfaceNode = document.createElement("div");
+  interfaceNode.className = "agenda-trainer-interface";
+
+  const inputShell = document.createElement("div");
+  inputShell.className = "agenda-trainer-input-shell";
+
+  const selectedList = document.createElement("div");
+  selectedList.className = "agenda-trainer-selected-list";
+  selectedList.setAttribute("data-agenda-trainer-selected", "");
+
+  const searchField = document.createElement("label");
+  searchField.className = "agenda-trainer-search-field";
+  searchField.htmlFor = searchId;
+
+  const searchIcon = document.createElement("span");
+  searchIcon.className = "agenda-trainer-search-icon";
+  searchIcon.setAttribute("aria-hidden", "true");
+
+  const searchInput = document.createElement("input");
+  searchInput.id = searchId;
+  searchInput.className = "agenda-trainer-search-input";
+  searchInput.type = "search";
+  searchInput.placeholder = "Zoek en koppel een trainer...";
+  searchInput.autocomplete = "off";
+  searchInput.spellcheck = false;
+  searchInput.setAttribute("role", "combobox");
+  searchInput.setAttribute("aria-autocomplete", "list");
+  searchInput.setAttribute("aria-haspopup", "listbox");
+  searchInput.setAttribute("aria-controls", listId);
+  searchInput.setAttribute("aria-expanded", "false");
+  const labelId = select.getAttribute("aria-labelledby");
+  if (labelId) {
+    searchInput.setAttribute("aria-labelledby", labelId);
+  } else {
+    searchInput.setAttribute("aria-label", "Zoek trainer op naam");
+  }
+  if (help?.id) {
+    searchInput.setAttribute("aria-describedby", help.id);
+  }
+
+  const expandIcon = document.createElement("span");
+  expandIcon.className = "agenda-trainer-expand-icon";
+  expandIcon.textContent = "⌄";
+  expandIcon.setAttribute("aria-hidden", "true");
+
+  searchField.append(searchIcon, searchInput, expandIcon);
+  inputShell.append(selectedList, searchField);
+
+  const panel = document.createElement("div");
+  panel.id = panelId;
+  panel.className = "agenda-trainer-panel";
+  panel.hidden = true;
+
+  const panelHeading = document.createElement("div");
+  panelHeading.className = "agenda-trainer-panel-heading";
+
+  const panelTitle = document.createElement("strong");
+  panelTitle.textContent = "Kies trainer(s)";
+
+  const resultCount = document.createElement("span");
+  resultCount.className = "agenda-trainer-result-count";
+  resultCount.setAttribute("aria-live", "polite");
+
+  panelHeading.append(panelTitle, resultCount);
+
+  const optionList = document.createElement("div");
+  optionList.id = listId;
+  optionList.className = "agenda-trainer-option-list";
+  optionList.setAttribute("role", "listbox");
+  optionList.setAttribute("aria-multiselectable", "true");
+  optionList.setAttribute("aria-label", "Beschikbare trainers");
+
+  const emptyState = document.createElement("div");
+  emptyState.className = "agenda-trainer-empty";
+  emptyState.textContent = options.length
+    ? "Geen trainers gevonden. Probeer een andere naam."
+    : "Er zijn nog geen trainers beschikbaar.";
+  emptyState.hidden = true;
+
+  panel.append(panelHeading, optionList, emptyState);
+  interfaceNode.append(inputShell, panel);
+  root.insertBefore(interfaceNode, help || null);
+
+  const optionRows = options.map((option, optionIndex) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.id = `${panelId}Option${optionIndex + 1}`;
+    row.className = "agenda-trainer-option";
+    row.tabIndex = -1;
+    row.setAttribute("role", "option");
+    row.setAttribute("aria-selected", option.selected ? "true" : "false");
+
+    const copy = document.createElement("span");
+    copy.className = "agenda-trainer-option-copy";
+
+    const name = document.createElement("strong");
+    name.textContent = getAgendaTrainerOptionName(option);
+
+    const state = document.createElement("small");
+    state.textContent = option.selected ? "Gekoppeld" : "Klik om te koppelen";
+
+    const check = document.createElement("span");
+    check.className = "agenda-trainer-option-check";
+    check.textContent = "✓";
+    check.setAttribute("aria-hidden", "true");
+
+    copy.append(name, state);
+    row.append(createAgendaTrainerAvatar(option), copy, check);
+    optionList.appendChild(row);
+    return { option, row, state };
+  });
+
+  let instance = null;
+
+  function getVisibleRows() {
+    return optionRows.filter(({ row }) => !row.hidden).map(({ row }) => row);
+  }
+
+  function renderOptionRows() {
+    const query = normalizeAgendaTrainerSearch(searchInput.value);
+    let visibleCount = 0;
+
+    optionRows.forEach(({ option, row, state }) => {
+      const isVisible = !query || normalizeAgendaTrainerSearch(getAgendaTrainerOptionName(option)).includes(query);
+      row.hidden = !isVisible;
+      row.classList.toggle("is-selected", option.selected);
+      row.setAttribute("aria-selected", option.selected ? "true" : "false");
+      state.textContent = option.selected ? "Gekoppeld" : "Klik om te koppelen";
+      if (isVisible) {
+        visibleCount += 1;
+      }
+    });
+
+    resultCount.textContent = `${visibleCount} ${visibleCount === 1 ? "trainer" : "trainers"}`;
+    emptyState.hidden = visibleCount > 0;
+    optionList.hidden = visibleCount === 0;
+  }
+
+  function renderSelectedTrainers() {
+    selectedList.replaceChildren();
+    const selectedOptions = options.filter((option) => option.selected);
+    root.classList.toggle("has-selection", selectedOptions.length > 0);
+
+    if (!selectedOptions.length) {
+      const placeholder = document.createElement("span");
+      placeholder.className = "agenda-trainer-placeholder";
+      placeholder.textContent = "Nog geen trainer gekoppeld";
+      selectedList.appendChild(placeholder);
+    } else {
+      selectedOptions.forEach((option) => {
+        const chip = document.createElement("span");
+        chip.className = "agenda-trainer-selected-chip";
+
+        const name = document.createElement("span");
+        name.className = "agenda-trainer-selected-name";
+        name.textContent = getAgendaTrainerOptionName(option);
+
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.className = "agenda-trainer-selected-remove";
+        removeButton.textContent = "×";
+        removeButton.setAttribute("aria-label", `${getAgendaTrainerOptionName(option)} ontkoppelen`);
+        removeButton.addEventListener("click", () => {
+          option.selected = false;
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+          searchInput.focus();
+        });
+
+        chip.append(createAgendaTrainerAvatar(option, true), name, removeButton);
+        selectedList.appendChild(chip);
+      });
+    }
+
+    if (help) {
+      const selectedCount = selectedOptions.length;
+      help.textContent = selectedCount
+        ? `${selectedCount} ${selectedCount === 1 ? "trainer" : "trainers"} gekoppeld. Zoek op naam om nog iemand toe te voegen.`
+        : "Zoek op naam en klik op een trainer om deze te koppelen.";
+    }
+  }
+
+  function refresh() {
+    renderSelectedTrainers();
+    renderOptionRows();
+  }
+
+  function setExpanded(isExpanded) {
+    const wasExpanded = !panel.hidden;
+    if (isExpanded) {
+      closeAgendaTrainerPickers(instance);
+    }
+    panel.hidden = !isExpanded;
+    root.classList.toggle("is-open", isExpanded);
+    searchInput.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+    if (!isExpanded && searchInput.value) {
+      searchInput.value = "";
+      renderOptionRows();
+    }
+    if (isExpanded && !wasExpanded) {
+      window.requestAnimationFrame(() => panel.scrollIntoView({ block: "nearest", inline: "nearest" }));
+    }
+  }
+
+  function moveOptionFocus(currentRow, offset) {
+    const visibleRows = getVisibleRows();
+    if (!visibleRows.length) {
+      return;
+    }
+    const currentIndex = visibleRows.indexOf(currentRow);
+    const nextIndex = currentIndex < 0
+      ? (offset > 0 ? 0 : visibleRows.length - 1)
+      : (currentIndex + offset + visibleRows.length) % visibleRows.length;
+    visibleRows[nextIndex].focus();
+  }
+
+  optionRows.forEach(({ option, row }) => {
+    row.addEventListener("click", () => {
+      option.selected = !option.selected;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        moveOptionFocus(row, event.key === "ArrowDown" ? 1 : -1);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        searchInput.focus();
+        setExpanded(false);
+      }
+    });
+  });
+
+  searchInput.addEventListener("focus", () => setExpanded(true));
+  searchInput.addEventListener("click", () => setExpanded(true));
+  searchInput.addEventListener("input", () => {
+    setExpanded(true);
+    renderOptionRows();
+  });
+  searchInput.addEventListener("keydown", (event) => {
+    const visibleRows = getVisibleRows();
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setExpanded(true);
+      const targetRow = event.key === "ArrowDown" ? visibleRows[0] : visibleRows[visibleRows.length - 1];
+      targetRow?.focus();
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (visibleRows.length === 1) {
+        visibleRows[0].click();
+        searchInput.select();
+      }
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      setExpanded(false);
+    }
+  });
+
+  expandIcon.addEventListener("click", () => {
+    searchInput.focus();
+    setExpanded(true);
+  });
+
+  interfaceNode.addEventListener("focusout", () => {
+    window.setTimeout(() => {
+      if (!interfaceNode.contains(document.activeElement)) {
+        setExpanded(false);
+      }
+    }, 0);
+  });
+
+  select.addEventListener("change", refresh);
+  select.form?.addEventListener("reset", () => window.setTimeout(refresh, 0));
+  select.tabIndex = -1;
+  select.setAttribute("aria-hidden", "true");
+
+  instance = {
+    root,
+    close: () => setExpanded(false),
+    refresh,
+  };
+  agendaTrainerPickerInstances.push(instance);
+  root.classList.add("is-enhanced");
+  refresh();
+}
+
+function initAgendaTrainerPickers() {
+  document.querySelectorAll("[data-agenda-trainer-picker]").forEach((root, pickerIndex) => {
+    initAgendaTrainerPicker(root, pickerIndex);
+  });
+
+  document.addEventListener("pointerdown", (event) => {
+    const target = event.target;
+    if (!(target instanceof Node)) {
+      return;
+    }
+    agendaTrainerPickerInstances.forEach((pickerInstance) => {
+      if (!pickerInstance.root.contains(target)) {
+        pickerInstance.close();
+      }
+    });
+  });
+}
+
 function setModalOpen(isOpen) {
   if (!agendaModal) {
     return;
   }
 
+  closeAgendaTrainerPickers();
   agendaModal.hidden = !isOpen;
   document.body.style.overflow = isOpen ? "hidden" : "";
 }
@@ -71,6 +451,7 @@ function setBulkModalOpen(isOpen) {
     return;
   }
 
+  closeAgendaTrainerPickers();
   agendaBulkModal.hidden = !isOpen;
   document.body.style.overflow = isOpen ? "hidden" : "";
   updateAgendaBulkSelectedCount();
@@ -81,6 +462,7 @@ function setEditModalOpen(isOpen) {
     return;
   }
 
+  closeAgendaTrainerPickers();
   agendaEditModal.hidden = !isOpen;
   document.body.style.overflow = isOpen ? "hidden" : "";
 }
@@ -463,6 +845,7 @@ function setMultiSelectValues(selector, values) {
   Array.from(select.options).forEach((option) => {
     option.selected = selectedValues.has(option.value);
   });
+  select.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 function syncAgendaEditScope() {
@@ -891,6 +1274,7 @@ clearDayPlanButtons.forEach((button) => {
 });
 
 syncDayPlansInput();
+initAgendaTrainerPickers();
 
 document.querySelectorAll("[data-agenda-training-type-select]").forEach((select) => {
   const form = select.closest("form");

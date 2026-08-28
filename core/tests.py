@@ -5382,6 +5382,47 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             with legacy.get_db_connection() as connection:
                 connection.execute("DELETE FROM agenda_day_plans WHERE date IN (?, ?)", target_dates)
 
+    def test_agenda_trainer_options_include_profile_identity_and_validate_selection(self):
+        profiles = [
+            {
+                "id": "trainer-eva",
+                "fullName": "Éva Jansen",
+                "avatarUrl": "https://images.example.invalid/eva.jpg",
+            },
+            {
+                "id": "trainer-liam",
+                "fullName": "Liam van Elden",
+            },
+        ]
+
+        with patch.object(legacy, "load_trainer_profiles", return_value=profiles):
+            self.assertEqual(
+                legacy.build_agenda_trainer_options(),
+                [
+                    {
+                        "id": "trainer-eva",
+                        "name": "Éva Jansen",
+                        "initials": "ÉJ",
+                        "avatarUrl": "https://images.example.invalid/eva.jpg",
+                    },
+                    {
+                        "id": "trainer-liam",
+                        "name": "Liam van Elden",
+                        "initials": "LV",
+                        "avatarUrl": "",
+                    },
+                ],
+            )
+            self.assertEqual(
+                legacy.normalize_agenda_trainers(
+                    [" trainer-eva ", "onbekend", "trainer-liam", "trainer-eva"]
+                ),
+                [
+                    {"id": "trainer-eva", "name": "Éva Jansen"},
+                    {"id": "trainer-liam", "name": "Liam van Elden"},
+                ],
+            )
+
     def test_save_agenda_day_plans_clears_removed_values_with_replace_dates(self):
         target_dates = ["2026-04-22", "2026-04-23"]
         with legacy.get_db_connection() as connection:

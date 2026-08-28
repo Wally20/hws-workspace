@@ -5,6 +5,36 @@
 {% block title %}Agenda | HWS Voetbalschool Workspace{% endblock %}
 
 {% block content %}
+  {% macro agenda_trainer_picker(field_id) -%}
+    <div class="field agenda-trainer-field">
+      <span id="{{ field_id }}Label">Trainer(s)</span>
+      <div class="agenda-trainer-picker" data-agenda-trainer-picker>
+        <select
+          name="trainer_ids"
+          id="{{ field_id }}"
+          class="agenda-trainer-native-select"
+          multiple
+          size="4"
+          data-agenda-trainer-select
+          aria-labelledby="{{ field_id }}Label"
+          aria-describedby="{{ field_id }}Help"
+        >
+          {% for trainer in agenda_trainer_options %}
+            <option
+              value="{{ trainer.id }}"
+              data-trainer-name="{{ trainer.name }}"
+              data-trainer-initials="{{ trainer.initials }}"
+              data-trainer-avatar-url="{{ trainer.avatarUrl }}"
+            >{{ trainer.name }}</option>
+          {% endfor %}
+        </select>
+        <small class="field-hint agenda-trainer-help" id="{{ field_id }}Help" data-agenda-trainer-help>
+          Zoek op naam en klik op een trainer om deze te koppelen.
+        </small>
+      </div>
+    </div>
+  {%- endmacro %}
+
   {% macro agenda_responsive_day_plan(day, can_manage) -%}
     {% if day.planType or can_manage %}
       <div
@@ -513,14 +543,7 @@
           </select>
         </label>
 
-        <label class="field">
-          <span>Trainer(s)</span>
-          <select name="trainer_ids" multiple size="4">
-            {% for trainer in agenda_trainer_options %}
-              <option value="{{ trainer.id }}">{{ trainer.name }}</option>
-            {% endfor %}
-          </select>
-        </label>
+        {{ agenda_trainer_picker("agendaTrainerIds") }}
 
         <label class="field">
           <span>Notities</span>
@@ -586,14 +609,7 @@
           </select>
         </label>
 
-        <label class="field">
-          <span>Trainer(s)</span>
-          <select name="trainer_ids" multiple size="4">
-            {% for trainer in agenda_trainer_options %}
-              <option value="{{ trainer.id }}">{{ trainer.name }}</option>
-            {% endfor %}
-          </select>
-        </label>
+        {{ agenda_trainer_picker("agendaBulkTrainerIds") }}
 
         <label class="field">
           <span>Notities</span>
@@ -720,14 +736,7 @@
           </select>
         </label>
 
-        <label class="field">
-          <span>Trainer(s)</span>
-          <select name="trainer_ids" id="agendaEditTrainerIds" multiple size="4">
-            {% for trainer in agenda_trainer_options %}
-              <option value="{{ trainer.id }}">{{ trainer.name }}</option>
-            {% endfor %}
-          </select>
-        </label>
+        {{ agenda_trainer_picker("agendaEditTrainerIds") }}
 
         <label class="field">
           <span>Notities</span>

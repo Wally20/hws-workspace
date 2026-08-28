@@ -104,3 +104,28 @@ class UxAssetRegressionTests(SimpleTestCase):
         self.assertNotIn("setBulkModalOpen", copy_handler)
         self.assertIn('id="agendaSummaryCopyFeedback"', template)
         self.assertIn('data-agenda-summary-copy="{{ detail.copyText }}"', template)
+
+    def test_agenda_trainer_picker_keeps_search_avatar_and_native_select_contract(self):
+        source = self.read_project_file("static/agenda.js")
+        stylesheet = self.read_project_file("static/styles.css")
+        template = self.read_project_file("templates/agenda.html")
+
+        for field_id in ("agendaTrainerIds", "agendaBulkTrainerIds", "agendaEditTrainerIds"):
+            self.assertIn(f'agenda_trainer_picker("{field_id}")', template)
+        self.assertIn('name="trainer_ids"', template)
+        self.assertIn('data-agenda-trainer-select', template)
+        self.assertIn('data-trainer-initials="{{ trainer.initials }}"', template)
+        self.assertIn('data-trainer-avatar-url="{{ trainer.avatarUrl }}"', template)
+
+        self.assertIn('searchInput.type = "search";', source)
+        self.assertIn('function normalizeAgendaTrainerSearch(value)', source)
+        self.assertIn('normalizeAgendaTrainerSearch(getAgendaTrainerOptionName(option)).includes(query)', source)
+        self.assertIn('option.selected = !option.selected;', source)
+        self.assertIn('select.dispatchEvent(new Event("change", { bubbles: true }));', source)
+        self.assertIn('createAgendaTrainerAvatar(option, true)', source)
+        self.assertIn('searchInput.setAttribute("aria-labelledby", labelId);', source)
+        self.assertIn('setMultiSelectValues("#agendaEditTrainerIds"', source)
+
+        self.assertIn('.agenda-trainer-picker.is-enhanced .agenda-trainer-native-select', stylesheet)
+        self.assertIn('.agenda-trainer-field .agenda-trainer-avatar', stylesheet)
+        self.assertIn('.agenda-trainer-option.is-selected', stylesheet)

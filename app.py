@@ -7556,10 +7556,15 @@ def build_agenda_trainer_options() -> List[Dict[str, str]]:
         profile_id = str(profile.get("id") or "").strip()
         full_name = str(profile.get("fullName") or "").strip()
         if profile_id and full_name:
+            name_parts = full_name.split()
             options.append(
                 {
                     "id": profile_id,
                     "name": full_name,
+                    "initials": "".join(part[:1] for part in name_parts[:2]).upper() or "TR",
+                    # Profiles currently use an initials avatar. This optional
+                    # URL keeps the agenda presentation ready for profile images.
+                    "avatarUrl": str(profile.get("avatarUrl") or "").strip(),
                 }
             )
     return options
