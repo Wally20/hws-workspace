@@ -1,13 +1,77 @@
 import os
+import re
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from django.core.management import call_command
 from django.http import Http404
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
 
 import app as legacy
 from core import views
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+class StaticAssetReleaseTests(SimpleTestCase):
+    def test_production_entrypoints_clear_stale_collected_assets(self):
+        start_script = (PROJECT_ROOT / "scripts" / "start.sh").read_text(encoding="utf-8")
+        render_config = (PROJECT_ROOT / "render.yaml").read_text(encoding="utf-8")
+
+        collect_command = "manage.py collectstatic --noinput --clear"
+        self.assertIn(collect_command, start_script)
+        self.assertIn(collect_command, render_config)
+
+    def test_clear_collectstatic_replaces_newer_stale_stylesheet(self):
+        source_styles = (PROJECT_ROOT / "static" / "styles.css").read_bytes()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            source_root = temp_root / "source"
+            collected_root = temp_root / "collected"
+            source_root.mkdir()
+            collected_root.mkdir()
+            (source_root / "styles.css").write_bytes(source_styles)
+
+            stale_styles = collected_root / "styles.css"
+            stale_styles.write_text(".workspace-brand img { width: 1024px; }", encoding="utf-8")
+            future_timestamp = 4_102_444_800
+            os.utime(stale_styles, (future_timestamp, future_timestamp))
+
+            with override_settings(
+                STATICFILES_DIRS=[source_root],
+                STATIC_ROOT=collected_root,
+                STORAGES={
+                    "default": {
+                        "BACKEND": "django.core.files.storage.FileSystemStorage",
+                    },
+                    "staticfiles": {
+                        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+                    },
+                },
+            ):
+                call_command("collectstatic", interactive=False, clear=True, verbosity=0)
+
+            collected_styles = stale_styles.read_bytes()
+
+        self.assertEqual(collected_styles, source_styles)
+        self.assertIn(b".workspace-brand img", collected_styles)
+
+    def test_asset_version_is_content_based(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            static_root = Path(temp_dir)
+            stylesheet = static_root / "styles.css"
+            stylesheet.write_text("body { color: black; }", encoding="utf-8")
+            first_version = legacy.calculate_asset_version(str(static_root))
+
+            stylesheet.write_text("body { color: white; }", encoding="utf-8")
+            second_version = legacy.calculate_asset_version(str(static_root))
+
+        self.assertRegex(first_version, re.compile(r"^[0-9a-f]{16}$"))
+        self.assertRegex(second_version, re.compile(r"^[0-9a-f]{16}$"))
+        self.assertNotEqual(first_version, second_version)
 
 
 class LocalUploadServingTests(SimpleTestCase):

@@ -13,6 +13,11 @@ else
   python_bin="python"
 fi
 
+# STATIC_ROOT used to contain tracked output with checkout timestamps newer than
+# the source assets. A normal collectstatic then skipped stale CSS/JS, leaving
+# current templates paired with months-old frontend files. Clearing the generated
+# directory first makes every service start self-healing and deterministic.
+"${python_bin}" manage.py collectstatic --noinput --clear
 "${python_bin}" manage.py init_storage
 # Gunicorn 26 enables a control socket under the process home by default. The
 # platform does not use that interface, and production service users may not

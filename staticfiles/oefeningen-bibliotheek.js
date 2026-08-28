@@ -1,6 +1,11 @@
 const exerciseDataNode = document.querySelector("#exerciseData");
 const exerciseImportPreviewDataNode = document.querySelector("#exerciseImportPreviewData");
 const exerciseModal = document.querySelector("#exerciseModal");
+// Keep the dialog outside the main-content stacking context. On mobile the
+// sticky navigation otherwise sits above it and offsets the visible dialog.
+if (exerciseModal && exerciseModal.parentElement !== document.body) {
+  document.body.appendChild(exerciseModal);
+}
 const closeExerciseModal = document.querySelector("#closeExerciseModal");
 const exerciseField = document.querySelector("#exerciseField");
 const exerciseMediaToggle = document.querySelector("#exerciseMediaToggle");

@@ -31,6 +31,16 @@ const registrationEmailTemplateSelect = document.querySelector("#registrationEma
 const registrationEmailSettingsFeedback = document.querySelector("#registrationEmailSettingsFeedback");
 const saveRegistrationEmailSettingsButton = document.querySelector("#saveRegistrationEmailSettingsButton");
 const registrationEmailTemplatesJson = document.querySelector("#registrationEmailTemplatesJson");
+const customerSatisfactionEmailModal = document.querySelector("#customerSatisfactionEmailModal");
+const customerSatisfactionModalCloseButtons = Array.from(
+  document.querySelectorAll("[data-customer-satisfaction-modal-close]")
+);
+const customerSatisfactionEmailSubjectInput = document.querySelector("#customerSatisfactionEmailSubjectInput");
+const customerSatisfactionEmailBodyInput = document.querySelector("#customerSatisfactionEmailBodyInput");
+const customerSatisfactionTestRecipientInput = document.querySelector("#customerSatisfactionTestRecipientInput");
+const sendCustomerSatisfactionTestEmailButton = document.querySelector("#sendCustomerSatisfactionTestEmailButton");
+const confirmCompleteRegistrationEventButton = document.querySelector("#confirmCompleteRegistrationEventButton");
+const customerSatisfactionEmailFeedback = document.querySelector("#customerSatisfactionEmailFeedback");
 let registrationEmailTemplates = parseRegistrationEmailTemplates();
 
 productCards.forEach((card, index) => {
@@ -525,7 +535,7 @@ async function syncEmailedOrdersToEcwid() {
   return payload;
 }
 
-async function completeRegistrationEventInEcwid() {
+async function completeRegistrationEventInEcwid(subject, body) {
   const productKey = String(completeRegistrationEventButton?.dataset.productKey || "").trim();
   if (!productKey) {
     return null;
@@ -537,7 +547,11 @@ async function completeRegistrationEventInEcwid() {
       "Content-Type": "application/json",
       "X-CSRF-Token": csrfToken,
     },
-    body: JSON.stringify({ productKey }),
+    body: JSON.stringify({
+      productKey,
+      feedbackSubject: subject,
+      feedbackBody: body,
+    }),
   });
 
   const payload = await response.json().catch(() => ({}));
@@ -548,6 +562,30 @@ async function completeRegistrationEventInEcwid() {
     throw error;
   }
 
+  return payload;
+}
+
+async function sendCustomerSatisfactionTestEmail() {
+  const productKey = String(completeRegistrationEventButton?.dataset.productKey || "").trim();
+  const recipient = String(customerSatisfactionTestRecipientInput?.value || "").trim();
+  const feedbackSubject = String(customerSatisfactionEmailSubjectInput?.value || "").trim();
+  const feedbackBody = String(customerSatisfactionEmailBodyInput?.value || "").trim();
+  if (!productKey || !recipient || !feedbackSubject || !feedbackBody) {
+    throw new Error("Vul het testadres, onderwerp en de mailtekst in.");
+  }
+
+  const response = await fetch("/api/klanttevredenheid/test-email", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: JSON.stringify({ productKey, recipient, feedbackSubject, feedbackBody }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(typeof payload.error === "string" && payload.error ? payload.error : "Testmail versturen lukte niet.");
+  }
   return payload;
 }
 
@@ -744,37 +782,97 @@ async function handleCompleteRegistrationEvent() {
     return;
   }
 
-  const confirmed = window.confirm(
-    "Weet je zeker dat je dit event wilt afronden en alle bijbehorende Ecwid-bestellingen op geleverd wilt zetten?"
-  );
-  if (!confirmed) {
+  if (customerSatisfactionEmailModal instanceof HTMLElement) {
+    customerSatisfactionEmailModal.hidden = false;
+    document.body.classList.add("customer-satisfaction-email-modal-open");
+    customerSatisfactionEmailSubjectInput?.focus();
+  }
+}
+
+function closeCustomerSatisfactionEmailModal() {
+  if (!(customerSatisfactionEmailModal instanceof HTMLElement)) {
+    return;
+  }
+  customerSatisfactionEmailModal.hidden = true;
+  document.body.classList.remove("customer-satisfaction-email-modal-open");
+  completeRegistrationEventButton?.focus();
+}
+
+async function handleCustomerSatisfactionTestEmail() {
+  if (!(sendCustomerSatisfactionTestEmailButton instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  sendCustomerSatisfactionTestEmailButton.disabled = true;
+  if (customerSatisfactionEmailFeedback) {
+    customerSatisfactionEmailFeedback.textContent = "Testmail versturen...";
+  }
+
+  try {
+    const payload = await sendCustomerSatisfactionTestEmail();
+    if (customerSatisfactionEmailFeedback) {
+      customerSatisfactionEmailFeedback.textContent = payload?.message || "Testmail verstuurd.";
+    }
+  } catch (error) {
+    if (customerSatisfactionEmailFeedback) {
+      customerSatisfactionEmailFeedback.textContent =
+        error instanceof Error && error.message ? error.message : "Testmail versturen lukte niet.";
+    }
+  } finally {
+    sendCustomerSatisfactionTestEmailButton.disabled = false;
+  }
+}
+
+async function handleConfirmCompleteRegistrationEvent() {
+  if (!(completeRegistrationEventButton instanceof HTMLButtonElement) ||
+      !(confirmCompleteRegistrationEventButton instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const feedbackSubject = String(customerSatisfactionEmailSubjectInput?.value || "").trim();
+  const feedbackBody = String(customerSatisfactionEmailBodyInput?.value || "").trim();
+  if (!feedbackSubject || !feedbackBody) {
+    if (customerSatisfactionEmailFeedback) {
+      customerSatisfactionEmailFeedback.textContent = "Vul het onderwerp en de mailtekst in.";
+    }
     return;
   }
 
   completeRegistrationEventButton.disabled = true;
+  confirmCompleteRegistrationEventButton.disabled = true;
   if (cancelRegistrationEventButton instanceof HTMLButtonElement) {
     cancelRegistrationEventButton.disabled = true;
   }
   if (registrationEventFeedback) {
-    registrationEventFeedback.textContent = "Event afronden en Ecwid bijwerken...";
+    registrationEventFeedback.textContent = "Feedbackmails versturen en Ecwid bijwerken...";
+  }
+  if (customerSatisfactionEmailFeedback) {
+    customerSatisfactionEmailFeedback.textContent = "Feedbackmails versturen en event afhandelen...";
   }
 
   try {
-    const payload = await completeRegistrationEventInEcwid();
+    const payload = await completeRegistrationEventInEcwid(feedbackSubject, feedbackBody);
     if (registrationEventStatusText) {
       registrationEventStatusText.textContent = "Event afgerond";
     }
     if (registrationEventFeedback) {
-      registrationEventFeedback.textContent = payload?.message || "Event afgerond en bestellingen op geleverd gezet.";
+      registrationEventFeedback.textContent =
+        payload?.message || "Feedbackmails verstuurd, event afgerond en bestellingen op geleverd gezet.";
     }
+    closeCustomerSatisfactionEmailModal();
   } catch (error) {
     completeRegistrationEventButton.disabled = false;
+    confirmCompleteRegistrationEventButton.disabled = false;
     if (cancelRegistrationEventButton instanceof HTMLButtonElement) {
       cancelRegistrationEventButton.disabled = false;
     }
+    const errorMessage =
+      error instanceof Error && error.message ? error.message : "Event afhandelen lukte niet. Probeer het opnieuw.";
+    if (customerSatisfactionEmailFeedback) {
+      customerSatisfactionEmailFeedback.textContent = errorMessage;
+    }
     if (registrationEventFeedback) {
-      registrationEventFeedback.textContent =
-        error instanceof Error && error.message ? error.message : "Event afronden lukte niet. Probeer het opnieuw.";
+      registrationEventFeedback.textContent = errorMessage;
     }
   }
 }
@@ -837,6 +935,16 @@ emailedCheckboxes.forEach((checkbox) => {
 });
 syncEmailedOrdersButton?.addEventListener("click", handleSyncEmailedOrders);
 completeRegistrationEventButton?.addEventListener("click", handleCompleteRegistrationEvent);
+confirmCompleteRegistrationEventButton?.addEventListener("click", handleConfirmCompleteRegistrationEvent);
+sendCustomerSatisfactionTestEmailButton?.addEventListener("click", handleCustomerSatisfactionTestEmail);
+customerSatisfactionModalCloseButtons.forEach((button) => {
+  button.addEventListener("click", closeCustomerSatisfactionEmailModal);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && customerSatisfactionEmailModal instanceof HTMLElement && !customerSatisfactionEmailModal.hidden) {
+    closeCustomerSatisfactionEmailModal();
+  }
+});
 cancelRegistrationEventButton?.addEventListener("click", handleCancelRegistrationEvent);
 
 filterProducts();

@@ -1,6 +1,11 @@
 const exerciseDataNode = document.querySelector("#exerciseData");
 const exerciseImportPreviewDataNode = document.querySelector("#exerciseImportPreviewData");
 const exerciseModal = document.querySelector("#exerciseModal");
+// Move the modal out of .main-content so the sticky mobile navigation cannot
+// create a higher stacking layer or offset the viewport-sized dialog.
+if (exerciseModal && exerciseModal.parentElement !== document.body) {
+  document.body.appendChild(exerciseModal);
+}
 const closeExerciseModal = document.querySelector("#closeExerciseModal");
 const exerciseField = document.querySelector("#exerciseField");
 const exerciseMediaToggle = document.querySelector("#exerciseMediaToggle");
@@ -28,6 +33,8 @@ const saveExerciseEdit = document.querySelector("#saveExerciseEdit");
 const exerciseDetailLayout = document.querySelector("#exerciseDetailLayout");
 const exerciseFilterEmpty = document.querySelector("#exerciseFilterEmpty");
 const exerciseSearchInput = document.querySelector("#exerciseSearchInput");
+const exerciseResultStatus = document.querySelector("#exerciseResultStatus");
+const exerciseShowMore = document.querySelector("#exerciseShowMore");
 const exerciseAgeFieldset = document.querySelector("#exerciseAgeFieldset");
 const exerciseAgeInputs = Array.from(document.querySelectorAll("[data-exercise-age-input]"));
 const previousExercise = document.querySelector("#previousExercise");
@@ -43,6 +50,10 @@ let activeFieldOverlayEditing = false;
 let activeFieldTool = "select";
 let selectedFieldItemId = null;
 let fieldDragState = null;
+let exerciseFocusBeforeOpen = null;
+const exerciseMobilePageQuery = window.matchMedia?.("(max-width: 760px)");
+const getExercisePageSize = () => exerciseMobilePageQuery?.matches ? 8 : 24;
+let exerciseVisibleLimit = getExercisePageSize();
 const canEditExercises = exerciseModal?.dataset.canEdit === "true";
 const DEFAULT_FIELD_VIEWBOX = [0, 0, 100, 70];
 const FIELD_TOOL_DEFAULTS = {
@@ -440,7 +451,7 @@ function applyExerciseFilter(category = activeFilter) {
   activeFilter = category || "all";
   const normalizedActiveFilter = normalizeFilterValue(activeFilter);
   activeSearch = normalizeFilterValue(exerciseSearchInput?.value || "");
-  let visibleCount = 0;
+  const matchingTiles = [];
 
   document.querySelectorAll("[data-exercise-filter]").forEach((button) => {
     button.classList.toggle("exercise-filter-button-active", button.dataset.exerciseFilter === activeFilter);
@@ -451,23 +462,47 @@ function applyExerciseFilter(category = activeFilter) {
     const matchesCategory = activeFilter === "all" || normalizeFilterValue(tile.dataset.exerciseCategory) === normalizedActiveFilter;
     const matchesSearch = !activeSearch || getExerciseSearchText(tile).includes(activeSearch);
     const matches = matchesCategory && matchesSearch;
-    tile.hidden = !matches;
-    tile.classList.toggle("exercise-tile-hidden", !matches);
     if (matches) {
-      visibleCount += 1;
+      matchingTiles.push(tile);
     }
+    tile.dataset.exerciseMatches = matches ? "true" : "false";
   });
+
+  matchingTiles.forEach((tile, index) => {
+    const isRendered = index < exerciseVisibleLimit;
+    tile.hidden = !isRendered;
+    tile.classList.toggle("exercise-tile-hidden", !isRendered);
+  });
+  document.querySelectorAll('#exerciseTileGrid .exercise-tile[data-exercise-matches="false"]').forEach((tile) => {
+    tile.hidden = true;
+    tile.classList.add("exercise-tile-hidden");
+  });
+
+  const matchingCount = matchingTiles.length;
+  const renderedCount = Math.min(matchingCount, exerciseVisibleLimit);
+  const remainingCount = Math.max(matchingCount - renderedCount, 0);
 
   if (exerciseFilterEmpty) {
     exerciseFilterEmpty.textContent = activeSearch ? "Geen oefeningen gevonden voor deze zoekopdracht." : "Geen oefeningen in deze categorie.";
-    exerciseFilterEmpty.hidden = visibleCount > 0;
+    exerciseFilterEmpty.hidden = matchingCount > 0;
+  }
+  if (exerciseResultStatus) {
+    exerciseResultStatus.textContent = matchingCount
+      ? `${renderedCount} van ${matchingCount} ${matchingCount === 1 ? "oefening" : "oefeningen"} getoond`
+      : "0 oefeningen gevonden";
+  }
+  if (exerciseShowMore) {
+    exerciseShowMore.hidden = remainingCount === 0;
+    exerciseShowMore.textContent = remainingCount > 0
+      ? `Meer oefeningen tonen (${remainingCount} resterend)`
+      : "Alle oefeningen zijn getoond";
   }
   updateExerciseNavigation();
 }
 
 function getVisibleExerciseIds() {
   const visibleIds = Array.from(document.querySelectorAll("#exerciseTileGrid .exercise-tile"))
-    .filter((tile) => !tile.hidden && !tile.classList.contains("exercise-tile-hidden"))
+    .filter((tile) => tile.dataset.exerciseMatches === "true")
     .map((tile) => String(tile.dataset.exerciseId || ""))
     .filter(Boolean);
   if (visibleIds.length || activeSearch || activeFilter !== "all") {
@@ -1130,11 +1165,18 @@ function setModalOpen(isOpen) {
   if (!exerciseModal) {
     return;
   }
+  const wasOpen = !exerciseModal.hidden;
   if (isOpen) {
     window.HwsSidebar?.setCollapsed(true, { persist: false });
+    if (!wasOpen && document.activeElement instanceof HTMLElement) {
+      exerciseFocusBeforeOpen = document.activeElement;
+    }
   }
   exerciseModal.hidden = !isOpen;
   document.body.style.overflow = isOpen ? "hidden" : "";
+  if (isOpen && !wasOpen) {
+    window.requestAnimationFrame(() => closeExerciseModal?.focus());
+  }
   if (!isOpen) {
     activeInlineEdit = false;
     removeInlineEditFields();
@@ -1144,6 +1186,10 @@ function setModalOpen(isOpen) {
       exerciseFieldOverlayEditor.hidden = true;
     }
     exerciseFieldPanel?.classList.remove("exercise-field-panel-editing");
+    if (wasOpen && exerciseFocusBeforeOpen?.isConnected) {
+      exerciseFocusBeforeOpen.focus();
+    }
+    exerciseFocusBeforeOpen = null;
   }
 }
 
@@ -1478,13 +1524,27 @@ enhanceExerciseTextControls();
 
 document.querySelectorAll("[data-exercise-filter]").forEach((button) => {
   button.addEventListener("click", () => {
+    exerciseVisibleLimit = getExercisePageSize();
     applyExerciseFilter(button.dataset.exerciseFilter || "all");
   });
 });
 
 exerciseSearchInput?.addEventListener("input", () => {
+  exerciseVisibleLimit = getExercisePageSize();
   applyExerciseFilter(activeFilter);
 });
+
+exerciseShowMore?.addEventListener("click", () => {
+  exerciseVisibleLimit += getExercisePageSize();
+  applyExerciseFilter(activeFilter);
+});
+
+exerciseMobilePageQuery?.addEventListener?.("change", () => {
+  exerciseVisibleLimit = getExercisePageSize();
+  applyExerciseFilter(activeFilter);
+});
+
+applyExerciseFilter(activeFilter);
 
 document.querySelectorAll("[data-exercise-id]").forEach((button) => {
   button.addEventListener("click", () => {

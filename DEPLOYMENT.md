@@ -207,7 +207,7 @@ server {
 - Databasebestand: `/var/lib/overzicht/data/app.db`
 - Aanbevolen limiet voor mapuploads: `CONTENT_UPLOAD_MAX_REQUEST_MB=250` en `CONTENT_UPLOAD_MAX_FILES=500`
 
-Gebruik in productie bij voorkeur `collectstatic`, zodat `nginx` uit `staticfiles/` kan serveren.
+Gebruik in productie altijd `collectstatic --clear`, zodat `nginx` uit een volledig opnieuw opgebouwde `staticfiles/`-map serveert. Zonder `--clear` kan Django een verouderd doelbestand met een gelijke of nieuwere timestamp overslaan.
 
 ## 7. Precieze deploystappen
 
@@ -262,7 +262,7 @@ source /srv/overzicht/.venv/bin/activate
 cd /srv/overzicht
 ./scripts/check_release.sh
 .venv/bin/python manage.py init_storage
-.venv/bin/python manage.py collectstatic --noinput
+.venv/bin/python manage.py collectstatic --noinput --clear
 ```
 
 Het initialisatiecommando zet SQLite duurzaam in WAL-modus. Iedere applicatieverbinding gebruikt daarnaast `synchronous=NORMAL` en een instelbare busy timeout. Het productieproces is beperkt tot twee workers met twee threads om de gelijktijdige schrijfdruk op SQLite beheersbaar te houden.
@@ -343,7 +343,7 @@ cd /srv/overzicht
 source .venv/bin/activate
 pip install -r requirements.txt
 ./scripts/check_release.sh
-.venv/bin/python manage.py collectstatic --noinput
+.venv/bin/python manage.py collectstatic --noinput --clear
 sudo systemctl restart overzicht
 sudo systemctl reload nginx
 ```
@@ -402,7 +402,7 @@ sudo chmod 755 /srv/overzicht/scripts/*.sh
 sudo chmod 775 /var/lib/overzicht/data /var/lib/overzicht/uploads
 
 ./scripts/check_release.sh
-.venv/bin/python manage.py collectstatic --noinput
+.venv/bin/python manage.py collectstatic --noinput --clear
 
 ./scripts/start.sh \
   --workers 2 \

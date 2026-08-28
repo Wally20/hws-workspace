@@ -1,21 +1,44 @@
 const trainerCreateModal = document.querySelector("#trainerCreateModal");
 const trainerDetailModal = document.querySelector("#trainerDetailModal");
+const trainerInviteModal = document.querySelector("#trainerInviteModal");
+const trainerOverviewModal = document.querySelector("#trainerOverviewModal");
 const openTrainerCreateModal = document.querySelector("#openTrainerCreateModal");
+const openTrainerInviteModal = document.querySelector("#openTrainerInviteModal");
+const openTrainerOverviewModal = document.querySelector("#openTrainerOverviewModal");
 const trainerTileButtons = document.querySelectorAll("[data-open-trainer-detail='1']");
 const teamSearchInput = document.querySelector("#teamSearchInput");
+const trainerOverviewSearchInput = document.querySelector("#trainerOverviewSearchInput");
+const trainerOverviewRows = document.querySelectorAll("[data-trainer-overview-row]");
+const trainerOverviewCount = document.querySelector("#trainerOverviewCount");
+const trainerOverviewEmpty = document.querySelector("#trainerOverviewEmpty");
 const previewFirstName = document.querySelector("#trainerFirstName");
 const previewLastName = document.querySelector("#trainerLastName");
 const previewSystemRole = document.querySelector("#trainerSystemRole");
 const inviteLinkField = document.querySelector("#inviteLinkField");
 const copyInviteLinkButton = document.querySelector("#copyInviteLinkButton");
+const trainerInviteResult = document.querySelector("#trainerInviteResult");
+const trainerInviteResultName = document.querySelector("#trainerInviteResultName");
+const trainerInviteError = document.querySelector("#trainerInviteError");
+const openTrainerInviteLink = document.querySelector("#openTrainerInviteLink");
+const trainerInviteIncludeClothingKeys = document.querySelector("#trainerInviteIncludeClothingKeys");
+const trainerInviteForms = document.querySelectorAll("[data-trainer-invite-form]");
 const trainerDeleteForm = document.querySelector("#trainerDeleteForm");
 const trainerDetailTabs = document.querySelectorAll("[data-team-detail-tab]");
 const trainerDetailPanels = document.querySelectorAll("[data-team-detail-panel]");
+const trainerProfileOnlySections = document.querySelectorAll("[data-trainer-profile-only]");
 const trainerFeeRows = document.querySelector("#trainerFeeRows");
 const trainerFeeRowTemplate = document.querySelector("#trainerFeeRowTemplate");
 const addTrainerFeeRowButton = document.querySelector("#addTrainerFeeRow");
+const groupTrainerFeeRowsButton = document.querySelector("#groupTrainerFeeRows");
+const trainerFeeTotal = document.querySelector("#trainerFeeTotal");
 const trainerFeeAgendaActivityOptionsNode = document.querySelector("#trainerFeeAgendaActivityOptions");
+const trainerFeeClubOptionsByTypeNode = document.querySelector("#trainerFeeClubOptionsByType");
+const profileTrainerFeesDataNode = document.querySelector("#profileTrainerFeesData");
 let trainerFeeAgendaActivityOptions = {};
+let trainerFeeClubOptionsByType = {};
+const TRAINER_FEE_DAY_TYPE = "voetbaldag_summercamp";
+const TRAINER_FEE_ALL_CLUBS = "Alle clubs";
+const TRAINER_FEE_ALL_ACTIVITIES = "Alle activiteiten";
 
 if (trainerFeeAgendaActivityOptionsNode) {
   try {
@@ -23,6 +46,15 @@ if (trainerFeeAgendaActivityOptionsNode) {
     trainerFeeAgendaActivityOptions = parsedOptions && typeof parsedOptions === "object" ? parsedOptions : {};
   } catch (_error) {
     trainerFeeAgendaActivityOptions = {};
+  }
+}
+
+if (trainerFeeClubOptionsByTypeNode) {
+  try {
+    const parsedClubOptions = JSON.parse(trainerFeeClubOptionsByTypeNode.textContent || "{}");
+    trainerFeeClubOptionsByType = parsedClubOptions && typeof parsedClubOptions === "object" ? parsedClubOptions : {};
+  } catch (_error) {
+    trainerFeeClubOptionsByType = {};
   }
 }
 
@@ -38,6 +70,8 @@ function setTrainerModalOpen(modal, isOpen) {
 function closeAllTrainerModals() {
   setTrainerModalOpen(trainerCreateModal, false);
   setTrainerModalOpen(trainerDetailModal, false);
+  setTrainerModalOpen(trainerInviteModal, false);
+  setTrainerModalOpen(trainerOverviewModal, false);
 }
 
 function setDetailField(id, value) {
@@ -80,17 +114,31 @@ function setTrainerDetailTab(activeTab) {
   });
 }
 
-function setTrainerFeeActivityOptions(activityInput, club, selectedActivity = "") {
+function updateTrainerProfileSections(systemRole) {
+  const isTrainer = String(systemRole || "").trim().toLowerCase() === "trainer";
+  trainerProfileOnlySections.forEach((section) => {
+    section.hidden = !isTrainer;
+  });
+
+  if (!isTrainer) {
+    setTrainerDetailTab("gegevens");
+  }
+}
+
+function setTrainerFeeActivityOptions(activityInput, club, selectedActivity = "", feeType = "") {
   if (!(activityInput instanceof HTMLSelectElement)) {
     return;
   }
 
-  const clubOptions = Array.isArray(trainerFeeAgendaActivityOptions[club]) ? trainerFeeAgendaActivityOptions[club] : [];
+  const normalizedSelectedActivity = feeType === TRAINER_FEE_DAY_TYPE ? TRAINER_FEE_ALL_ACTIVITIES : selectedActivity;
+  const clubOptions = feeType === TRAINER_FEE_DAY_TYPE
+    ? [{ value: TRAINER_FEE_ALL_ACTIVITIES, label: TRAINER_FEE_ALL_ACTIVITIES }]
+    : (Array.isArray(trainerFeeAgendaActivityOptions[club]) ? trainerFeeAgendaActivityOptions[club] : []);
   activityInput.innerHTML = "";
 
   const placeholder = document.createElement("option");
   placeholder.value = "";
-  placeholder.textContent = club ? "Selecteer activiteit" : "Selecteer eerst een club";
+  placeholder.textContent = feeType === TRAINER_FEE_DAY_TYPE || club ? "Selecteer activiteit" : "Selecteer eerst een club";
   activityInput.appendChild(placeholder);
 
   clubOptions.forEach((option) => {
@@ -104,14 +152,53 @@ function setTrainerFeeActivityOptions(activityInput, club, selectedActivity = ""
     activityInput.appendChild(node);
   });
 
-  if (selectedActivity && !clubOptions.some((option) => option.value === selectedActivity)) {
+  if (normalizedSelectedActivity && !clubOptions.some((option) => option.value === normalizedSelectedActivity)) {
     const selectedNode = document.createElement("option");
-    selectedNode.value = selectedActivity;
-    selectedNode.textContent = selectedActivity;
+    selectedNode.value = normalizedSelectedActivity;
+    selectedNode.textContent = normalizedSelectedActivity;
     activityInput.appendChild(selectedNode);
   }
 
-  activityInput.value = selectedActivity || "";
+  activityInput.value = normalizedSelectedActivity || (clubOptions.length === 1 ? clubOptions[0].value : "");
+}
+
+function setTrainerFeeClubOptions(clubInput, feeType, selectedClub = "") {
+  if (!(clubInput instanceof HTMLSelectElement)) {
+    return;
+  }
+
+  const normalizedSelectedClub = feeType === TRAINER_FEE_DAY_TYPE ? TRAINER_FEE_ALL_CLUBS : selectedClub;
+  const clubOptions = Array.isArray(trainerFeeClubOptionsByType[feeType]) ? trainerFeeClubOptionsByType[feeType] : [];
+  const fallbackOptions = Object.values(trainerFeeClubOptionsByType).flat().filter(Boolean);
+  const options = feeType === TRAINER_FEE_DAY_TYPE
+    ? [TRAINER_FEE_ALL_CLUBS]
+    : (clubOptions.length ? clubOptions : Array.from(new Set(fallbackOptions)));
+  clubInput.innerHTML = "";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = feeType ? "Selecteer club" : "Selecteer eerst een type";
+  clubInput.appendChild(placeholder);
+
+  options.forEach((club) => {
+    const value = String(club || "").trim();
+    if (!value) {
+      return;
+    }
+    const node = document.createElement("option");
+    node.value = value;
+    node.textContent = value;
+    clubInput.appendChild(node);
+  });
+
+  if (normalizedSelectedClub && !options.includes(normalizedSelectedClub)) {
+    const selectedNode = document.createElement("option");
+    selectedNode.value = normalizedSelectedClub;
+    selectedNode.textContent = normalizedSelectedClub;
+    clubInput.appendChild(selectedNode);
+  }
+
+  clubInput.value = normalizedSelectedClub || (options.length === 1 ? options[0] : "");
 }
 
 function addTrainerFeeRow(rowData = {}) {
@@ -125,22 +212,89 @@ function addTrainerFeeRow(rowData = {}) {
     return;
   }
 
+  const typeInput = row.querySelector('select[name="fee_type"]');
+  const dayInput = row.querySelector('select[name="fee_day"]');
+  const timeInput = row.querySelector('input[name="fee_time"]');
   const clubInput = row.querySelector('select[name="fee_club"]');
   const activityInput = row.querySelector('select[name="fee_activity"]');
   const amountInput = row.querySelector('input[name="fee_amount"]');
-  if (clubInput) {
-    clubInput.value = rowData.club || "";
+  const groupInput = row.querySelector('[data-trainer-fee-group]');
+
+  if (typeInput) {
+    typeInput.value = rowData.type || (Array.isArray(rowData.types) ? rowData.types[0] : "") || "";
   }
-  setTrainerFeeActivityOptions(activityInput, clubInput?.value || "", rowData.activity || "");
+  if (dayInput) {
+    dayInput.value = rowData.day || "";
+  }
+  if (timeInput) {
+    timeInput.value = rowData.time || "";
+  }
+  setTrainerFeeClubOptions(clubInput, typeInput?.value || "", rowData.club || "");
+  setTrainerFeeActivityOptions(activityInput, clubInput?.value || "", rowData.activity || "", typeInput?.value || "");
   if (amountInput) {
     amountInput.value = rowData.amount || "";
   }
+  if (groupInput) {
+    groupInput.value = rowData.group || rowData.trainerGroup || "";
+  }
 
-  clubInput?.addEventListener("change", () => {
-    setTrainerFeeActivityOptions(activityInput, clubInput.value, "");
+  typeInput?.addEventListener("change", () => {
+    setTrainerFeeClubOptions(clubInput, typeInput.value, "");
+    setTrainerFeeActivityOptions(activityInput, clubInput?.value || "", "", typeInput.value);
   });
 
+  clubInput?.addEventListener("change", () => {
+    setTrainerFeeActivityOptions(activityInput, clubInput.value, "", typeInput?.value || "");
+  });
+
+  row.addEventListener("input", updateTrainerFeeGrouping);
+  row.addEventListener("change", updateTrainerFeeGrouping);
+
   trainerFeeRows.appendChild(fragment);
+  updateTrainerFeeGrouping();
+}
+
+function parseTrainerFeeAmount(value) {
+  const normalized = String(value || "").trim().replace(/[^0-9,.-]/g, "").replace(/\./g, "").replace(",", ".");
+  const amount = Number.parseFloat(normalized);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function updateTrainerFeeGrouping() {
+  if (!trainerFeeRows) return;
+  const rows = Array.from(trainerFeeRows.querySelectorAll(".team-fee-row"));
+  const leaders = new Map();
+  let total = 0;
+  let selectedCount = 0;
+  rows.forEach((row, index) => {
+    const group = row.querySelector('[data-trainer-fee-group]')?.value.trim().toLowerCase() || "";
+    const amount = parseTrainerFeeAmount(row.querySelector('input[name="fee_amount"]')?.value);
+    const leader = group ? leaders.get(group) : null;
+    const isFollower = Boolean(leader);
+    const isSelected = Boolean(row.querySelector("[data-trainer-fee-select]")?.checked);
+    if (isSelected) selectedCount += 1;
+    if (group && !leader) leaders.set(group, row);
+    const previousGroup = rows[index - 1]?.querySelector('[data-trainer-fee-group]')?.value.trim().toLowerCase() || "";
+    const nextGroup = rows[index + 1]?.querySelector('[data-trainer-fee-group]')?.value.trim().toLowerCase() || "";
+    row.classList.toggle("team-fee-row-grouped", Boolean(group));
+    row.classList.toggle("team-fee-row-group-leader", Boolean(group) && !isFollower);
+    row.classList.toggle("team-fee-row-group-follower", isFollower);
+    row.classList.toggle("team-fee-row-group-start", Boolean(group) && previousGroup !== group);
+    row.classList.toggle("team-fee-row-group-continuation", Boolean(group) && previousGroup === group);
+    row.classList.toggle("team-fee-row-group-end", Boolean(group) && nextGroup !== group);
+    row.classList.toggle("team-fee-row-selected", isSelected);
+    const amountLabel = row.querySelector("[data-trainer-fee-amount-label]");
+    if (amountLabel) amountLabel.textContent = group ? "Totale avondvergoeding" : "Bedrag per training";
+    if (!isFollower) total += amount;
+  });
+  if (trainerFeeTotal) {
+    trainerFeeTotal.textContent = new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(total);
+  }
+  if (groupTrainerFeeRowsButton) {
+    groupTrainerFeeRowsButton.disabled = selectedCount < 2;
+    groupTrainerFeeRowsButton.textContent = selectedCount > 0 ? `Groeperen (${selectedCount})` : "Groeperen";
+    groupTrainerFeeRowsButton.title = selectedCount < 2 ? "Vink minimaal twee regels aan" : "Maak van de geselecteerde regels één avondvergoeding";
+  }
 }
 
 function setTrainerFeeRows(rows) {
@@ -166,6 +320,23 @@ function getTrainerFeesFromButton(button) {
   }
 }
 
+function getTrainerJsonDataFromButton(button, dataKey) {
+  try {
+    const parsedValue = JSON.parse(button.dataset[dataKey] || "[]");
+    return Array.isArray(parsedValue) ? parsedValue : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+if (profileTrainerFeesDataNode) {
+  try {
+    setTrainerFeeRows(JSON.parse(profileTrainerFeesDataNode.textContent || "[]"));
+  } catch (_error) {
+    setTrainerFeeRows([]);
+  }
+}
+
 function openTrainerDetail(button) {
   const trainerName = button.dataset.trainerName || "Teamlid";
 
@@ -175,6 +346,11 @@ function openTrainerDetail(button) {
   setDetailInputValue("#trainerDetailLastName", button.dataset.trainerLastName || "");
   setDetailInputValue("#trainerDetailEmailInput", button.dataset.trainerEmail || "");
   setDetailInputValue("#trainerDetailPhoneInput", button.dataset.trainerPhone === "-" ? "" : (button.dataset.trainerPhone || ""));
+  setDetailInputValue("#trainerDetailAddressInput", button.dataset.trainerAddress || "");
+  setDetailInputValue("#trainerDetailCityInput", button.dataset.trainerCity || "");
+  setDetailInputValue("#trainerDetailPostalCodeInput", button.dataset.trainerPostalCode || "");
+  setDetailInputValue("#trainerDetailBankAccountNumberInput", button.dataset.trainerBankAccountNumber || "");
+  setDetailInputValue("#trainerDetailBankAccountNameInput", button.dataset.trainerBankAccountName || "");
   setDetailInputValue("#trainerDetailInviteLinkInput", button.dataset.trainerInviteLink || "");
   setDetailInputValue("#trainerDetailLicenseInput", button.dataset.trainerLicense === "-" ? "" : (button.dataset.trainerLicense || ""));
   setDetailInputValue("#trainerDetailEducationInput", button.dataset.trainerEducation === "-" ? "" : (button.dataset.trainerEducation || ""));
@@ -183,12 +359,18 @@ function openTrainerDetail(button) {
   setDetailField("#trainerDetailRole", button.dataset.trainerSystemRole || "-");
   setDetailField("#trainerDetailAvatar", button.dataset.trainerInitials || "TM");
   setTrainerFeeRows(getTrainerFeesFromButton(button));
+  window.setTrainerClothingKeysData?.(
+    document.querySelector("#trainer-detail-clothing-keys"),
+    getTrainerJsonDataFromButton(button, "trainerClothing"),
+    getTrainerJsonDataFromButton(button, "trainerKeySets")
+  );
   setTrainerDetailTab("gegevens");
 
   const systemRoleInput = document.querySelector("#trainerDetailSystemRoleInput");
   if (systemRoleInput) {
     systemRoleInput.value = button.dataset.trainerSystemRole || "Trainer";
   }
+  updateTrainerProfileSections(button.dataset.trainerSystemRole || "Trainer");
 
   setTrainerModalOpen(trainerDetailModal, true);
 }
@@ -201,9 +383,140 @@ function filterTeamCards() {
   });
 }
 
+function filterTrainerOverview() {
+  const query = (trainerOverviewSearchInput?.value || "").trim().toLowerCase();
+  let visibleCount = 0;
+
+  trainerOverviewRows.forEach((row) => {
+    const isVisible = !query || (row.dataset.search || "").includes(query);
+    row.hidden = !isVisible;
+    if (isVisible) visibleCount += 1;
+  });
+
+  if (trainerOverviewCount) {
+    trainerOverviewCount.textContent = `${visibleCount} ${visibleCount === 1 ? "teamlid" : "teamleden"}`;
+  }
+  if (trainerOverviewEmpty) {
+    trainerOverviewEmpty.hidden = visibleCount > 0 || trainerOverviewRows.length === 0;
+  }
+}
+
+let inviteCopyResetTimer = 0;
+
+function setInviteCopyButtonState(label) {
+  if (!copyInviteLinkButton) return;
+  window.clearTimeout(inviteCopyResetTimer);
+  copyInviteLinkButton.textContent = label;
+  if (label === "Gekopieerd") {
+    inviteCopyResetTimer = window.setTimeout(() => {
+      copyInviteLinkButton.textContent = "Kopieer link";
+    }, 1800);
+  }
+}
+
+async function copyInviteLinkToClipboard(inviteLink, failureLabel = "Kopieer link") {
+  const normalizedInviteLink = String(inviteLink || "").trim();
+  if (!normalizedInviteLink) return false;
+
+  let copied = false;
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(normalizedInviteLink);
+      copied = true;
+    } catch (_error) {
+      // Continue with the selection-based fallback below.
+    }
+  }
+
+  if (!copied && inviteLinkField) {
+    inviteLinkField.value = normalizedInviteLink;
+    inviteLinkField.focus({ preventScroll: true });
+    inviteLinkField.select();
+    try {
+      copied = document.execCommand("copy");
+    } catch (_error) {
+      copied = false;
+    }
+  }
+
+  setInviteCopyButtonState(copied ? "Gekopieerd" : failureLabel);
+  return copied;
+}
+
 openTrainerCreateModal?.addEventListener("click", () => {
   updateTrainerPreview();
   setTrainerModalOpen(trainerCreateModal, true);
+});
+
+openTrainerInviteModal?.addEventListener("click", () => {
+  setTrainerModalOpen(trainerInviteModal, true);
+});
+
+openTrainerOverviewModal?.addEventListener("click", () => {
+  filterTrainerOverview();
+  setTrainerModalOpen(trainerOverviewModal, true);
+  window.setTimeout(() => trainerOverviewSearchInput?.focus(), 0);
+});
+
+trainerInviteForms.forEach((form) => {
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = form.querySelector(".team-invite-trainer-button");
+    const trainerName = button?.dataset.trainerInviteName || "deze trainer";
+    const submitUrl = form.getAttribute("action") || window.location.pathname;
+    const formData = new FormData(form);
+    formData.set("response_format", "json");
+    formData.set("include_clothing_keys", trainerInviteIncludeClothingKeys?.checked ? "1" : "0");
+    const requestedTrainerId = String(formData.get("profile_id") || "").trim();
+
+    trainerInviteForms.forEach((item) => {
+      item.querySelector(".team-invite-trainer-button")?.classList.remove("is-selected");
+    });
+    // Never leave a previously generated link visible while a new trainer is
+    // being selected. Otherwise a failed request could result in sharing the
+    // previous trainer's link under the new trainer's name.
+    if (inviteLinkField) inviteLinkField.value = "";
+    if (trainerInviteResultName) trainerInviteResultName.textContent = "";
+    if (openTrainerInviteLink) openTrainerInviteLink.href = "#";
+    if (trainerInviteResult) trainerInviteResult.hidden = true;
+    button?.classList.add("is-loading");
+    if (button) button.disabled = true;
+    if (trainerInviteError) trainerInviteError.hidden = true;
+
+    try {
+      // A field named `action` becomes a named property on HTMLFormElement and
+      // can shadow form.action. Read the actual attribute so fetch never turns
+      // the input element into the URL "[object HTMLInputElement]".
+      const response = await fetch(submitUrl, {
+        method: "POST",
+        body: formData,
+        headers: { Accept: "application/json" },
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.inviteLink) {
+        throw new Error(payload.error || "De aanmeldlink kon niet worden aangemaakt.");
+      }
+      if (!requestedTrainerId || payload.trainerId !== requestedTrainerId) {
+        throw new Error("De aanmeldlink hoort niet bij de gekozen trainer. Probeer het opnieuw.");
+      }
+
+      if (inviteLinkField) inviteLinkField.value = payload.inviteLink;
+      if (trainerInviteResultName) trainerInviteResultName.textContent = payload.trainerName || trainerName;
+      if (openTrainerInviteLink) openTrainerInviteLink.href = payload.inviteLink;
+      if (trainerInviteResult) trainerInviteResult.hidden = false;
+      button?.classList.add("is-selected");
+      trainerInviteResult?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      await copyInviteLinkToClipboard(payload.inviteLink);
+    } catch (error) {
+      if (trainerInviteError) {
+        trainerInviteError.textContent = error instanceof Error ? error.message : "De aanmeldlink kon niet worden aangemaakt.";
+        trainerInviteError.hidden = false;
+      }
+    } finally {
+      button?.classList.remove("is-loading");
+      if (button) button.disabled = false;
+    }
+  });
 });
 
 trainerTileButtons.forEach((button) => {
@@ -220,22 +533,48 @@ addTrainerFeeRowButton?.addEventListener("click", () => {
   addTrainerFeeRow();
 });
 
+groupTrainerFeeRowsButton?.addEventListener("click", () => {
+  const selectedRows = Array.from(trainerFeeRows?.querySelectorAll(".team-fee-row") || [])
+    .filter((row) => row.querySelector("[data-trainer-fee-select]")?.checked);
+  if (selectedRows.length < 2) return;
+  const groupId = `avond-${Date.now()}`;
+  const leaderAmount = selectedRows[0].querySelector('input[name="fee_amount"]')?.value || "";
+  selectedRows.forEach((row) => {
+    const groupInput = row.querySelector('[data-trainer-fee-group]');
+    const amountInput = row.querySelector('input[name="fee_amount"]');
+    const checkbox = row.querySelector('[data-trainer-fee-select]');
+    if (groupInput) groupInput.value = groupId;
+    if (amountInput) amountInput.value = leaderAmount;
+    if (checkbox) checkbox.checked = false;
+  });
+  updateTrainerFeeGrouping();
+});
+
 trainerFeeRows?.addEventListener("click", (event) => {
   const target = event.target;
-  if (!(target instanceof HTMLElement) || !target.dataset.removeTrainerFeeRow) {
+  if (!(target instanceof HTMLElement)) {
     return;
   }
-  const row = target.closest(".team-fee-row");
+  const removeButton = target.closest("[data-remove-trainer-fee-row]");
+  if (!removeButton) {
+    return;
+  }
+  const row = removeButton.closest(".team-fee-row");
   row?.remove();
   if (!trainerFeeRows.querySelector(".team-fee-row")) {
     addTrainerFeeRow();
   }
+  updateTrainerFeeGrouping();
 });
 
 teamSearchInput?.addEventListener("input", filterTeamCards);
+trainerOverviewSearchInput?.addEventListener("input", filterTrainerOverview);
 previewFirstName?.addEventListener("input", updateTrainerPreview);
 previewLastName?.addEventListener("input", updateTrainerPreview);
 previewSystemRole?.addEventListener("change", updateTrainerPreview);
+document.querySelector("#trainerDetailSystemRoleInput")?.addEventListener("change", (event) => {
+  updateTrainerProfileSections(event.target.value);
+});
 updateTrainerPreview();
 
 copyInviteLinkButton?.addEventListener("click", async () => {
@@ -243,30 +582,15 @@ copyInviteLinkButton?.addEventListener("click", async () => {
   if (!inviteLink) {
     return;
   }
-
-  try {
-    await navigator.clipboard.writeText(inviteLink);
-    copyInviteLinkButton.textContent = "Gekopieerd";
-    window.setTimeout(() => {
-      copyInviteLinkButton.textContent = "Kopieer link";
-    }, 1800);
-  } catch (_error) {
-    inviteLinkField?.select();
-    copyInviteLinkButton.textContent = "Selecteer link";
-  }
+  await copyInviteLinkToClipboard(inviteLink, "Selecteer link");
 });
 
-if (inviteLinkField?.value.trim() && navigator.clipboard?.writeText) {
-  navigator.clipboard.writeText(inviteLinkField.value.trim()).then(() => {
-    if (copyInviteLinkButton) {
-      copyInviteLinkButton.textContent = "Gekopieerd";
-      window.setTimeout(() => {
-        copyInviteLinkButton.textContent = "Kopieer link";
-      }, 1800);
-    }
-  }).catch(() => {
-    // Ignore clipboard permission failures and keep the manual copy button available.
-  });
+if (inviteLinkField?.value.trim()) {
+  copyInviteLinkToClipboard(inviteLinkField.value.trim());
+}
+
+if (trainerInviteModal && !trainerInviteModal.hidden) {
+  document.body.style.overflow = "hidden";
 }
 
 document.addEventListener("click", (event) => {

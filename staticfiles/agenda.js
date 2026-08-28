@@ -26,13 +26,35 @@ const agendaGrid = document.querySelector("#agendaGrid");
 const agendaPlanSurfaces = document.querySelectorAll("[data-agenda-plan-surface]");
 const agendaLabelsRoot = document.querySelector("[data-agenda-school-region]");
 const agendaSummaryCopyButtons = document.querySelectorAll("[data-agenda-summary-copy-button]");
+const agendaWeekJumpToggle = document.querySelector("#agendaWeekJumpToggle");
+const agendaWeekJumpPanel = document.querySelector("#agendaWeekJumpPanel");
+const agendaWeekJumpForm = document.querySelector("#agendaWeekJumpForm");
+const agendaWeekJumpInput = document.querySelector("#agendaWeekJumpInput");
+const agendaClubOptionsByTrainingTypeNode = document.querySelector("#agendaClubOptionsByTrainingType");
+
+document.addEventListener("DOMContentLoaded", () => {
+  const shouldUseWideAgendaLayout = window.innerWidth > 980 && window.innerWidth <= 1280;
+  if (shouldUseWideAgendaLayout && window.HwsSidebar && !window.HwsSidebar.isCollapsed()) {
+    window.HwsSidebar.setCollapsed(true, { persist: false });
+  }
+});
 
 const agendaDayPlans = {};
 let activeDraggedPlan = "";
+let agendaClubOptionsByTrainingType = {};
 
 const SCHOOL_HOLIDAY_CACHE_PREFIX = "agenda-school-holidays-v3";
 const PUBLIC_HOLIDAY_CACHE_PREFIX = "agenda-public-holidays-v3";
 const HOLIDAY_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+
+if (agendaClubOptionsByTrainingTypeNode) {
+  try {
+    const parsedClubOptions = JSON.parse(agendaClubOptionsByTrainingTypeNode.textContent || "{}");
+    agendaClubOptionsByTrainingType = parsedClubOptions && typeof parsedClubOptions === "object" ? parsedClubOptions : {};
+  } catch (_error) {
+    agendaClubOptionsByTrainingType = {};
+  }
+}
 
 function setModalOpen(isOpen) {
   if (!agendaModal) {
@@ -77,6 +99,33 @@ function setPlannerEditOpen(isOpen) {
     toggleAgendaPlannerEdit.classList.toggle("subtle-button-strong", isOpen);
     toggleAgendaPlannerEdit.setAttribute("aria-expanded", isOpen ? "true" : "false");
   }
+}
+
+function setAgendaWeekJumpOpen(isOpen) {
+  if (!agendaWeekJumpPanel || !agendaWeekJumpToggle) {
+    return;
+  }
+
+  agendaWeekJumpPanel.hidden = !isOpen;
+  agendaWeekJumpToggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  if (isOpen) {
+    agendaWeekJumpInput?.focus();
+    agendaWeekJumpInput?.select();
+  }
+}
+
+function getAgendaWeekJumpUrl(weekDelta) {
+  const currentWeek = Number(agendaWeekJumpPanel?.dataset.currentWeek || 0);
+  const currentMonth = Number(agendaWeekJumpPanel?.dataset.currentMonth || 0);
+  const summaryFilter = agendaWeekJumpPanel?.dataset.summaryFilter || "all";
+  const targetWeek = Number.isFinite(currentWeek) ? currentWeek + weekDelta : weekDelta;
+  const params = new URLSearchParams({
+    view: "week",
+    week: String(targetWeek),
+    month: String(Number.isFinite(currentMonth) ? currentMonth : 0),
+    summary_filter: summaryFilter,
+  });
+  return `/agenda?${params.toString()}`;
 }
 
 function renderDayPlan(dropzone, planValue) {
@@ -347,6 +396,48 @@ function setSelectValue(selector, value) {
   select.value = value || "";
 }
 
+function setAgendaLocationOptions(locationInput, trainingType, selectedLocation = "") {
+  if (!(locationInput instanceof HTMLSelectElement)) {
+    return;
+  }
+
+  const typedOptions = Array.isArray(agendaClubOptionsByTrainingType[trainingType]) ? agendaClubOptionsByTrainingType[trainingType] : [];
+  const fallbackOptions = Object.values(agendaClubOptionsByTrainingType).flat().filter(Boolean);
+  const options = typedOptions.length ? typedOptions : Array.from(new Set(fallbackOptions));
+  locationInput.innerHTML = "";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = trainingType ? "Selecteer club" : "Selecteer eerst een type";
+  locationInput.appendChild(placeholder);
+
+  options.forEach((club) => {
+    const value = String(club || "").trim();
+    if (!value) {
+      return;
+    }
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    locationInput.appendChild(option);
+  });
+
+  if (selectedLocation && !options.includes(selectedLocation)) {
+    const selectedOption = document.createElement("option");
+    selectedOption.value = selectedLocation;
+    selectedOption.textContent = selectedLocation;
+    locationInput.appendChild(selectedOption);
+  }
+
+  locationInput.value = selectedLocation || "";
+}
+
+function syncAgendaLocationOptionsForForm(form, selectedLocation = "") {
+  const trainingTypeInput = form?.querySelector("[data-agenda-training-type-select]");
+  const locationInput = form?.querySelector("[data-agenda-location-select]");
+  setAgendaLocationOptions(locationInput, trainingTypeInput?.value || "", selectedLocation || locationInput?.value || "");
+}
+
 function setMultiSelectValues(selector, values) {
   const select = document.querySelector(selector);
   const selectedValues = new Set(values);
@@ -379,7 +470,7 @@ function openAgendaEditModal(button) {
   setInputValue("#agendaEditEndTime", button.dataset.eventEndTime);
   setSelectValue("#agendaEditTrainingType", button.dataset.eventTrainingType);
   setSelectValue("#agendaEditStatus", button.dataset.eventStatus || "gepland");
-  setSelectValue("#agendaEditLocation", button.dataset.eventLocation);
+  syncAgendaLocationOptionsForForm(document.querySelector("#agendaEditModal form"), button.dataset.eventLocation);
   setMultiSelectValues("#agendaEditTrainerIds", getDatesFromCsv(button.dataset.eventTrainerIds));
   setInputValue("#agendaEditNotes", button.dataset.eventNotes);
 
@@ -472,9 +563,11 @@ function extractIsoDate(value) {
 }
 
 function getVisibleAgendaDays() {
-  return Array.from(document.querySelectorAll("[data-agenda-day]"))
-    .map((node) => node.getAttribute("data-agenda-day") || "")
-    .filter(Boolean);
+  return Array.from(new Set(
+    Array.from(document.querySelectorAll("[data-agenda-day]"))
+      .map((node) => node.getAttribute("data-agenda-day") || "")
+      .filter(Boolean),
+  ));
 }
 
 function toUtcDate(dateKey) {
@@ -610,39 +703,44 @@ function mapToCalendarDays(dayKeys, schoolHolidays, publicHolidays) {
 }
 
 function renderCalendarDay(dayKey, labels) {
-  const container = document.querySelector(`[data-agenda-day-labels="${dayKey}"]`);
-  if (!container) {
+  const containers = document.querySelectorAll(`[data-agenda-day-labels="${dayKey}"]`);
+  if (containers.length === 0) {
     return;
   }
 
-  container.replaceChildren();
+  containers.forEach((container) => {
+    container.replaceChildren();
 
-  if (!Array.isArray(labels) || labels.length === 0) {
-    container.hidden = true;
-    return;
-  }
+    if (!Array.isArray(labels) || labels.length === 0) {
+      container.hidden = true;
+      return;
+    }
 
-  labels.forEach((label) => {
-    const labelNode = document.createElement("p");
-    labelNode.className = "agenda-day-external-label";
-    labelNode.textContent = label;
-    container.appendChild(labelNode);
+    labels.forEach((label) => {
+      const labelNode = document.createElement("p");
+      labelNode.className = "agenda-day-external-label";
+      labelNode.textContent = label;
+      container.appendChild(labelNode);
+    });
+
+    container.hidden = false;
   });
-
-  container.hidden = false;
 }
 
 function getRenderedCalendarDayLabels(dayKeys) {
   return Object.fromEntries(
     dayKeys.map((dayKey) => {
-      const container = document.querySelector(`[data-agenda-day-labels="${dayKey}"]`);
-      if (!container) {
+      const containers = document.querySelectorAll(`[data-agenda-day-labels="${dayKey}"]`);
+      if (containers.length === 0) {
         return [dayKey, []];
       }
 
-      const labels = Array.from(container.querySelectorAll(".agenda-day-external-label"))
-        .map((node) => normalizeText(node.textContent))
-        .filter(Boolean);
+      const labels = Array.from(new Set(
+        Array.from(containers)
+          .flatMap((container) => Array.from(container.querySelectorAll(".agenda-day-external-label")))
+          .map((node) => normalizeText(node.textContent))
+          .filter(Boolean),
+      ));
       return [dayKey, labels];
     }),
   );
@@ -779,6 +877,14 @@ clearDayPlanButtons.forEach((button) => {
 
 syncDayPlansInput();
 
+document.querySelectorAll("[data-agenda-training-type-select]").forEach((select) => {
+  const form = select.closest("form");
+  syncAgendaLocationOptionsForForm(form);
+  select.addEventListener("change", () => {
+    syncAgendaLocationOptionsForForm(form, "");
+  });
+});
+
 openAgendaModal?.addEventListener("click", () => setModalOpen(true));
 closeAgendaModal?.addEventListener("click", () => setModalOpen(false));
 openAgendaBulkModal?.addEventListener("click", () => setBulkModalOpen(true));
@@ -786,6 +892,18 @@ closeAgendaBulkModal?.addEventListener("click", () => setBulkModalOpen(false));
 closeAgendaEditModal?.addEventListener("click", () => setEditModalOpen(false));
 toggleAgendaPlannerEdit?.addEventListener("click", () => setPlannerEditOpen(agendaPlannerEditor?.hidden));
 cancelAgendaPlannerEdit?.addEventListener("click", () => setPlannerEditOpen(false));
+agendaWeekJumpToggle?.addEventListener("click", () => {
+  setAgendaWeekJumpOpen(Boolean(agendaWeekJumpPanel?.hidden));
+});
+
+agendaWeekJumpForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const weekDelta = Number(agendaWeekJumpInput?.value || 0);
+  if (!Number.isFinite(weekDelta)) {
+    return;
+  }
+  window.location.assign(getAgendaWeekJumpUrl(Math.trunc(weekDelta)));
+});
 
 agendaPlannerForm?.addEventListener("submit", () => {
   syncDayPlansInput();
@@ -878,12 +996,27 @@ agendaEditModal?.addEventListener("click", (event) => {
   }
 });
 
+document.addEventListener("click", (event) => {
+  if (!agendaWeekJumpPanel || agendaWeekJumpPanel.hidden) {
+    return;
+  }
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    return;
+  }
+  if (agendaWeekJumpPanel.contains(target) || agendaWeekJumpToggle?.contains(target)) {
+    return;
+  }
+  setAgendaWeekJumpOpen(false);
+});
+
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     setModalOpen(false);
     setBulkModalOpen(false);
     setEditModalOpen(false);
     setPlannerEditOpen(false);
+    setAgendaWeekJumpOpen(false);
   }
 });
 

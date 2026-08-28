@@ -83,3 +83,12 @@ class UxAssetRegressionTests(SimpleTestCase):
         self.assertIn('document.body.classList.add("login-background-static")', source)
         self.assertIn('document.body.classList.add("login-background-ready")', source)
         self.assertIn("/static/login-background.js", login_template)
+
+    def test_workspace_logo_is_explicitly_bounded(self):
+        stylesheet = self.read_project_file("static/styles.css")
+        base_template = self.read_project_file("templates/base.html")
+
+        self.assertIn('class="workspace-brand"', base_template)
+        self.assertIn(".workspace-brand img", stylesheet)
+        self.assertIn("width: 54px", stylesheet)
+        self.assertIn("height: 54px", stylesheet)

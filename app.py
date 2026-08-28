@@ -436,6 +436,7 @@ ECWID_RETURNED_FULFILLMENT_STATUS = "RETURNED"
 app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 31536000
 ASSET_VERSION = str(int(time.time()))
+VERSIONED_ASSET_SUFFIXES = {".css", ".html", ".js", ".json", ".webmanifest"}
 
 CACHE_TTL_SECONDS = max(60, int(os.getenv("EXTERNAL_DATA_CACHE_TTL_SECONDS", "1800") or "1800"))
 LOCAL_DATA_CACHE_TTL_SECONDS = max(1, int(os.getenv("LOCAL_DATA_CACHE_TTL_SECONDS", "30") or "30"))
@@ -1006,22 +1007,38 @@ def get_current_workspace_main_navigation_title(user: Optional[Dict[str, Any]], 
     )
 
 
-@lru_cache(maxsize=1)
-def get_asset_version() -> str:
-    latest_mtime = 0
-    static_root = os.path.join(os.path.dirname(__file__), "static")
+def calculate_asset_version(static_root: str) -> str:
+    """Return a stable content fingerprint for browser-cache invalidation."""
+    digest = hashlib.sha256()
+    asset_count = 0
 
-    for root, _, filenames in os.walk(static_root):
-        for filename in filenames:
-            file_path = os.path.join(root, filename)
-            try:
-                latest_mtime = max(latest_mtime, int(os.path.getmtime(file_path)))
-            except OSError:
+    for root, directory_names, filenames in os.walk(static_root):
+        # Runtime uploads are user data, not versioned application assets.
+        directory_names[:] = sorted(name for name in directory_names if name != "uploads")
+        for filename in sorted(filenames):
+            if os.path.splitext(filename)[1].lower() not in VERSIONED_ASSET_SUFFIXES:
                 continue
 
-    if latest_mtime:
-        return str(latest_mtime)
-    return ASSET_VERSION
+            file_path = os.path.join(root, filename)
+            relative_path = os.path.relpath(file_path, static_root).replace(os.sep, "/")
+            try:
+                with open(file_path, "rb") as asset_file:
+                    digest.update(relative_path.encode("utf-8"))
+                    digest.update(b"\0")
+                    for chunk in iter(lambda: asset_file.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                    digest.update(b"\0")
+            except OSError:
+                continue
+            asset_count += 1
+
+    return digest.hexdigest()[:16] if asset_count else ASSET_VERSION
+
+
+@lru_cache(maxsize=1)
+def get_asset_version() -> str:
+    static_root = os.path.join(os.path.dirname(__file__), "static")
+    return calculate_asset_version(static_root)
 
 
 @app.context_processor
