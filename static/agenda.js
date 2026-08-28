@@ -436,6 +436,19 @@ function initAgendaTrainerPickers() {
   });
 }
 
+function bootAgendaTrainerPickers() {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initAgendaTrainerPickers, { once: true });
+    return;
+  }
+  initAgendaTrainerPickers();
+}
+
+// Start this focused control before the heavier calendar setup below. A
+// separate Agenda feature must never leave the trainer field as a long native
+// multi-select when search enhancement is available.
+bootAgendaTrainerPickers();
+
 function setModalOpen(isOpen) {
   if (!agendaModal) {
     return;
@@ -1274,7 +1287,6 @@ clearDayPlanButtons.forEach((button) => {
 });
 
 syncDayPlansInput();
-initAgendaTrainerPickers();
 
 document.querySelectorAll("[data-agenda-training-type-select]").forEach((select) => {
   const form = select.closest("form");

@@ -125,6 +125,14 @@ class UxAssetRegressionTests(SimpleTestCase):
         self.assertIn('createAgendaTrainerAvatar(option, true)', source)
         self.assertIn('searchInput.setAttribute("aria-labelledby", labelId);', source)
         self.assertIn('setMultiSelectValues("#agendaEditTrainerIds"', source)
+        self.assertIn('function bootAgendaTrainerPickers()', source)
+        self.assertIn(
+            'document.addEventListener("DOMContentLoaded", initAgendaTrainerPickers, { once: true });',
+            source,
+        )
+        self.assertLess(source.index("bootAgendaTrainerPickers();"), source.index("syncDayPlansInput();"))
+        self.assertIn('agenda.js?v={{ asset_version }}-trainer-search-v2', template)
+        self.assertIn('nonce="{{ csp_nonce }}"', template)
 
         self.assertIn('.agenda-trainer-picker.is-enhanced .agenda-trainer-native-select', stylesheet)
         self.assertIn('.agenda-trainer-field .agenda-trainer-avatar', stylesheet)

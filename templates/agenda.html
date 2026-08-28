@@ -752,5 +752,5 @@
   </div>{% endif %}
 
   <script type="application/json" id="agendaClubOptionsByTrainingType">{{ agenda_club_options_by_training_type|tojson }}</script>
-  <script src="../static/agenda.js?v={{ asset_version }}" defer></script>
+  <script nonce="{{ csp_nonce }}" src="../static/agenda.js?v={{ asset_version }}-trainer-search-v2" defer></script>
 {% endblock %}
