@@ -395,6 +395,33 @@ body.sidebar-collapsed .sidebar-toggle {
   color: var(--text);
 }
 
+.dashboard-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.dashboard-card-heading .panel-title {
+  margin-bottom: 0;
+}
+
+.dashboard-card-link {
+  flex-shrink: 0;
+  color: #475569;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.dashboard-card-link:hover,
+.dashboard-card-link:focus-visible {
+  color: #111111;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .compact-stat-list,
 .feature-record-list,
 .agenda-list,
@@ -438,6 +465,10 @@ body.sidebar-collapsed .sidebar-toggle {
 .trainer-week-schedule-list {
   display: grid;
   gap: 12px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 3px;
+  scrollbar-width: thin;
 }
 
 .trainer-week-appointment {
@@ -549,6 +580,44 @@ body.sidebar-collapsed .sidebar-toggle {
 .trainer-week-appointment-cancelled .trainer-week-appointment-copy strong {
   color: #64748b;
   text-decoration: line-through;
+}
+
+.trainer-week-empty-state {
+  flex: 1 1 auto;
+  min-height: 150px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 20px;
+  border: 1px dashed #d7dce3;
+  border-radius: 16px;
+  background: #f8fafc;
+  text-align: center;
+}
+
+.trainer-week-empty-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 13px;
+  background: #ffffff;
+  color: #64748b;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+}
+
+.trainer-week-empty-icon svg {
+  width: 21px;
+  height: 21px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trainer-week-empty-state .trainer-week-empty {
+  max-width: 260px;
 }
 
 @media (max-width: 640px) {
@@ -8936,6 +9005,10 @@ a.spaarpot-year-row:hover {
 }
 
 @media (max-width: 980px) {
+  .dashboard-panels {
+    grid-template-columns: 1fr;
+  }
+
   .dashboard-panels-triple {
     grid-template-columns: 1fr;
   }

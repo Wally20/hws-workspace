@@ -1636,11 +1636,31 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         with self.assertRaisesMessage(ValueError, "Bestandsextensie niet toegestaan"):
             legacy.prepare_content_upload_entry(album, UploadedFile(), config)
 
-    def test_dashboard_only_loads_and_renders_current_weather(self):
+    def test_dashboard_renders_personal_appointments_left_of_current_weather(self):
+        appointments = [
+            {
+                "id": "appointment-1",
+                "date": "2026-09-01",
+                "dateLabel": "Dinsdag 1 september",
+                "time": "18:00",
+                "timeLabel": "18:00 - 19:30",
+                "title": "Techniektraining JO12",
+                "location": "Sportpark Zuid",
+                "clubClass": "",
+                "trainingTypeLabel": "Techniektraining",
+                "trainingTypeClass": "agenda-event-type-techniektraining",
+                "status": "gepland",
+                "statusLabel": "Gepland",
+            }
+        ]
         with (
             patch.object(legacy, "fetch_orders_non_blocking") as mocked_fetch_orders,
             patch.object(legacy, "build_dashboard_frontend_payload") as mocked_build_payload,
-            patch.object(legacy, "build_trainer_dashboard_week_schedule") as mocked_build_schedule,
+            patch.object(
+                legacy,
+                "build_dashboard_upcoming_appointments",
+                return_value=appointments,
+            ) as mocked_build_schedule,
             patch.object(
                 legacy,
                 "load_dashboard_weather_settings",
@@ -1657,9 +1677,15 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         mocked_load_weather.assert_called_once_with()
         mocked_fetch_orders.assert_not_called()
         mocked_build_payload.assert_not_called()
-        mocked_build_schedule.assert_not_called()
+        mocked_build_schedule.assert_called_once()
         content = response.content.decode("utf-8")
-        self.assertEqual(re.findall(r'<p class="panel-title">([^<]+)</p>', content), ["Actueel Weer"])
+        self.assertEqual(
+            re.findall(r'<p class="panel-title">([^<]+)</p>', content),
+            ["Mijn aankomende afspraken", "Actueel Weer"],
+        )
+        self.assertLess(content.index('id="upcomingAppointmentsCard"'), content.index('id="weatherCard"'))
+        self.assertIn("Techniektraining JO12", content)
+        self.assertIn("Dinsdag 1 september", content)
         self.assertIn('id="weatherCard"', content)
         self.assertIn('data-weather-name="Deventer"', content)
         self.assertNotIn("Rapporten", content)
@@ -2014,7 +2040,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(post_response.status_code, 403)
         mocked_save_day_plans.assert_not_called()
 
-    def test_trainer_dashboard_also_contains_only_current_weather(self):
+    def test_trainer_dashboard_contains_personal_appointments_and_current_weather(self):
         trainer = {
             "id": "trainer-123",
             "fullName": "Test Trainer",
@@ -2025,13 +2051,15 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         with (
             patch.object(legacy, "get_current_user", return_value=trainer),
             patch.object(legacy, "fetch_orders_non_blocking") as mocked_fetch_orders,
-            patch.object(legacy, "build_trainer_dashboard_week_schedule") as mocked_build_schedule,
+            patch.object(legacy, "build_dashboard_upcoming_appointments", return_value=[]) as mocked_build_schedule,
         ):
             response = Client().get("/", secure=True)
 
         self.assertEqual(response.status_code, 200)
         mocked_fetch_orders.assert_not_called()
-        mocked_build_schedule.assert_not_called()
+        mocked_build_schedule.assert_called_once_with(trainer)
+        self.assertContains(response, "Mijn aankomende afspraken")
+        self.assertContains(response, "Er staan nog geen aankomende afspraken op jouw naam.")
         self.assertContains(response, "Actueel Weer")
         self.assertContains(response, 'id="weatherCard"')
         self.assertNotContains(response, "Mijn afspraken deze week")
@@ -2090,7 +2118,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(response.json()["registrationCount"], 4)
         mocked_fetch_orders.assert_called_once_with(allow_mutations=False)
 
-    def test_trainer_week_schedule_only_contains_own_upcoming_items_this_week(self):
+    def test_upcoming_appointments_are_personal_for_every_role_and_limited(self):
         trainings = [
             {
                 "id": "past-today",
@@ -2152,17 +2180,24 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         ]
 
         with patch.object(legacy, "load_agenda_trainings", return_value=trainings) as mocked_load:
-            schedule = legacy.build_trainer_dashboard_week_schedule(
-                {"id": "trainer-123", "isAdmin": False, "systemRole": "Trainer"},
+            schedule = legacy.build_dashboard_upcoming_appointments(
+                {"id": "trainer-123", "isAdmin": True, "systemRole": "Admin"},
                 reference_datetime=datetime(2026, 7, 15, 12, 0),
+                limit=3,
             )
 
-        mocked_load.assert_called_once_with("2026-07-15", "2026-07-19")
-        self.assertEqual([item["id"] for item in schedule], ["own-today", "own-sunday"])
+        mocked_load.assert_called_once_with("2026-07-15")
+        self.assertEqual([item["id"] for item in schedule], ["own-today", "own-sunday", "next-week"])
         self.assertEqual(schedule[0]["dateLabel"], "Vandaag")
         self.assertEqual(schedule[0]["timeLabel"], "18:00 - 19:30")
         self.assertEqual(schedule[0]["trainingTypeClass"], "agenda-event-type-techniektraining")
         self.assertEqual(schedule[1]["dateLabel"], "Zondag 19 juli")
+
+    def test_upcoming_appointments_returns_empty_without_a_user(self):
+        with patch.object(legacy, "load_agenda_trainings") as mocked_load:
+            self.assertEqual(legacy.build_dashboard_upcoming_appointments(None), [])
+
+        mocked_load.assert_not_called()
 
     def test_finances_contains_dashboard_summaries_budget_and_existing_financial_links(self):
         orders_payload = {"source": "test-orders"}

@@ -17830,36 +17830,33 @@ def get_week_days(week_start: date) -> List[Dict[str, Any]]:
     return days
 
 
-def build_trainer_dashboard_week_schedule(
+def build_dashboard_upcoming_appointments(
     user: Optional[Dict[str, Any]],
     reference_datetime: Optional[datetime] = None,
+    limit: int = 5,
 ) -> List[Dict[str, Any]]:
-    if not is_trainer_user(user):
-        return []
-
-    trainer_id = str(user.get("id") or "").strip()
-    if not trainer_id:
+    user_id = str(user.get("id") or "").strip() if user else ""
+    if not user_id or limit <= 0:
         return []
 
     current_moment = reference_datetime or datetime.now(ZoneInfo(settings.TIME_ZONE)).replace(tzinfo=None)
     current_day = current_moment.date()
-    week_end = current_day + timedelta(days=6 - current_day.weekday())
     schedule: List[Dict[str, Any]] = []
 
-    for training in load_agenda_trainings(current_day.isoformat(), week_end.isoformat()):
-        assigned_trainer_ids = {
+    for training in load_agenda_trainings(current_day.isoformat()):
+        assigned_user_ids = {
             str(trainer.get("id") or "").strip()
             for trainer in training.get("trainers") or []
             if isinstance(trainer, dict)
         }
-        if trainer_id not in assigned_trainer_ids:
+        if user_id not in assigned_user_ids:
             continue
 
         try:
             training_day = date.fromisoformat(str(training.get("date") or "").strip())
         except ValueError:
             continue
-        if training_day < current_day or training_day > week_end:
+        if training_day < current_day:
             continue
 
         start_time = str(training.get("time") or "").strip()
@@ -17881,6 +17878,8 @@ def build_trainer_dashboard_week_schedule(
                 f"{DUTCH_WEEKDAY_NAMES[training_day.weekday()]} "
                 f"{training_day.day} {DUTCH_FULL_MONTH_NAMES[training_day.month - 1]}"
             )
+            if training_day.year != current_day.year:
+                date_label = f"{date_label} {training_day.year}"
 
         time_label = start_time
         if start_time and end_time:
@@ -17904,7 +17903,7 @@ def build_trainer_dashboard_week_schedule(
         )
 
     schedule.sort(key=lambda item: (item["date"], item["time"], item["title"].casefold()))
-    return schedule
+    return schedule[:limit]
 
 
 def format_agenda_summary_day_label(day_value: date) -> str:
@@ -21186,9 +21185,11 @@ def index() -> str:
     if access_redirect is not None:
         return access_redirect
 
+    user = get_current_user()
     return render_template(
         "index.html",
         active_page="dashboard",
+        upcoming_appointments=build_dashboard_upcoming_appointments(user),
         dashboard_weather=load_dashboard_weather_settings(),
     )
 

@@ -9,7 +9,45 @@
     </div>
   </header>
 
-  <section class="dashboard-panels">
+  <section class="dashboard-panels" aria-label="Persoonlijk dashboardoverzicht">
+    <article class="summary-card compact-summary-card trainer-week-card" id="upcomingAppointmentsCard">
+      <div class="dashboard-card-heading">
+        <p class="panel-title">Mijn aankomende afspraken</p>
+        <a class="dashboard-card-link" href="/agenda">Bekijk agenda</a>
+      </div>
+      {% if upcoming_appointments %}
+        <div class="trainer-week-schedule-list">
+          {% for appointment in upcoming_appointments %}
+            <div class="trainer-week-appointment {{ appointment.trainingTypeClass }} {{ appointment.clubClass }}{% if appointment.status == 'geannuleerd' %} trainer-week-appointment-cancelled{% endif %}">
+              <div class="trainer-week-appointment-time">
+                <strong>{{ appointment.dateLabel }}</strong>
+                {% if appointment.timeLabel %}<span>{{ appointment.timeLabel }}</span>{% endif %}
+              </div>
+              <div class="trainer-week-appointment-copy">
+                <strong>{{ appointment.title }}</strong>
+                {% if appointment.location %}<span>{{ appointment.location }}</span>{% endif %}
+              </div>
+              <div class="trainer-week-appointment-meta">
+                {% if appointment.trainingTypeLabel %}
+                  <span class="trainer-week-type">{{ appointment.trainingTypeLabel }}</span>
+                {% endif %}
+                {% if appointment.status == 'geannuleerd' %}
+                  <span class="trainer-week-status">{{ appointment.statusLabel }}</span>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="trainer-week-empty-state">
+          <span class="trainer-week-empty-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="15" rx="2"></rect><path d="M8 3v4M16 3v4M4 10h16M8 14h3M8 17h5"></path></svg>
+          </span>
+          <p class="trainer-week-empty">Er staan nog geen aankomende afspraken op jouw naam.</p>
+        </div>
+      {% endif %}
+    </article>
+
     <article
       class="summary-card compact-summary-card weather-card"
       id="weatherCard"
