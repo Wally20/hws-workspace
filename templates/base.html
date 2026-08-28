@@ -46,10 +46,16 @@
               <span>Agenda</span>
             </a>
           {% endif %}
-          {% if 'draaiboeken' in visible_pages %}
-            <a class="nav-item{% if current_workspace_main_navigation_path == '/draaiboeken' %} nav-item-active{% endif %}" href="/draaiboeken"{% if current_workspace_main_navigation_path == '/draaiboeken' %} aria-current="location"{% endif %}>
-              <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4.5h9l3 3V19a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1ZM15 4.5V8h3M8.5 11.5h7M8.5 15h5"></path></svg></span>
-              <span>Draaiboeken</span>
+          {% if 'voetbaldagen' in visible_pages %}
+            <a class="nav-item{% if current_workspace_main_navigation_path == '/voetbaldagen' %} nav-item-active{% endif %}" href="/voetbaldagen"{% if current_workspace_main_navigation_path == '/voetbaldagen' %} aria-current="location"{% endif %}>
+              <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8"></circle><path d="m9 9 3-2 3 2-1 3.5h-4L9 9Zm-4.5 2 5.5 1.5M19.5 11 14 12.5M8 19l2-6.5M16 19l-2-6.5"></path></svg></span>
+              <span>Voetbaldagen</span>
+            </a>
+          {% endif %}
+          {% if 'samenwerkende-amateurclubs' in visible_pages %}
+            <a class="nav-item{% if current_workspace_main_navigation_path == '/samenwerkende-amateurclubs' %} nav-item-active{% endif %}" href="/samenwerkende-amateurclubs"{% if current_workspace_main_navigation_path == '/samenwerkende-amateurclubs' %} aria-current="location"{% endif %}>
+              <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20V9l8-5 8 5v11M8 20v-7h8v7M3 20h18"></path></svg></span>
+              <span>Samenwerkende Amateurclubs</span>
             </a>
           {% endif %}
           {% if 'management' in visible_pages %}
@@ -74,6 +80,12 @@
             <a class="nav-item{% if current_workspace_main_navigation_path == '/marketing' %} nav-item-active{% endif %}" href="/marketing"{% if current_workspace_main_navigation_path == '/marketing' %} aria-current="location"{% endif %}>
               <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M8 5v14M16 5v14M5 8h14M5 16h14"></path></svg></span>
               <span>Marketing</span>
+            </a>
+          {% endif %}
+          {% if 'trainers' in visible_pages %}
+            <a class="nav-item{% if current_workspace_main_navigation_path == '/trainers' %} nav-item-active{% endif %}" href="/trainers"{% if current_workspace_main_navigation_path == '/trainers' %} aria-current="location"{% endif %}>
+              <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM16.5 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM3.5 19a4.5 4.5 0 0 1 9 0M13 19a3.5 3.5 0 0 1 7 0"></path></svg></span>
+              <span>Team</span>
             </a>
           {% endif %}
           {% if 'profile' in visible_pages %}

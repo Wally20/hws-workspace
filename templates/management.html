@@ -6,18 +6,11 @@
   <header class="page-header">
     <div>
       <h1>Management</h1>
-      <p class="welcome-line">Beheer planningen, voorstellen, overeenkomsten, aanmeldingen en teamleden vanuit een overzicht.</p>
+      <p class="welcome-line">Beheer API-koppelingen, klanttevredenheid, materialen, voorstellen en overeenkomsten vanuit één overzicht.</p>
     </div>
   </header>
 
   <section class="training-home-grid oefenstof-home-grid management-home-grid" aria-label="Management">
-    {% if 'planning' in visible_pages %}
-      <a class="summary-card training-home-tile" href="/planning">
-        <span class="panel-title">Planning</span>
-        <span class="feature-list-subtitle">Maak, bewaar en exporteer programma's als overzichtelijke planningstabel.</span>
-      </a>
-    {% endif %}
-
     {% if 'api' in visible_pages %}
       <a class="summary-card training-home-tile" href="/management/api">
         <span class="panel-title">API</span>
@@ -39,13 +32,6 @@
       </a>
     {% endif %}
 
-    {% if 'begroting' in visible_pages %}
-      <a class="summary-card training-home-tile" href="/begroting">
-        <span class="panel-title">Begroting</span>
-        <span class="feature-list-subtitle">Koppel agenda-activiteiten aan inkomsten en trainerbudget per seizoen.</span>
-      </a>
-    {% endif %}
-
     {% if 'voorstellen-maker' in visible_pages %}
       <a class="summary-card training-home-tile" href="/voorstellen-maker">
         <span class="panel-title">Voorstellen maker</span>
@@ -60,18 +46,5 @@
       </a>
     {% endif %}
 
-    {% if 'orders' in visible_pages %}
-      <a class="summary-card training-home-tile" href="/aanmeldingen">
-        <span class="panel-title">Aanmeldingen</span>
-        <span class="feature-list-subtitle">Bekijk inschrijvingen en details per product.</span>
-      </a>
-    {% endif %}
-
-    {% if 'trainers' in visible_pages %}
-      <a class="summary-card training-home-tile" href="/trainers">
-        <span class="panel-title">Team</span>
-        <span class="feature-list-subtitle">Beheer teamleden, rollen en uitnodigingen.</span>
-      </a>
-    {% endif %}
   </section>
 {% endblock %}

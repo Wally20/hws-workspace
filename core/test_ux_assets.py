@@ -51,13 +51,13 @@ class UxAssetRegressionTests(SimpleTestCase):
         self.assertEqual(manifest.status_code, 200)
         self.assertTrue(manifest["Content-Type"].startswith("application/manifest+json"))
 
-    def test_dashboard_editor_hidden_attribute_wins_over_grid_layout(self):
+    def test_finance_event_editor_hidden_attribute_wins_over_grid_layout(self):
         stylesheet = self.read_project_file("static/styles.css")
-        dashboard_template = self.read_project_file("templates/index.html")
+        finance_template = self.read_project_file("templates/financien.html")
 
         self.assertIn(".event-editor[hidden]", stylesheet)
-        self.assertIn('aria-controls="eventEditor"', dashboard_template)
-        self.assertIn('aria-expanded="false"', dashboard_template)
+        self.assertIn('aria-controls="eventEditor"', finance_template)
+        self.assertIn('aria-expanded="false"', finance_template)
 
     def test_exercise_library_has_bounded_progressive_results(self):
         template = self.read_project_file("templates/oefeningen_bibliotheek.html")

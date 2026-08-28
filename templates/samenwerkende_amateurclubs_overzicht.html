@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Samenwerkende Amateurclubs | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Samenwerkende Amateurclubs</h1>
+      <p class="welcome-line">Open en beheer de draaiboeken voor samenwerkingen met amateurclubs.</p>
+    </div>
+  </header>
+
+  <section class="training-home-grid" aria-label="Samenwerkende Amateurclubs">
+    {% if 'samenwerkende-amateurclubs' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/samenwerkende-amateurclubs/draaiboeken">
+        <span class="panel-title">Samenwerkende amateurclubs</span>
+        <span class="feature-list-subtitle">Maak, bekijk en exporteer draaiboeken voor samenwerkingen met amateurclubs.</span>
+      </a>
+    {% endif %}
+  </section>
+{% endblock %}

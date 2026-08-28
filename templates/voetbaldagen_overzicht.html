@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Voetbaldagen | HWS Voetbalschool Workspace{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <h1>Voetbaldagen</h1>
+      <p class="welcome-line">Beheer draaiboeken, praktische documenten, aanmeldingen en planningen voor voetbaldagen vanuit één overzicht.</p>
+    </div>
+  </header>
+
+  <section class="training-home-grid" aria-label="Voetbaldagen">
+    {% if 'voetbaldagen' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/voetbaldagen/draaiboeken">
+        <span class="panel-title">Voetbaldagen</span>
+        <span class="feature-list-subtitle">Maak, bekijk en exporteer draaiboeken voor voetbaldagen.</span>
+      </a>
+    {% endif %}
+
+    {% if 'checklists' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/checklists">
+        <span class="panel-title">Checklists</span>
+        <span class="feature-list-subtitle">Importeer een programma en maak gekleurde checklists voor de coördinator.</span>
+      </a>
+    {% endif %}
+
+    {% if 'kleedkamerbordjes' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/kleedkamerbordjes">
+        <span class="panel-title">Kleedkamerbordjes</span>
+        <span class="feature-list-subtitle">Importeer een Excel-teamindeling en maak voor ieder team een eigen A4-bordje.</span>
+      </a>
+    {% endif %}
+
+    {% if 'voetbaldagen' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/voetbaldagen/trainers-informatie">
+        <span class="panel-title">Trainers informatie</span>
+        <span class="feature-list-subtitle">Maak voor iedere groep een eigen A4 met het programma, de deelnemers en de vaste afspraken.</span>
+      </a>
+    {% endif %}
+
+    {% if 'orders' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/aanmeldingen">
+        <span class="panel-title">Aanmeldingen</span>
+        <span class="feature-list-subtitle">Bekijk inschrijvingen en details per product.</span>
+      </a>
+    {% endif %}
+
+    {% if 'planning' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/planning">
+        <span class="panel-title">Planning</span>
+        <span class="feature-list-subtitle">Maak, bewaar en exporteer programma's als overzichtelijke planningstabel.</span>
+      </a>
+    {% endif %}
+  </section>
+{% endblock %}

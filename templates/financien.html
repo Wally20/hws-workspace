@@ -6,9 +6,13 @@
   <header class="page-header">
     <div>
       <h1>Financiën</h1>
-      <p class="welcome-line">Bekijk omzetoverzichten en de spaarpot vanuit een financieel overzicht.</p>
+      <p class="welcome-line">Bekijk omzetoverzichten, begrotingen, rapporten en inschrijvingen vanuit één financieel overzicht.</p>
     </div>
   </header>
+
+  {% if message %}
+    <section class="notice">{{ message }}</section>
+  {% endif %}
 
   <section class="training-home-grid" aria-label="Financiën">
     {% if 'revenue' in visible_pages %}
@@ -36,5 +40,68 @@
       <span class="panel-title">Automatisch facturen verzenden</span>
       <span class="feature-list-subtitle">Maak automatisch MoneyBird-conceptfacturen voor samenwerkende amateurclubs.</span>
     </a>
+
+    {% if 'begroting' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/begroting">
+        <span class="panel-title">Begroting</span>
+        <span class="feature-list-subtitle">Koppel agenda-activiteiten aan inkomsten en trainerbudget per seizoen.</span>
+      </a>
+    {% endif %}
   </section>
+
+  <section class="dashboard-panels" aria-label="Financiële samenvattingen">
+    <article class="summary-card compact-summary-card">
+      <p class="panel-title">Rapporten</p>
+      <div class="compact-stat-list" id="reportSummaryList">
+        <div class="compact-stat-row">
+          <span class="summary-label">Totale omzet Ecwid:</span>
+          <span class="compact-stat-value" data-report-field="ecwidRevenue">€ {{ "{:,.2f}".format(report_summary.ecwidRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
+        </div>
+        <div class="compact-stat-row">
+          <span class="summary-label">Totale omzet Moneybird:</span>
+          <span class="compact-stat-value" data-report-field="moneybirdRevenue">€ {{ "{:,.2f}".format(report_summary.moneybirdRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
+        </div>
+        <div class="compact-stat-row">
+          <span class="summary-label">Totale omzet totaal:</span>
+          <span class="compact-stat-value" data-report-field="combinedRevenue">€ {{ "{:,.2f}".format(report_summary.combinedRevenue).replace(",", "X").replace(".", ",").replace("X", ".") }}</span>
+        </div>
+      </div>
+    </article>
+
+    <article class="summary-card compact-summary-card" id="eventsSummaryCard">
+      <p class="panel-title" id="eventsSummaryTitle">Inschrijvingen Aankomende Events</p>
+      <div class="panel-actions">
+        <button type="button" id="editEventsButton" class="subtle-button" aria-controls="eventEditor" aria-expanded="false">Bewerk</button>
+      </div>
+      <div class="compact-stat-list" id="eventsStatList">
+        {% for product in product_summary %}
+          <div
+            class="compact-stat-row event-row"
+            data-product-label="{{ product.label }}"
+            data-product-id="{{ product.productId or '' }}"
+            data-sold-count="{{ product.soldCount }}"
+          >
+            <span class="summary-label">{{ product.label }}</span>
+            <span class="compact-stat-value">{{ product.soldCount }}</span>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div id="eventEditor" class="event-editor" role="region" aria-labelledby="eventsSummaryTitle" hidden>
+        <div id="selectedEvents" class="selected-events" aria-live="polite"></div>
+        <div class="event-search">
+          <div class="event-search-row">
+            <input id="eventSearchInput" type="search" aria-label="Zoek event in Ecwid-producten" placeholder="Zoek event in Ecwid-producten">
+            <button type="button" id="eventSearchButton" class="subtle-button" aria-label="Event zoeken">+</button>
+          </div>
+          <div id="eventSearchResults" class="event-search-results" aria-live="polite"></div>
+        </div>
+        <div class="editor-actions">
+          <button type="button" id="saveEventsButton" class="subtle-button subtle-button-strong">Opslaan</button>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <script src="../static/dashboard.js?v={{ asset_version }}" defer></script>
 {% endblock %}

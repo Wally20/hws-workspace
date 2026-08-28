@@ -48,6 +48,13 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIsNotNone(match)
         return match.group(1)
 
+    def extract_training_home_tiles(self, response) -> list[tuple[str, str]]:
+        return re.findall(
+            r'<a class="summary-card training-home-tile" href="([^"]+)">\s*'
+            r'<span class="panel-title">([^<]+)</span>',
+            response.content.decode("utf-8"),
+        )
+
     def extract_pptx_slide_text(self, content: bytes) -> tuple[list[str], list[str]]:
         self.assertTrue(content.startswith(b"PK"))
         with zipfile.ZipFile(BytesIO(content), "r") as archive:
@@ -112,8 +119,14 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         navigation_menu = profile_content[
             profile_content.index('id="workspaceNavigationMenu"'):profile_content.index("</nav>", profile_content.index('id="workspaceNavigationMenu"'))
         ]
+        self.assertIn('href="/voetbaldagen"', navigation_menu)
+        self.assertIn('href="/samenwerkende-amateurclubs"', navigation_menu)
         self.assertIn('href="/management"', navigation_menu)
         self.assertIn('href="/oefenstof"', navigation_menu)
+        self.assertIn('href="/financien"', navigation_menu)
+        self.assertIn('href="/trainers"', navigation_menu)
+        self.assertIn("<span>Team</span>", navigation_menu)
+        self.assertNotIn('href="/draaiboeken"', navigation_menu)
         self.assertNotIn('href="/materialen"', navigation_menu)
         self.assertNotIn('href="/oefeningen-bibliotheek"', navigation_menu)
         self.assertEqual(profile_content.count('action="/logout"'), 2)
@@ -450,7 +463,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         )
         client = self.build_authenticated_client()
 
-        draaiboeken_response = client.get("/draaiboeken", secure=True)
+        football_days_response = client.get("/voetbaldagen", secure=True)
         import_response = client.post(
             "/kleedkamerbordjes",
             {
@@ -469,8 +482,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         detail_response = client.get(f"/kleedkamerbordjes/{document_id}", secure=True)
         pdf_response = client.get(f"/kleedkamerbordjes/{document_id}/export-pdf", secure=True)
 
-        self.assertContains(draaiboeken_response, 'href="/kleedkamerbordjes"')
-        self.assertContains(draaiboeken_response, "Kleedkamerbordjes")
+        self.assertContains(football_days_response, 'href="/kleedkamerbordjes"')
+        self.assertContains(football_days_response, "Kleedkamerbordjes")
         self.assertIsNotNone(document)
         self.assertEqual(document["groupCount"], 2)
         self.assertEqual(document["participantCount"], 3)
@@ -552,8 +565,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         saved_document = legacy.load_trainers_information_document(document_id)
         self.assertEqual(empty_overview_response.status_code, 200)
-        self.assertContains(empty_overview_response, 'href="/draaiboeken"')
-        self.assertContains(empty_overview_response, "Terug naar draaiboeken")
+        self.assertContains(empty_overview_response, 'href="/voetbaldagen"')
+        self.assertContains(empty_overview_response, "Terug naar Voetbaldagen")
         self.assertContains(empty_overview_response, "data-open-trainers-information-create")
         self.assertContains(empty_overview_response, 'id="trainersInformationCreateModal"')
         self.assertContains(empty_overview_response, "Nieuwe aanmaken")
@@ -596,24 +609,42 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(delete_response.status_code, 302)
         self.assertIsNone(legacy.load_trainers_information_document(document_id))
 
-    def test_draaiboeken_overview_contains_trainers_information_tile(self):
-        client = self.build_authenticated_client()
+    def test_football_days_root_contains_requested_tiles_per_permissions_and_legacy_redirects(self):
+        admin_response = self.build_authenticated_client().get("/voetbaldagen", secure=True)
+        trainer = {
+            "id": "trainer-123",
+            "fullName": "Test Trainer",
+            "isAdmin": False,
+            "systemRole": "Trainer",
+        }
 
-        with (
-            patch.object(legacy, "require_page_access", return_value=None),
-            patch.object(legacy, "load_football_days_playbooks", return_value=[]),
-        ):
-            draaiboeken_response = client.get("/draaiboeken", secure=True)
-            football_days_response = client.get("/voetbaldagen", secure=True)
+        with patch.object(legacy, "get_current_user", return_value=trainer):
+            trainer_response = Client().get("/voetbaldagen", secure=True)
+            legacy_response = Client().get("/draaiboeken", secure=True)
 
-        self.assertEqual(draaiboeken_response.status_code, 200)
-        self.assertContains(
-            draaiboeken_response,
-            'class="summary-card training-home-tile" href="/voetbaldagen/trainers-informatie"',
+        self.assertEqual(admin_response.status_code, 200)
+        self.assertEqual(
+            self.extract_training_home_tiles(admin_response),
+            [
+                ("/voetbaldagen/draaiboeken", "Voetbaldagen"),
+                ("/checklists", "Checklists"),
+                ("/kleedkamerbordjes", "Kleedkamerbordjes"),
+                ("/voetbaldagen/trainers-informatie", "Trainers informatie"),
+                ("/aanmeldingen", "Aanmeldingen"),
+                ("/planning", "Planning"),
+            ],
         )
-        self.assertContains(draaiboeken_response, "Trainers Informatie")
-        self.assertEqual(football_days_response.status_code, 200)
-        self.assertNotContains(football_days_response, "trainers-information-tile")
+        self.assertEqual(trainer_response.status_code, 200)
+        self.assertEqual(
+            self.extract_training_home_tiles(trainer_response),
+            [
+                ("/voetbaldagen/draaiboeken", "Voetbaldagen"),
+                ("/checklists", "Checklists"),
+                ("/kleedkamerbordjes", "Kleedkamerbordjes"),
+                ("/voetbaldagen/trainers-informatie", "Trainers informatie"),
+            ],
+        )
+        self.assertRedirects(legacy_response, "/voetbaldagen", fetch_redirect_response=False)
 
     def test_reimporting_program_preserves_matching_checklist_items(self):
         playbook = {
@@ -1228,7 +1259,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    def test_trainer_can_read_but_cannot_mutate_dashboard_events(self):
+    def test_trainer_cannot_read_or_mutate_financial_event_configuration(self):
         trainer = {
             "id": "trainer-123",
             "fullName": "Test Trainer",
@@ -1240,7 +1271,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         with (
             patch.object(legacy, "get_current_user", return_value=trainer),
-            patch.object(legacy, "load_dashboard_events_config", return_value=events),
+            patch.object(legacy, "load_dashboard_events_config", return_value=events) as mocked_load,
             patch.object(legacy, "save_dashboard_events_config") as mocked_save,
         ):
             get_response = client.get("/api/dashboard-events", secure=True)
@@ -1252,10 +1283,11 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 secure=True,
             )
 
-        self.assertEqual(get_response.status_code, 200)
-        self.assertEqual(get_response.json()["items"], events)
+        self.assertEqual(get_response.status_code, 403)
+        self.assertEqual(get_response.json()["error"], "Je hebt geen rechten voor deze actie.")
         self.assertEqual(post_response.status_code, 403)
         self.assertEqual(post_response.json()["error"], "Je hebt geen rechten voor deze actie.")
+        mocked_load.assert_not_called()
         mocked_save.assert_not_called()
 
     def test_dashboard_events_post_accepts_valid_csrf_token_for_admin(self):
@@ -1604,25 +1636,35 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         with self.assertRaisesMessage(ValueError, "Bestandsextensie niet toegestaan"):
             legacy.prepare_content_upload_entry(album, UploadedFile(), config)
 
-    def test_dashboard_falls_back_to_mock_data_for_placeholder_ecwid_config(self):
+    def test_dashboard_only_loads_and_renders_current_weather(self):
         with (
-            patch.dict(
-                "os.environ",
-                {
-                    "ECWID_STORE_ID": "HIER_JOUW_ECWID_STORE_ID",
-                    "ECWID_SECRET_TOKEN": "HIER_JOUW_ECWID_SECRET_TOKEN",
+            patch.object(legacy, "fetch_orders_non_blocking") as mocked_fetch_orders,
+            patch.object(legacy, "build_dashboard_frontend_payload") as mocked_build_payload,
+            patch.object(legacy, "build_trainer_dashboard_week_schedule") as mocked_build_schedule,
+            patch.object(
+                legacy,
+                "load_dashboard_weather_settings",
+                return_value={
+                    "weather_lat": "52.25",
+                    "weather_lon": "6.16",
+                    "weather_name": "Deventer",
                 },
-                clear=False,
-            ),
-            patch.dict(legacy.orders_cache, {"payload": None, "cached_at": 0.0}, clear=True),
-            patch.object(legacy, "start_background_refresh") as mocked_refresh,
+            ) as mocked_load_weather,
         ):
             response = self.build_authenticated_client().get("/", secure=True)
 
         self.assertEqual(response.status_code, 200)
-        mocked_refresh.assert_called_once_with()
+        mocked_load_weather.assert_called_once_with()
+        mocked_fetch_orders.assert_not_called()
+        mocked_build_payload.assert_not_called()
+        mocked_build_schedule.assert_not_called()
         content = response.content.decode("utf-8")
-        self.assertIn("Live Ecwid-koppeling staat nog niet aan.", content)
+        self.assertEqual(re.findall(r'<p class="panel-title">([^<]+)</p>', content), ["Actueel Weer"])
+        self.assertIn('id="weatherCard"', content)
+        self.assertIn('data-weather-name="Deventer"', content)
+        self.assertNotIn("Rapporten", content)
+        self.assertNotIn("Inschrijvingen Aankomende Events", content)
+        self.assertNotIn("Mijn afspraken deze week", content)
 
     def test_initial_dashboard_refresh_runs_without_showing_loading_notice(self):
         with (
@@ -1651,7 +1693,6 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             {
                 "dashboard",
                 "agenda",
-                "draaiboeken",
                 "voetbaldagen",
                 "checklists",
                 "kleedkamerbordjes",
@@ -1678,12 +1719,14 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         with patch.object(legacy, "get_current_user", return_value=trainer):
             management_response = Client().get("/management", secure=True)
             marketing_response = Client().get("/marketing", secure=True)
-            draaiboeken_response = Client().get("/draaiboeken", secure=True)
+            football_days_response = Client().get("/voetbaldagen", secure=True)
+            amateur_clubs_response = Client().get("/samenwerkende-amateurclubs", secure=True)
             oefenstof_response = Client().get("/oefenstof", secure=True)
 
         self.assertRedirects(management_response, "/", fetch_redirect_response=False)
         self.assertRedirects(marketing_response, "/", fetch_redirect_response=False)
-        self.assertEqual(draaiboeken_response.status_code, 200)
+        self.assertEqual(football_days_response.status_code, 200)
+        self.assertEqual(amateur_clubs_response.status_code, 200)
         self.assertEqual(oefenstof_response.status_code, 200)
 
     def test_global_navigation_contains_only_overview_pages(self):
@@ -1696,7 +1739,32 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         self.assertEqual(
             navigation_paths,
-            ["/", "/agenda", "/draaiboeken", "/oefenstof", "/profiel"],
+            [
+                "/",
+                "/agenda",
+                "/voetbaldagen",
+                "/samenwerkende-amateurclubs",
+                "/oefenstof",
+                "/profiel",
+            ],
+        )
+        self.assertEqual(
+            legacy.get_current_workspace_main_navigation_path(trainer, "/checklists"),
+            "/voetbaldagen",
+        )
+        self.assertEqual(
+            legacy.get_current_workspace_main_navigation_path(
+                trainer,
+                "/voetbaldagen/trainers-informatie",
+            ),
+            "/voetbaldagen",
+        )
+        self.assertEqual(
+            legacy.get_current_workspace_main_navigation_path(
+                trainer,
+                "/samenwerkende-amateurclubs/draaiboeken",
+            ),
+            "/samenwerkende-amateurclubs",
         )
         self.assertEqual(
             legacy.get_current_workspace_main_navigation_path(trainer, "/materialen"),
@@ -1946,7 +2014,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(post_response.status_code, 403)
         mocked_save_day_plans.assert_not_called()
 
-    def test_trainer_dashboard_hides_upcoming_event_registrations_card(self):
+    def test_trainer_dashboard_also_contains_only_current_weather(self):
         trainer = {
             "id": "trainer-123",
             "fullName": "Test Trainer",
@@ -1956,22 +2024,22 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         with (
             patch.object(legacy, "get_current_user", return_value=trainer),
-            patch.object(
-                legacy,
-                "fetch_orders_non_blocking",
-                return_value=legacy.get_empty_dashboard_payload(),
-            ) as mocked_fetch_orders,
-            patch.object(legacy, "build_trainer_dashboard_week_schedule", return_value=[]),
+            patch.object(legacy, "fetch_orders_non_blocking") as mocked_fetch_orders,
+            patch.object(legacy, "build_trainer_dashboard_week_schedule") as mocked_build_schedule,
         ):
             response = Client().get("/", secure=True)
 
         self.assertEqual(response.status_code, 200)
         mocked_fetch_orders.assert_not_called()
-        self.assertContains(response, "Mijn afspraken deze week")
+        mocked_build_schedule.assert_not_called()
+        self.assertContains(response, "Actueel Weer")
+        self.assertContains(response, 'id="weatherCard"')
+        self.assertNotContains(response, "Mijn afspraken deze week")
+        self.assertNotContains(response, "Rapporten")
         self.assertNotContains(response, "Inschrijvingen Aankomende Events")
         self.assertNotContains(response, 'id="eventsSummaryCard"')
 
-    def test_trainer_dashboard_api_does_not_fetch_order_or_financial_data(self):
+    def test_trainer_cannot_open_financial_summary_api(self):
         trainer = {
             "id": "trainer-123",
             "fullName": "Test Trainer",
@@ -1985,10 +2053,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         ):
             response = Client().get("/api/dashboard-summary?refresh=1", secure=True)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["summary"], {})
-        self.assertEqual(response.json()["reportSummary"], {})
-        self.assertEqual(response.json()["productSummary"], [])
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"], "Je hebt geen rechten voor deze actie.")
         mocked_fetch_orders.assert_not_called()
 
     def test_trainer_registration_count_api_uses_read_only_ecwid_fetch(self):
@@ -2098,54 +2164,119 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(schedule[0]["trainingTypeClass"], "agenda-event-type-techniektraining")
         self.assertEqual(schedule[1]["dateLabel"], "Zondag 19 juli")
 
-    def test_trainer_dashboard_renders_personal_week_schedule_tile(self):
-        trainer = {"id": "trainer-123", "fullName": "Test Trainer", "isAdmin": False, "systemRole": "Trainer"}
+    def test_finances_contains_dashboard_summaries_budget_and_existing_financial_links(self):
+        orders_payload = {"source": "test-orders"}
         dashboard_payload = {
             "source": "mock",
             "summary": {},
-            "reportSummary": {"ecwidRevenue": 0, "moneybirdRevenue": 0, "combinedRevenue": 0},
-            "productSummary": [],
+            "reportSummary": {
+                "ecwidRevenue": 1234.5,
+                "moneybirdRevenue": 250.0,
+                "combinedRevenue": 1484.5,
+            },
+            "productSummary": [
+                {
+                    "label": "Zomerkamp",
+                    "productId": "101",
+                    "soldCount": 12,
+                }
+            ],
             "lastUpdated": "",
             "message": None,
         }
-        schedule = [
-            {
-                "id": "own-training",
-                "date": "2026-07-16",
-                "dateLabel": "Morgen",
-                "time": "18:00",
-                "timeLabel": "18:00 - 19:30",
-                "title": "Techniektraining JO12",
-                "location": "VV Diepenveen",
-                "trainingTypeLabel": "Techniektraining",
-                "trainingTypeClass": "agenda-event-type-techniektraining",
-                "clubClass": "agenda-event-club-vv-diepenveen",
-                "status": "gepland",
-                "statusLabel": "Gepland",
-            }
-        ]
 
-        with patch.object(legacy, "get_current_user", return_value=trainer), patch.object(
-            legacy, "fetch_orders_non_blocking", return_value={}
-        ), patch.object(
-            legacy, "build_dashboard_frontend_payload", return_value=dashboard_payload
-        ), patch.object(
-            legacy, "build_trainer_dashboard_week_schedule", return_value=schedule
-        ), patch.object(
-            legacy,
-            "load_dashboard_weather_settings",
-            return_value={"weather_lat": "52.25", "weather_lon": "6.16", "weather_name": "Deventer"},
+        with (
+            patch.object(
+                legacy,
+                "fetch_orders_non_blocking",
+                return_value=orders_payload,
+            ) as mocked_fetch_orders,
+            patch.object(
+                legacy,
+                "build_dashboard_frontend_payload",
+                return_value=dashboard_payload,
+            ) as mocked_build_payload,
         ):
-            response = self.build_authenticated_client().get("/", secure=True)
+            response = self.build_authenticated_client().get("/financien", secure=True)
 
         self.assertEqual(response.status_code, 200)
+        mocked_fetch_orders.assert_called_once_with()
+        mocked_build_payload.assert_called_once_with(orders_payload)
+        self.assertEqual(
+            self.extract_training_home_tiles(response),
+            [
+                ("/omzet", "Omzet"),
+                ("/spaarpot", "Spaarpot"),
+                ("/trainersvergoedingen", "Trainersvergoedingen"),
+                ("/financien/automatisch-facturen", "Automatisch facturen verzenden"),
+                ("/begroting", "Begroting"),
+            ],
+        )
         content = response.content.decode("utf-8")
-        self.assertIn("Mijn afspraken deze week", content)
-        self.assertIn("Techniektraining JO12", content)
-        self.assertIn("VV Diepenveen", content)
-        self.assertIn("agenda-event-type-techniektraining", content)
-        self.assertIn("agenda-event-club-vv-diepenveen", content)
-        self.assertIn('class="trainer-week-type">Techniektraining</span>', content)
+        self.assertIn("Rapporten", content)
+        self.assertIn("Inschrijvingen Aankomende Events", content)
+        self.assertIn('data-report-field="combinedRevenue">€ 1.484,50', content)
+        self.assertIn('data-product-label="Zomerkamp"', content)
+        self.assertIn('data-sold-count="12"', content)
+        self.assertIn('id="eventsSummaryCard"', content)
+
+    def test_management_contains_only_the_five_requested_tiles(self):
+        response = self.build_authenticated_client().get("/management", secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self.extract_training_home_tiles(response),
+            [
+                ("/management/api", "API"),
+                ("/management/klanttevredenheid", "Klanttevredenheid"),
+                ("/materialen", "Materialen"),
+                ("/voorstellen-maker", "Voorstellen maker"),
+                ("/overeenkomsten", "Overeenkomsten"),
+            ],
+        )
+
+    def test_moved_pages_belong_to_their_new_main_navigation_roots(self):
+        admin = {"id": "admin-123", "isAdmin": True, "systemRole": "Admin"}
+        navigation_paths = [
+            page["path"]
+            for page in legacy.get_workspace_navigation_pages_for_user(admin)
+        ]
+        search_paths = [
+            page["path"]
+            for page in legacy.get_workspace_search_pages_for_user(admin)
+        ]
+
+        self.assertIn("/trainers", navigation_paths)
+        self.assertNotIn("/draaiboeken", navigation_paths)
+        self.assertNotIn("/bestellingen", search_paths)
+        self.assertEqual(
+            legacy.get_current_workspace_main_navigation_path(admin, "/aanmeldingen"),
+            "/voetbaldagen",
+        )
+        self.assertEqual(
+            legacy.get_current_workspace_main_navigation_path(admin, "/planning"),
+            "/voetbaldagen",
+        )
+        self.assertEqual(
+            legacy.get_current_workspace_main_navigation_path(admin, "/begroting"),
+            "/financien",
+        )
+        self.assertEqual(
+            legacy.get_current_workspace_main_navigation_path(admin, "/trainers"),
+            "/trainers",
+        )
+        self.assertEqual(
+            legacy.get_current_workspace_main_navigation_title(admin, "/trainers"),
+            "Team",
+        )
+
+    def test_legacy_management_budget_url_redirects_to_finance_budget(self):
+        response = self.build_authenticated_client().get(
+            "/management/begroting",
+            secure=True,
+        )
+
+        self.assertRedirects(response, "/begroting", fetch_redirect_response=False)
 
     def test_orders_page_is_admin_only(self):
         self.assertIn("orders", legacy.get_visible_pages_for_user({"id": "admin", "isAdmin": True}))
@@ -2453,11 +2584,11 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
 
         overview_response = client.get("/planning", secure=True)
         overview_content = overview_response.content.decode("utf-8")
-        management_response = client.get("/management", secure=True)
+        football_days_response = client.get("/voetbaldagen", secure=True)
 
         self.assertEqual(overview_response.status_code, 200)
-        self.assertContains(management_response, 'href="/planning"')
-        self.assertContains(management_response, "Planning")
+        self.assertContains(football_days_response, 'href="/planning"')
+        self.assertContains(football_days_response, "Planning")
         self.assertIn("Nieuwe planning maken", overview_content)
         self.assertIn('id="planningModal"', overview_content)
         self.assertIn('id="planningQuickForm"', overview_content)
@@ -2974,11 +3105,15 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         )
 
         with patch.object(legacy, "fetch_ecwid_orders") as mocked_fetch_orders:
-            response = self.build_authenticated_client().get("/voetbaldagen", secure=True)
+            response = self.build_authenticated_client().get(
+                "/voetbaldagen/draaiboeken",
+                secure=True,
+            )
 
         self.assertEqual(response.status_code, 200)
         mocked_fetch_orders.assert_not_called()
         content = response.content.decode("utf-8")
+        self.assertIn("Test draaiboek snel overzicht", content)
         self.assertIn("voetbaldagen-overview.js", content)
         self.assertIn("data-football-registration-count", content)
 
@@ -3054,8 +3189,20 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             ["Herfstvakantie", "Geen veld beschikbaar"],
         )
 
-        overview = self.build_authenticated_client().get("/samenwerkende-amateurclubs", secure=True)
+        client = self.build_authenticated_client()
+        home = client.get("/samenwerkende-amateurclubs", secure=True)
+        overview = client.get("/samenwerkende-amateurclubs/draaiboeken", secure=True)
         content = overview.content.decode("utf-8")
+        self.assertEqual(home.status_code, 200)
+        self.assertEqual(
+            self.extract_training_home_tiles(home),
+            [
+                (
+                    "/samenwerkende-amateurclubs/draaiboeken",
+                    "Samenwerkende amateurclubs",
+                )
+            ],
+        )
         self.assertEqual(overview.status_code, 200)
         self.assertIn("Samenwerkende Amateurclubs", content)
         self.assertIn("Cyclus 4: 2026-09-01 t/m 2026-12-18", content)

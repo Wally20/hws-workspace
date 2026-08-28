@@ -141,7 +141,7 @@ FOOTBALL_PLAYBOOK_CONTEXTS = {
         "saveAllLabel": "Alles van de voetbaldag opslaan",
         "pdfCoverTitle": "HWS VOETBALDAG",
         "introSubject": "voetbaldag",
-        "overviewPath": "/voetbaldagen",
+        "overviewPath": "/voetbaldagen/draaiboeken",
         "newPath": "/voetbaldagen/nieuw",
         "editPathPrefix": "/voetbaldagen",
         "registrationCountsApi": "/api/voetbaldagen/registration-counts",
@@ -169,7 +169,7 @@ FOOTBALL_PLAYBOOK_CONTEXTS = {
         "saveAllLabel": "Alles van de samenwerkende amateurclub opslaan",
         "pdfCoverTitle": "SAMENWERKENDE AMATEURCLUBS",
         "introSubject": "samenwerkende amateurclub",
-        "overviewPath": "/samenwerkende-amateurclubs",
+        "overviewPath": "/samenwerkende-amateurclubs/draaiboeken",
         "newPath": "/samenwerkende-amateurclubs/nieuw",
         "editPathPrefix": "/samenwerkende-amateurclubs",
         "registrationCountsApi": "/api/samenwerkende-amateurclubs/registration-counts",
@@ -580,8 +580,8 @@ WORKSPACE_SEARCH_PAGES = (
         "title": "Dashboard",
         "path": "/",
         "section": "Algemeen",
-        "description": "Dagoverzicht, planning, omzet en snelle signalen.",
-        "keywords": ("home", "start", "overzicht", "vandaag", "planning"),
+        "description": "Bekijk het actuele weer voor trainingen en activiteiten.",
+        "keywords": ("home", "start", "weer", "temperatuur", "training"),
     },
     {
         "key": "agenda",
@@ -592,18 +592,18 @@ WORKSPACE_SEARCH_PAGES = (
         "keywords": ("kalender", "planning", "training", "voetbaldag", "vakantie"),
     },
     {
-        "key": "draaiboeken",
-        "title": "Draaiboeken",
-        "path": "/draaiboeken",
-        "section": "Draaiboeken",
-        "description": "Startpunt voor alle draaiboeken.",
-        "keywords": ("playbook", "programma", "organisatie"),
-    },
-    {
         "key": "voetbaldagen",
         "title": "Voetbaldagen",
         "path": "/voetbaldagen",
-        "section": "Draaiboeken",
+        "section": "Voetbaldagen",
+        "description": "Startpunt voor draaiboeken, voorbereiding, aanmeldingen en planning van voetbaldagen.",
+        "keywords": ("voetbaldag", "draaiboek", "checklist", "planning", "aanmeldingen"),
+    },
+    {
+        "key": "voetbaldagen",
+        "title": "Voetbaldagen draaiboeken",
+        "path": "/voetbaldagen/draaiboeken",
+        "section": "Voetbaldagen",
         "description": "Draaiboeken voor voetbaldagen bekijken en beheren.",
         "keywords": ("draaiboek", "voetbaldag", "inschrijvingen", "programma"),
     },
@@ -611,7 +611,7 @@ WORKSPACE_SEARCH_PAGES = (
         "key": "voetbaldagen",
         "title": "Nieuwe voetbaldag",
         "path": "/voetbaldagen/nieuw",
-        "section": "Draaiboeken",
+        "section": "Voetbaldagen",
         "description": "Maak direct een nieuw draaiboek voor een voetbaldag.",
         "keywords": ("nieuw", "maken", "draaiboek", "voetbaldag"),
     },
@@ -619,7 +619,7 @@ WORKSPACE_SEARCH_PAGES = (
         "key": "voetbaldagen",
         "title": "Trainers Informatie",
         "path": "/voetbaldagen/trainers-informatie",
-        "section": "Draaiboeken",
+        "section": "Voetbaldagen",
         "description": "Maak per groep een A4 met het programma en de afspraken voor trainers.",
         "keywords": ("trainer", "informatie", "groep", "programma", "afspraken", "pdf"),
     },
@@ -627,7 +627,7 @@ WORKSPACE_SEARCH_PAGES = (
         "key": "checklists",
         "title": "Checklists",
         "path": "/checklists",
-        "section": "Draaiboeken",
+        "section": "Voetbaldagen",
         "description": "Maak gekleurde checklists bij een planning of het programma van een voetbaldag.",
         "keywords": ("checklist", "coordinator", "planning", "programma", "voetbaldag", "clipboard"),
     },
@@ -635,23 +635,31 @@ WORKSPACE_SEARCH_PAGES = (
         "key": "kleedkamerbordjes",
         "title": "Kleedkamerbordjes",
         "path": "/kleedkamerbordjes",
-        "section": "Draaiboeken",
+        "section": "Voetbaldagen",
         "description": "Maak per team of groep een A4-kleedkamerbordje vanuit een Excel-teamindeling.",
         "keywords": ("kleedkamer", "bordje", "teamindeling", "groep", "excel", "pdf"),
     },
     {
         "key": "samenwerkende-amateurclubs",
-        "title": "Samenwerkende amateurclubs",
+        "title": "Samenwerkende Amateurclubs",
         "path": "/samenwerkende-amateurclubs",
-        "section": "Draaiboeken",
-        "description": "Draaiboeken voor samenwerkende amateurclubs.",
+        "section": "Samenwerkende Amateurclubs",
+        "description": "Startpunt voor de draaiboeken van samenwerkende amateurclubs.",
         "keywords": ("club", "amateurclub", "samenwerking", "trainingen"),
+    },
+    {
+        "key": "samenwerkende-amateurclubs",
+        "title": "Draaiboeken samenwerkende amateurclubs",
+        "path": "/samenwerkende-amateurclubs/draaiboeken",
+        "section": "Samenwerkende Amateurclubs",
+        "description": "Draaiboeken voor samenwerkende amateurclubs bekijken en beheren.",
+        "keywords": ("club", "amateurclub", "samenwerking", "draaiboek", "trainingen"),
     },
     {
         "key": "samenwerkende-amateurclubs",
         "title": "Nieuwe samenwerkende amateurclub",
         "path": "/samenwerkende-amateurclubs/nieuw",
-        "section": "Draaiboeken",
+        "section": "Samenwerkende Amateurclubs",
         "description": "Maak direct een nieuw clubdraaiboek.",
         "keywords": ("nieuw", "maken", "club", "amateurclub", "draaiboek"),
     },
@@ -660,14 +668,14 @@ WORKSPACE_SEARCH_PAGES = (
         "title": "Management",
         "path": "/management",
         "section": "Management",
-        "description": "Startpunt voor voorstellen, overeenkomsten, aanmeldingen en team.",
-        "keywords": ("beheer", "admin", "team", "orders"),
+        "description": "Startpunt voor API, klanttevredenheid, materialen, voorstellen en overeenkomsten.",
+        "keywords": ("beheer", "admin", "api", "materialen", "overeenkomsten"),
     },
     {
         "key": "planning",
         "title": "Planning",
         "path": "/planning",
-        "section": "Management",
+        "section": "Voetbaldagen",
         "description": "Programma's als planningstabel maken, bewaren en exporteren.",
         "keywords": ("planning", "programma", "tabel", "pdf"),
     },
@@ -691,7 +699,7 @@ WORKSPACE_SEARCH_PAGES = (
         "key": "begroting",
         "title": "Begroting",
         "path": "/begroting",
-        "section": "Management",
+        "section": "Financiën",
         "description": "Inkomsten, trainerbudget en resultaat per seizoen begroten.",
         "keywords": ("budget", "kosten", "inkomsten", "seizoen"),
     },
@@ -707,17 +715,9 @@ WORKSPACE_SEARCH_PAGES = (
         "key": "orders",
         "title": "Aanmeldingen",
         "path": "/aanmeldingen",
-        "section": "Management",
+        "section": "Voetbaldagen",
         "description": "Inschrijvingen en details per product bekijken.",
         "keywords": ("orders", "inschrijvingen", "producten", "deelnemers"),
-    },
-    {
-        "key": "orders",
-        "title": "Bestellingen",
-        "path": "/bestellingen",
-        "section": "Management",
-        "description": "Bestellingen, betalingen en statussen bekijken.",
-        "keywords": ("orders", "bestellingen", "betalingen", "ecwid"),
     },
     {
         "key": "leads",
@@ -731,7 +731,7 @@ WORKSPACE_SEARCH_PAGES = (
         "key": "trainers",
         "title": "Team",
         "path": "/trainers",
-        "section": "Management",
+        "section": "Team",
         "description": "Teamleden, rollen en uitnodigingen beheren.",
         "keywords": ("trainers", "medewerkers", "rollen", "uitnodigingen"),
     },
@@ -916,19 +916,23 @@ WORKSPACE_SEARCH_PAGES = (
 WORKSPACE_MAIN_NAVIGATION_PATHS = (
     "/",
     "/agenda",
-    "/draaiboeken",
+    "/voetbaldagen",
+    "/samenwerkende-amateurclubs",
     "/management",
     "/oefenstof",
     "/financien",
     "/marketing",
+    "/trainers",
     "/profiel",
 )
 WORKSPACE_MAIN_PATH_BY_SECTION = {
-    "Draaiboeken": "/draaiboeken",
+    "Voetbaldagen": "/voetbaldagen",
+    "Samenwerkende Amateurclubs": "/samenwerkende-amateurclubs",
     "Management": "/management",
     "Oefenstof": "/oefenstof",
     "Financiën": "/financien",
     "Marketing": "/marketing",
+    "Team": "/trainers",
 }
 
 
@@ -14521,7 +14525,6 @@ ADMIN_PAGE_KEYS = frozenset(
     {
         "dashboard",
         "agenda",
-        "draaiboeken",
         "voetbaldagen",
         "checklists",
         "kleedkamerbordjes",
@@ -14559,7 +14562,6 @@ TRAINER_PAGE_KEYS = frozenset(
     {
         "dashboard",
         "agenda",
-        "draaiboeken",
         "voetbaldagen",
         "checklists",
         "kleedkamerbordjes",
@@ -21184,25 +21186,10 @@ def index() -> str:
     if access_redirect is not None:
         return access_redirect
 
-    user = get_current_user()
-    payload = get_empty_dashboard_payload() if is_trainer_user(user) else fetch_orders_non_blocking()
-    dashboard_payload = build_dashboard_frontend_payload(payload)
-    if is_trainer_user(user):
-        dashboard_payload["summary"] = {}
-        dashboard_payload["reportSummary"] = {}
-        dashboard_payload["productSummary"] = []
     return render_template(
         "index.html",
         active_page="dashboard",
-        is_trainer_dashboard_user=is_trainer_user(user),
-        trainer_week_schedule=build_trainer_dashboard_week_schedule(user),
         dashboard_weather=load_dashboard_weather_settings(),
-        source=dashboard_payload["source"],
-        summary=dashboard_payload["summary"],
-        report_summary=dashboard_payload["reportSummary"],
-        product_summary=dashboard_payload["productSummary"],
-        last_updated=dashboard_payload["lastUpdated"],
-        message=dashboard_payload["message"],
     )
 
 
@@ -23038,6 +23025,10 @@ def budget_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
+    if request.path == "/management/begroting":
+        redirect_response = redirect("/begroting")
+        return (redirect_response, 307) if request.method == "POST" else redirect_response
+
     all_trainings = load_agenda_trainings()
     season_options = build_trainer_fee_season_options(all_trainings)
     available_seasons = {option["value"] for option in season_options}
@@ -23753,7 +23744,14 @@ def financien_page() -> str:
     if access_redirect is not None:
         return access_redirect
 
-    return render_template("financien.html", active_page="financien")
+    dashboard_payload = build_dashboard_frontend_payload(fetch_orders_non_blocking())
+    return render_template(
+        "financien.html",
+        active_page="financien",
+        report_summary=dashboard_payload["reportSummary"],
+        product_summary=dashboard_payload["productSummary"],
+        message=dashboard_payload["message"],
+    )
 
 
 @app.route("/financien/automatisch-facturen", methods=["GET", "POST"])
@@ -25169,6 +25167,15 @@ def api_save_training():
 
 
 @app.get("/voetbaldagen")
+def football_days_home_page() -> str:
+    access_redirect = require_page_access("voetbaldagen")
+    if access_redirect is not None:
+        return access_redirect
+
+    return render_template("voetbaldagen_overzicht.html", active_page="voetbaldagen")
+
+
+@app.get("/voetbaldagen/draaiboeken")
 def football_days_page() -> str:
     return render_football_playbook_overview("voetbaldagen")
 
@@ -25369,11 +25376,11 @@ def trainers_information_export_pdf():
 
 @app.get("/draaiboeken")
 def draaiboeken_page() -> str:
-    access_redirect = require_page_access("draaiboeken")
+    access_redirect = require_page_access("voetbaldagen")
     if access_redirect is not None:
         return access_redirect
 
-    return render_template("draaiboeken.html", active_page="draaiboeken")
+    return redirect(url_for("football_days_home_page"))
 
 
 @app.route("/kleedkamerbordjes", methods=["GET", "POST"])
@@ -25726,6 +25733,18 @@ def checklists_export_pdf():
 
 
 @app.get("/samenwerkende-amateurclubs")
+def amateur_clubs_home_page() -> str:
+    access_redirect = require_page_access("samenwerkende-amateurclubs")
+    if access_redirect is not None:
+        return access_redirect
+
+    return render_template(
+        "samenwerkende_amateurclubs_overzicht.html",
+        active_page="samenwerkende-amateurclubs",
+    )
+
+
+@app.get("/samenwerkende-amateurclubs/draaiboeken")
 def amateur_clubs_page() -> str:
     return render_football_playbook_overview("samenwerkende-amateurclubs")
 
@@ -26548,23 +26567,14 @@ def api_agenda_calendar():
 
 @app.get("/api/dashboard-summary")
 def api_dashboard_summary():
-    access_redirect = require_page_access("dashboard")
+    access_redirect = require_page_access("financien")
     if access_redirect is not None:
         return access_redirect
 
     try:
-        user = get_current_user()
-        if user is not None and not user.get("isAdmin"):
-            frontend_payload = build_dashboard_frontend_payload(get_empty_dashboard_payload())
-            frontend_payload["summary"] = {}
-            frontend_payload["reportSummary"] = {}
-            frontend_payload["productSummary"] = []
-            frontend_payload["monthlyRevenueSeries"] = []
-            frontend_payload["moneybird"] = {}
-        else:
-            force_refresh = request.args.get("refresh") == "1"
-            payload = fetch_orders(force_refresh=force_refresh)
-            frontend_payload = build_dashboard_frontend_payload(payload)
+        force_refresh = request.args.get("refresh") == "1"
+        payload = fetch_orders(force_refresh=force_refresh)
+        frontend_payload = build_dashboard_frontend_payload(payload)
         return jsonify(frontend_payload)
     except requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else 502
@@ -26578,7 +26588,7 @@ def api_product_search():
     user = get_current_user()
     if user is None:
         return redirect(url_for("login_page", next=request.path))
-    if not (user_can_access_page(user, "dashboard") or user_can_access_page(user, "voetbaldagen")):
+    if not (user_can_access_page(user, "financien") or user_can_access_page(user, "voetbaldagen")):
         return redirect(url_for("personal_profile_page"))
 
     query = request.args.get("q", "").strip()
@@ -26675,7 +26685,7 @@ def football_playbook_registration_counts_api(playbook_type: str):
 
 @app.get("/api/dashboard-events")
 def api_dashboard_events():
-    access_redirect = require_page_access("dashboard")
+    access_redirect = require_page_access("financien")
     if access_redirect is not None:
         return access_redirect
 

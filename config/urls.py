@@ -79,7 +79,8 @@ urlpatterns = [
         views.dressing_room_sign_detail_page,
         name="dressing_room_sign_detail_page",
     ),
-    path("voetbaldagen", views.football_days_page, name="football_days_page"),
+    path("voetbaldagen", views.football_days_home_page, name="football_days_home_page"),
+    path("voetbaldagen/draaiboeken", views.football_days_page, name="football_days_page"),
     path("voetbaldagen/nieuw", views.football_days_new_page, name="football_days_new_page"),
     path(
         "voetbaldagen/trainers-informatie",
@@ -102,7 +103,16 @@ urlpatterns = [
         name="trainers_information_detail_page",
     ),
     path("voetbaldagen/<int:playbook_id>", views.football_days_edit_page, name="football_days_edit_page"),
-    path("samenwerkende-amateurclubs", views.amateur_clubs_page, name="amateur_clubs_page"),
+    path(
+        "samenwerkende-amateurclubs",
+        views.amateur_clubs_home_page,
+        name="amateur_clubs_home_page",
+    ),
+    path(
+        "samenwerkende-amateurclubs/draaiboeken",
+        views.amateur_clubs_page,
+        name="amateur_clubs_page",
+    ),
     path("samenwerkende-amateurclubs/nieuw", views.amateur_clubs_new_page, name="amateur_clubs_new_page"),
     path(
         "samenwerkende-amateurclubs/<int:playbook_id>/dupliceren",
