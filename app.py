@@ -15416,7 +15416,7 @@ def _create_materials_club_pdf_portrait(club: Dict[str, Any], materials: List[Di
 
     rows = []
     quantities = club.get("quantities") if isinstance(club.get("quantities"), dict) else {}
-    for material in materials:
+    for material in sorted(materials, key=material_sort_key):
         quantity = parse_non_negative_int(quantities.get(material.get("key"), 0))
         if quantity > 0:
             rows.append({"name": str(material.get("name") or "Materiaal").strip(), "quantity": quantity})
@@ -15572,7 +15572,7 @@ def create_materials_club_pdf(
 
     rows = []
     quantities = club.get("quantities") if isinstance(club.get("quantities"), dict) else {}
-    for material in materials:
+    for material in sorted(materials, key=material_sort_key):
         quantity = parse_non_negative_int(quantities.get(material.get("key"), 0))
         if quantity > 0:
             rows.append({"name": str(material.get("name") or "Materiaal").strip(), "quantity": quantity})
@@ -15624,15 +15624,16 @@ def create_materials_club_pdf(
     pdf.setFont(font_names["extra_bold"], 11)
     pdf.drawString(margin, list_top, "MATERIALEN IN DE KRAT")
 
-    list_bottom = 176
+    # The materials occupy the full height of the left-hand side. Keeping one
+    # continuous column makes the order unambiguous when the list is checked at
+    # the club; the rules and contact card only use the right-hand side.
+    list_bottom = 47
     list_height = list_top - 17 - list_bottom
     row_count = len(rows)
-    column_count = 1 if row_count <= 10 else 2 if row_count <= 22 else 3
-    rows_per_column = max(1, ceil(row_count / column_count))
-    material_column_gap = 14
-    column_width = (left_width - ((column_count - 1) * material_column_gap)) / column_count
-    row_height = min(25, list_height / rows_per_column)
-    name_size = 8.5 if column_count == 1 else 7.5 if column_count == 2 else 6.5
+    column_width = left_width
+    row_height = min(25, list_height / max(1, row_count))
+    name_size = min(8.5, max(5.8, row_height * 0.45))
+    quantity_size = min(9, max(6, row_height * 0.48))
 
     if not rows:
         pdf.setFillColor(soft)
@@ -15642,14 +15643,12 @@ def create_materials_club_pdf(
         pdf.drawCentredString(margin + (left_width / 2), list_top - 48, "Voor deze club zijn nog geen materialen opgeslagen.")
     else:
         for index, row in enumerate(rows):
-            column_index = index // rows_per_column
-            row_index = index % rows_per_column
-            x = margin + column_index * (column_width + material_column_gap)
-            y_top = list_top - 17 - (row_index * row_height)
+            x = margin
+            y_top = list_top - 17 - (index * row_height)
             pdf.setStrokeColor(line)
             pdf.setLineWidth(0.5)
             pdf.line(x, y_top - row_height, x + column_width, y_top - row_height)
-            bullet_radius = 2.7
+            bullet_radius = min(2.7, max(1.6, row_height * 0.14))
             bullet_y = y_top - (row_height / 2) - 1
             pdf.setFillColor(gold)
             pdf.circle(x + bullet_radius, bullet_y, bullet_radius, fill=1, stroke=0)
@@ -15663,7 +15662,7 @@ def create_materials_club_pdf(
                 material_name = f"{material_name.rstrip()}…"
             pdf.drawString(x + 12, y_top - (row_height / 2) - (name_size / 3), material_name)
             pdf.setFillColor(gold)
-            pdf.setFont(font_names["extra_bold"], 9 if column_count < 3 else 7.5)
+            pdf.setFont(font_names["extra_bold"], quantity_size)
             pdf.drawRightString(x + column_width, y_top - (row_height / 2) - 3, f"{row['quantity']}×")
 
     contact_y = 47

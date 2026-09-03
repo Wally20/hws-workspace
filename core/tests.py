@@ -148,6 +148,49 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(pdf_bytes.count(b"/Type /Page\n"), 1)
         self.assertIn(b"/MediaBox [ 0 0 841.8898 595.2756 ]", pdf_bytes)
 
+    def test_materials_club_pdf_uses_one_vertical_column_in_overview_order(self):
+        from pypdf import PdfReader
+
+        materials = [
+            {"key": "small-blue", "name": "Blauwe hoedjes klein", "category": "kleine_hoedjes"},
+            {"key": "clothes-red", "name": "Rood trainersshirt", "category": "trainerskleding"},
+            {"key": "large-red", "name": "Rode hoedjes groot", "category": "grote_hoedjes"},
+            {"key": "small-yellow", "name": "Gele hoedjes klein", "category": "kleine_hoedjes"},
+            {"key": "small-orange", "name": "Oranje hoedjes klein", "category": "kleine_hoedjes"},
+        ]
+        materials.extend(
+            {"key": f"other-{index}", "name": f"Overig materiaal {index}", "category": "overig"}
+            for index in range(9)
+        )
+        club = {
+            "name": "Testclub",
+            "quantities": {material["key"]: 1 for material in materials},
+        }
+
+        pdf_bytes = legacy.create_materials_club_pdf(club, list(reversed(materials)))
+        page = PdfReader(BytesIO(pdf_bytes)).pages[0]
+        material_names = {material["name"] for material in materials}
+        positions = []
+
+        def collect_material_positions(text, _cm, text_matrix, _font, _font_size):
+            normalized_text = text.strip()
+            if normalized_text in material_names:
+                positions.append((normalized_text, text_matrix[4], text_matrix[5]))
+
+        page.extract_text(visitor_text=collect_material_positions)
+
+        expected_names = [
+            "Rode hoedjes groot",
+            "Oranje hoedjes klein",
+            "Gele hoedjes klein",
+            "Blauwe hoedjes klein",
+            "Rood trainersshirt",
+            *(f"Overig materiaal {index}" for index in range(9)),
+        ]
+        self.assertEqual([name for name, _x, _y in positions], expected_names)
+        self.assertEqual(len({round(x, 2) for _name, x, _y in positions}), 1)
+        self.assertTrue(all(first[2] > second[2] for first, second in zip(positions, positions[1:])))
+
     def test_material_categories_are_inferred_and_sorted_by_category_and_color(self):
         materials = [
             {"name": "Blauwe hoedjes klein/merkloos", "category": "kleine_hoedjes"},
