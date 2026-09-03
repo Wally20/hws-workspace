@@ -41,9 +41,9 @@ TRUSTED_HOSTS=www.workspace.hwsvoetbalschool.nl
 SESSION_COOKIE_NAME=overzicht_session
 SESSION_COOKIE_SECURE=1
 SESSION_COOKIE_SAMESITE=Lax
-SESSION_IDLE_TIMEOUT_SECONDS=3600
-SESSION_ABSOLUTE_TIMEOUT_SECONDS=43200
-SESSION_EXPIRE_AT_BROWSER_CLOSE=1
+SESSION_IDLE_TIMEOUT_SECONDS=2592000
+SESSION_ABSOLUTE_TIMEOUT_SECONDS=7776000
+SESSION_EXPIRE_AT_BROWSER_CLOSE=0
 TRAINER_INVITE_TTL_HOURS=48
 PREFERRED_URL_SCHEME=https
 REVERSE_PROXY_HOPS=1
@@ -356,7 +356,7 @@ sudo systemctl reload nginx
 - SSL: afdwingen via `nginx` redirect van `80 -> 443`
 - Reverse proxy headers: `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-Port`, `X-Forwarded-For`. Laat nginx deze headers overschrijven; voeg geen door de client aangeleverde waarden vooraan toe.
 - App-config voor proxy: `REVERSE_PROXY_HOPS=1` bij precies één vertrouwde nginx-/platformproxy. Zonder proxy blijft de veilige standaard `0`, zodat forwardingheaders worden genegeerd.
-- Session cookies: `SESSION_COOKIE_SECURE=1`, een idle timeout van 3600 seconden en een absolute timeout van 43200 seconden. De sessiecookie verloopt standaard ook bij het sluiten van de browser.
+- Session cookies: `SESSION_COOKIE_SECURE=1`, een idle timeout van 30 dagen en een absolute timeout van 90 dagen. De blijvende sessiecookie overleeft het sluiten van de browser; expliciet uitloggen trekt de sessie direct in.
 
 ## 9. Mogelijke conflicten met bestaand project op dezelfde server
 

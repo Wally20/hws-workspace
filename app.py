@@ -519,12 +519,11 @@ def clear_local_data_cache() -> None:
 
 DEFAULT_PASSWORD_HASH_METHOD = "scrypt" if hasattr(hashlib, "scrypt") else "pbkdf2:sha256"
 PASSWORD_HASH_METHOD = os.getenv("PASSWORD_HASH_METHOD", "").strip() or DEFAULT_PASSWORD_HASH_METHOD
-# These values are re-read after .env has been loaded. Keeping the initial
-# defaults finite also avoids accidentally restoring the former 400-day
-# session lifetime when the application is imported outside Django.
-SESSION_PERSISTENT_SECONDS = 43200
-SESSION_IDLE_TIMEOUT_SECONDS = 3600
-SESSION_ABSOLUTE_TIMEOUT_SECONDS = 43200
+# These values are re-read after .env has been loaded. Keep login sessions
+# convenient for a frequently used workspace while retaining bounded expiry.
+SESSION_PERSISTENT_SECONDS = 7776000
+SESSION_IDLE_TIMEOUT_SECONDS = 2592000
+SESSION_ABSOLUTE_TIMEOUT_SECONDS = 7776000
 REVERSE_PROXY_HOPS = 0
 TRAINER_INVITE_TTL_HOURS = 48
 CSRF_TOKEN_LENGTH = 48

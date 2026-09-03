@@ -112,6 +112,11 @@ class AuthenticationSecurityTests(SimpleTestCase):
         self.assertNotEqual(new_session_key, old_session_key)
         self.assertFalse(old_session.exists(old_session_key))
         self.assertEqual(client.session["user_id"], "rotated-session-user")
+        self.assertEqual(
+            int(response.cookies[settings.SESSION_COOKIE_NAME]["max-age"]),
+            settings.SESSION_COOKIE_AGE,
+        )
+        self.assertTrue(response.cookies[settings.SESSION_COOKIE_NAME]["expires"])
 
     def test_timeout_flushes_old_key_before_creating_anonymous_session(self):
         session_store = import_module(settings.SESSION_ENGINE).SessionStore()

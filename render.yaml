@@ -26,11 +26,11 @@ services:
       - key: SESSION_COOKIE_SAMESITE
         value: Lax
       - key: SESSION_IDLE_TIMEOUT_SECONDS
-        value: "3600"
+        value: "2592000"
       - key: SESSION_ABSOLUTE_TIMEOUT_SECONDS
-        value: "43200"
+        value: "7776000"
       - key: SESSION_EXPIRE_AT_BROWSER_CLOSE
-        value: "1"
+        value: "0"
       - key: TRAINER_INVITE_TTL_HOURS
         value: "48"
       - key: PREFERRED_URL_SCHEME
