@@ -78,6 +78,8 @@ CONTRACT_WATERMARK_PATH = os.path.join(
     "HWS_watermark.png",
 )
 CONTRACT_WATERMARK_REL_ID = "rId999"
+CONTRACT_PDF_MAX_UPLOAD_MB = 25
+CONTRACT_SHARE_EXPIRY_DAYS = {7, 30, 90}
 PPTX_XML_NAMESPACES = {
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
@@ -1639,6 +1641,7 @@ def is_public_path(path: str) -> bool:
         path.startswith("/static/")
         or path in {"/login", "/manifest.webmanifest", "/service-worker.js"}
         or path.startswith("/uitnodiging/")
+        or path.startswith("/gedeelde-overeenkomst/")
         or path.startswith("/klanttevredenheid/invullen/")
         or is_external_agenda_api_path(path)
     )
@@ -4880,8 +4883,33 @@ def init_db() -> None:
                 club_signatory TEXT,
                 signing_date TEXT,
                 notes TEXT,
+                pdf_storage_name TEXT,
+                original_filename TEXT,
+                pdf_file_size INTEGER NOT NULL DEFAULT 0,
+                pdf_sha256 TEXT,
+                contract_status TEXT NOT NULL DEFAULT 'concept',
+                signed_pdf_storage_name TEXT,
+                signature_storage_name TEXT,
+                signer_name TEXT,
+                signer_email TEXT,
+                signer_role TEXT,
+                signed_at TEXT,
+                signing_ip_hash TEXT,
+                signing_user_agent TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS contract_share_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                contract_id INTEGER NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                link_type TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                revoked_at TEXT,
+                used_at TEXT,
+                FOREIGN KEY (contract_id) REFERENCES contracts(id)
             );
 
             CREATE TABLE IF NOT EXISTS proposals (
@@ -5305,6 +5333,23 @@ def init_db() -> None:
             connection.execute("ALTER TABLE contracts ADD COLUMN agenda_attachment_title TEXT")
         if "agenda_attachment_items_json" not in contract_columns:
             connection.execute("ALTER TABLE contracts ADD COLUMN agenda_attachment_items_json TEXT NOT NULL DEFAULT '[]'")
+        for column_name, column_definition in (
+            ("pdf_storage_name", "pdf_storage_name TEXT"),
+            ("original_filename", "original_filename TEXT"),
+            ("pdf_file_size", "pdf_file_size INTEGER NOT NULL DEFAULT 0"),
+            ("pdf_sha256", "pdf_sha256 TEXT"),
+            ("contract_status", "contract_status TEXT NOT NULL DEFAULT 'concept'"),
+            ("signed_pdf_storage_name", "signed_pdf_storage_name TEXT"),
+            ("signature_storage_name", "signature_storage_name TEXT"),
+            ("signer_name", "signer_name TEXT"),
+            ("signer_email", "signer_email TEXT"),
+            ("signer_role", "signer_role TEXT"),
+            ("signed_at", "signed_at TEXT"),
+            ("signing_ip_hash", "signing_ip_hash TEXT"),
+            ("signing_user_agent", "signing_user_agent TEXT"),
+        ):
+            if column_name not in contract_columns:
+                connection.execute(f"ALTER TABLE contracts ADD COLUMN {column_definition}")
 
         social_ideas_columns = {
             row["name"]
@@ -5514,6 +5559,18 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_proposal_lines_proposal_sort
             ON proposal_lines (proposal_id, sort_order ASC, id ASC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_contracts_pdf_updated
+            ON contracts (pdf_storage_name, updated_at DESC, id DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_contract_share_links_contract_created
+            ON contract_share_links (contract_id, created_at DESC, id DESC)
             """
         )
         connection.execute(
@@ -11588,6 +11645,20 @@ def normalize_contract(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
     contract["id"] = None
     contract["createdAt"] = ""
     contract["updatedAt"] = ""
+    contract["pdfStorageName"] = ""
+    contract["originalFilename"] = ""
+    contract["pdfFileSize"] = 0
+    contract["pdfFileSizeLabel"] = ""
+    contract["pdfSha256"] = ""
+    contract["status"] = "concept"
+    contract["statusLabel"] = "Concept"
+    contract["signedPdfStorageName"] = ""
+    contract["signatureStorageName"] = ""
+    contract["signerName"] = ""
+    contract["signerEmail"] = ""
+    contract["signerRole"] = ""
+    contract["signedAt"] = ""
+    contract["signedAtLabel"] = ""
     contract["trainingLines"] = [{"day": "", "time": "", "team": "", "trainingType": ""}]
     if row is None:
         return contract
@@ -11667,10 +11738,25 @@ def normalize_contract(row: Optional[sqlite3.Row]) -> Dict[str, Any]:
             "clubSignatory": str(row["club_signatory"] or "").strip(),
             "signingDate": str(row["signing_date"] or "").strip(),
             "notes": str(row["notes"] or "").strip(),
+            "pdfStorageName": str(row["pdf_storage_name"] or "").strip() if "pdf_storage_name" in row.keys() else "",
+            "originalFilename": str(row["original_filename"] or "").strip() if "original_filename" in row.keys() else "",
+            "pdfFileSize": int(row["pdf_file_size"] or 0) if "pdf_file_size" in row.keys() else 0,
+            "pdfSha256": str(row["pdf_sha256"] or "").strip() if "pdf_sha256" in row.keys() else "",
+            "status": str(row["contract_status"] or "concept").strip() if "contract_status" in row.keys() else "concept",
+            "signedPdfStorageName": str(row["signed_pdf_storage_name"] or "").strip() if "signed_pdf_storage_name" in row.keys() else "",
+            "signatureStorageName": str(row["signature_storage_name"] or "").strip() if "signature_storage_name" in row.keys() else "",
+            "signerName": str(row["signer_name"] or "").strip() if "signer_name" in row.keys() else "",
+            "signerEmail": str(row["signer_email"] or "").strip() if "signer_email" in row.keys() else "",
+            "signerRole": str(row["signer_role"] or "").strip() if "signer_role" in row.keys() else "",
+            "signedAt": str(row["signed_at"] or "").strip() if "signed_at" in row.keys() else "",
             "createdAt": str(row["created_at"] or "").strip(),
             "updatedAt": str(row["updated_at"] or "").strip(),
         }
     )
+    contract["pdfFileSizeLabel"] = format_contract_file_size(contract["pdfFileSize"])
+    contract["status"] = "signed" if contract["signedAt"] else "concept"
+    contract["statusLabel"] = "Ondertekend" if contract["signedAt"] else "Concept"
+    contract["signedAtLabel"] = format_datetime_display(contract["signedAt"], fallback="")
     return contract
 
 
@@ -11692,6 +11778,506 @@ def load_contract(contract_id: int) -> Optional[Dict[str, Any]]:
     if row is None:
         return None
     return normalize_contract(row)
+
+
+def format_contract_file_size(file_size: Any) -> str:
+    try:
+        size = max(0, int(file_size or 0))
+    except (TypeError, ValueError):
+        size = 0
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / (1024 * 1024):.1f} MB"
+
+
+def load_uploaded_contracts() -> List[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM contracts
+            WHERE COALESCE(pdf_storage_name, '') <> ''
+            ORDER BY updated_at DESC, id DESC
+            """
+        ).fetchall()
+    return [normalize_contract(row) for row in rows]
+
+
+def get_contract_storage_root() -> str:
+    configured_root = get_env("CONTRACT_STORAGE_ROOT")
+    return os.path.abspath(configured_root or os.path.join(DATA_DIR, "contracts"))
+
+
+def resolve_contract_storage_path(storage_name: Any) -> Optional[str]:
+    normalized_name = str(storage_name or "").strip()
+    if not normalized_name or os.path.basename(normalized_name) != normalized_name:
+        return None
+    if not re.fullmatch(r"[a-zA-Z0-9._-]+", normalized_name):
+        return None
+    storage_root = get_contract_storage_root()
+    candidate = os.path.abspath(os.path.join(storage_root, normalized_name))
+    if os.path.commonpath([storage_root, candidate]) != storage_root:
+        return None
+    return candidate
+
+
+def store_private_contract_file(storage_name: str, content: bytes) -> str:
+    target_path = resolve_contract_storage_path(storage_name)
+    if target_path is None:
+        raise ValueError("Ongeldig opslagpad voor overeenkomst.")
+    os.makedirs(os.path.dirname(target_path), mode=0o750, exist_ok=True)
+    temporary_path = f"{target_path}.{secrets.token_hex(6)}.tmp"
+    try:
+        with open(temporary_path, "xb") as output_file:
+            output_file.write(content)
+        os.chmod(temporary_path, 0o640)
+        os.replace(temporary_path, target_path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.remove(temporary_path)
+    return storage_name
+
+
+def read_private_contract_file(storage_name: Any) -> Optional[bytes]:
+    file_path = resolve_contract_storage_path(storage_name)
+    if file_path is None or not os.path.isfile(file_path):
+        return None
+    try:
+        with open(file_path, "rb") as stored_file:
+            return stored_file.read()
+    except OSError:
+        return None
+
+
+def delete_private_contract_file(storage_name: Any) -> None:
+    file_path = resolve_contract_storage_path(storage_name)
+    if file_path and os.path.isfile(file_path):
+        os.remove(file_path)
+
+
+def validate_contract_pdf_upload(upload: Any) -> Tuple[Optional[Dict[str, Any]], str]:
+    if upload is None or not getattr(upload, "filename", ""):
+        return None, "Kies een PDF-bestand om te uploaden."
+    original_filename = re.split(r"[\\/]", str(upload.filename or "").strip())[-1][:255]
+    if not original_filename.lower().endswith(".pdf"):
+        return None, "Alleen PDF-bestanden zijn toegestaan."
+    content = upload.read((CONTRACT_PDF_MAX_UPLOAD_MB * 1024 * 1024) + 1)
+    if not content:
+        return None, "Het gekozen PDF-bestand is leeg."
+    if len(content) > CONTRACT_PDF_MAX_UPLOAD_MB * 1024 * 1024:
+        return None, f"De PDF mag maximaal {CONTRACT_PDF_MAX_UPLOAD_MB} MB zijn."
+    if not content.startswith(b"%PDF-"):
+        return None, "Het bestand heeft geen geldige PDF-inhoud."
+    if any(marker in content for marker in (b"/JavaScript", b"/Launch", b"/EmbeddedFile")):
+        return None, "PDF-bestanden met scripts, startacties of bijlagen zijn niet toegestaan."
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(BytesIO(content), strict=False)
+        if reader.is_encrypted:
+            return None, "Een beveiligde PDF kan niet worden gebruikt. Upload een PDF zonder wachtwoord."
+        if not reader.pages:
+            return None, "De PDF bevat geen pagina's."
+    except Exception:
+        return None, "De PDF kon niet worden gelezen of is beschadigd."
+    return {
+        "content": content,
+        "originalFilename": original_filename,
+        "fileSize": len(content),
+        "sha256": hashlib.sha256(content).hexdigest(),
+    }, ""
+
+
+def create_uploaded_contract(upload: Any, club_name: str, season: str) -> Tuple[Optional[int], str]:
+    normalized_club = str(club_name or "").strip()[:160]
+    normalized_season = str(season or "").strip()[:40]
+    if not normalized_club:
+        return None, "Vul in van welke club de overeenkomst is."
+    if not normalized_season:
+        return None, "Vul in voor welk seizoen de overeenkomst is."
+    prepared_pdf, error = validate_contract_pdf_upload(upload)
+    if prepared_pdf is None:
+        return None, error
+
+    storage_name = f"contract-{secrets.token_hex(16)}.pdf"
+    store_private_contract_file(storage_name, prepared_pdf["content"])
+    now = utcnow_iso()
+    title = os.path.splitext(prepared_pdf["originalFilename"])[0].strip() or "Overeenkomst"
+    try:
+        with get_db_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO contracts (
+                    title, club_name, season, pdf_storage_name, original_filename,
+                    pdf_file_size, pdf_sha256, contract_status, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'concept', ?, ?)
+                """,
+                (
+                    title[:200],
+                    normalized_club,
+                    normalized_season,
+                    storage_name,
+                    prepared_pdf["originalFilename"],
+                    prepared_pdf["fileSize"],
+                    prepared_pdf["sha256"],
+                    now,
+                    now,
+                ),
+            )
+            contract_id = int(cursor.lastrowid)
+    except Exception:
+        delete_private_contract_file(storage_name)
+        raise
+    clear_local_data_cache()
+    return contract_id, ""
+
+
+def normalize_contract_share_link(row: sqlite3.Row) -> Dict[str, Any]:
+    expires_at = str(row["expires_at"] or "").strip()
+    expires = parse_iso_datetime(expires_at)
+    is_expired = expires is None or expires <= datetime.utcnow()
+    revoked_at = str(row["revoked_at"] or "").strip()
+    link_type = str(row["link_type"] or "view").strip()
+    return {
+        "id": int(row["id"]),
+        "contractId": int(row["contract_id"]),
+        "type": link_type,
+        "typeLabel": "Ondertekenen" if link_type == "sign" else "Alleen bekijken",
+        "createdAt": str(row["created_at"] or "").strip(),
+        "createdAtLabel": format_datetime_display(str(row["created_at"] or "").strip()),
+        "expiresAt": expires_at,
+        "expiresAtLabel": format_datetime_display(expires_at),
+        "revokedAt": revoked_at,
+        "usedAt": str(row["used_at"] or "").strip(),
+        "isExpired": is_expired,
+        "isRevoked": bool(revoked_at),
+        "isActive": not revoked_at and not is_expired,
+    }
+
+
+def load_contract_share_links(contract_id: int) -> List[Dict[str, Any]]:
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM contract_share_links
+            WHERE contract_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (contract_id,),
+        ).fetchall()
+    return [normalize_contract_share_link(row) for row in rows]
+
+
+def create_contract_share_link(contract_id: int, link_type: str, expiry_days: Any) -> Tuple[str, Dict[str, Any]]:
+    normalized_type = "sign" if link_type == "sign" else "view"
+    try:
+        normalized_expiry_days = int(expiry_days)
+    except (TypeError, ValueError):
+        normalized_expiry_days = 30
+    if normalized_expiry_days not in CONTRACT_SHARE_EXPIRY_DAYS:
+        normalized_expiry_days = 30
+
+    raw_token = secrets.token_urlsafe(36)
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    created_at = datetime.utcnow().replace(microsecond=0)
+    expires_at = created_at + timedelta(days=normalized_expiry_days)
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO contract_share_links (
+                contract_id, token_hash, link_type, created_at, expires_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                contract_id,
+                token_hash,
+                normalized_type,
+                created_at.isoformat(),
+                expires_at.isoformat(),
+            ),
+        )
+        share_id = int(cursor.lastrowid)
+    share_path = url_for("contract_public_share_page", share_token=raw_token, _external=True)
+    return share_path, {
+        "id": share_id,
+        "type": normalized_type,
+        "typeLabel": "ondertekenlink" if normalized_type == "sign" else "weergavelink",
+        "expiresAtLabel": expires_at.strftime("%d-%m-%Y %H:%M"),
+    }
+
+
+def revoke_contract_share_link(contract_id: int, share_id: int) -> bool:
+    with get_db_connection() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE contract_share_links
+            SET revoked_at = ?
+            WHERE id = ? AND contract_id = ? AND revoked_at IS NULL
+            """,
+            (utcnow_iso(), share_id, contract_id),
+        )
+    return cursor.rowcount == 1
+
+
+def load_contract_share_by_token(raw_token: str) -> Optional[Dict[str, Any]]:
+    normalized_token = str(raw_token or "").strip()
+    if not normalized_token or len(normalized_token) > 160:
+        return None
+    token_hash = hashlib.sha256(normalized_token.encode("utf-8")).hexdigest()
+    with get_db_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT share.*
+            FROM contract_share_links AS share
+            JOIN contracts AS contract ON contract.id = share.contract_id
+            WHERE share.token_hash = ?
+              AND COALESCE(contract.pdf_storage_name, '') <> ''
+            LIMIT 1
+            """,
+            (token_hash,),
+        ).fetchone()
+    if row is None:
+        return None
+    return normalize_contract_share_link(row)
+
+
+def contract_public_response_headers() -> Dict[str, str]:
+    return {
+        "Cache-Control": "no-store, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+        "Referrer-Policy": "no-referrer",
+    }
+
+
+def contract_pdf_response(pdf_bytes: bytes, filename: str):
+    safe_filename = sanitize_upload_filename(filename)
+    headers = contract_public_response_headers()
+    headers.update(
+        {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": f'inline; filename="{safe_filename}"',
+            "X-Frame-Options": "SAMEORIGIN",
+            "Content-Security-Policy": "default-src 'none'; frame-ancestors 'self'; sandbox",
+        }
+    )
+    return pdf_bytes, 200, headers
+
+
+def validate_contract_signature_data(signature_data: str) -> Tuple[Optional[bytes], str]:
+    prefix = "data:image/png;base64,"
+    normalized_data = str(signature_data or "").strip()
+    if not normalized_data.startswith(prefix):
+        return None, "Zet eerst je handtekening in het tekenveld."
+    try:
+        signature_bytes = base64.b64decode(normalized_data[len(prefix):], validate=True)
+    except (ValueError, TypeError):
+        return None, "De handtekening kon niet worden verwerkt. Probeer opnieuw."
+    if not signature_bytes or len(signature_bytes) > 1024 * 1024 or not signature_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None, "De handtekening is ongeldig of te groot."
+    try:
+        from PIL import Image, ImageChops
+
+        with Image.open(BytesIO(signature_bytes)) as signature_image:
+            width, height = signature_image.size
+            if width < 200 or height < 80 or width > 2000 or height > 1000:
+                return None, "De afmetingen van de handtekening zijn ongeldig."
+            rgba_image = signature_image.convert("RGBA")
+            white_background = Image.new("RGBA", rgba_image.size, (255, 255, 255, 255))
+            white_background.alpha_composite(rgba_image)
+            ink_bounds = ImageChops.difference(
+                white_background.convert("RGB"),
+                Image.new("RGB", rgba_image.size, "white"),
+            ).getbbox()
+        if ink_bounds is None:
+            return None, "Zet eerst een zichtbare handtekening in het tekenveld."
+    except Exception:
+        return None, "De handtekening kon niet worden gevalideerd."
+    return signature_bytes, ""
+
+
+def create_signed_contract_pdf(
+    original_pdf: bytes,
+    signature_png: bytes,
+    contract: Dict[str, Any],
+    signer_name: str,
+    signer_email: str,
+    signer_role: str,
+    signed_at: str,
+) -> bytes:
+    try:
+        from pypdf import PdfReader, PdfWriter
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas
+    except Exception as exc:  # pragma: no cover - fixed production dependencies
+        raise RuntimeError("De ondertekende PDF kon niet worden opgebouwd.") from exc
+
+    certificate_buffer = BytesIO()
+    page_width, page_height = A4
+    certificate = canvas.Canvas(certificate_buffer, pagesize=A4)
+    certificate.setTitle("Ondertekenbewijs overeenkomst")
+    certificate.setFont("Helvetica-Bold", 20)
+    certificate.drawString(48, page_height - 62, "Ondertekenbewijs")
+    certificate.setFont("Helvetica", 10)
+    certificate.setFillColorRGB(0.28, 0.28, 0.28)
+    certificate.drawString(48, page_height - 82, "Dit bewijsblad hoort bij de voorgaande overeenkomst.")
+
+    details = (
+        ("Club", contract.get("clubName") or "-"),
+        ("Seizoen", contract.get("season") or "-"),
+        ("Bestand", contract.get("originalFilename") or "overeenkomst.pdf"),
+        ("Ondertekend door", signer_name),
+        ("E-mailadres", signer_email),
+        ("Functie", signer_role or "-"),
+        ("Ondertekend op (UTC)", signed_at.replace("T", " ")[:19]),
+        ("Document SHA-256", contract.get("pdfSha256") or hashlib.sha256(original_pdf).hexdigest()),
+    )
+    y_position = page_height - 125
+    for label, value in details:
+        certificate.setFont("Helvetica-Bold", 9)
+        certificate.setFillColorRGB(0.15, 0.15, 0.15)
+        certificate.drawString(48, y_position, str(label))
+        certificate.setFont("Helvetica", 9)
+        certificate.drawString(170, y_position, str(value)[:86])
+        y_position -= 24
+
+    certificate.setFont("Helvetica-Bold", 10)
+    certificate.drawString(48, y_position - 8, "Handtekening")
+    certificate.setStrokeColorRGB(0.78, 0.78, 0.78)
+    certificate.roundRect(48, y_position - 150, page_width - 96, 125, 8, stroke=1, fill=0)
+    certificate.drawImage(
+        ImageReader(BytesIO(signature_png)),
+        62,
+        y_position - 139,
+        width=page_width - 124,
+        height=100,
+        preserveAspectRatio=True,
+        mask="auto",
+        anchor="c",
+    )
+    certificate.setFillColorRGB(0.28, 0.28, 0.28)
+    certificate.setFont("Helvetica", 8)
+    certificate.drawString(48, 48, "De ondertekenaar heeft digitaal bevestigd akkoord te gaan met de volledige overeenkomst.")
+    certificate.save()
+    certificate_buffer.seek(0)
+
+    source_reader = PdfReader(BytesIO(original_pdf), strict=False)
+    certificate_reader = PdfReader(certificate_buffer)
+    writer = PdfWriter()
+    for page in source_reader.pages:
+        writer.add_page(page)
+    writer.add_page(certificate_reader.pages[0])
+    writer.add_metadata(
+        {
+            "/Title": f"Ondertekende overeenkomst {contract.get('clubName') or ''}".strip(),
+            "/Subject": "Digitaal ondertekende overeenkomst met bewijsblad",
+        }
+    )
+    output_buffer = BytesIO()
+    writer.write(output_buffer)
+    return output_buffer.getvalue()
+
+
+def complete_contract_signature(
+    contract: Dict[str, Any],
+    share_link: Dict[str, Any],
+    signer_name: str,
+    signer_email: str,
+    signer_role: str,
+    signature_data: str,
+) -> str:
+    normalized_name = str(signer_name or "").strip()[:160]
+    normalized_email = str(signer_email or "").strip().lower()[:254]
+    normalized_role = str(signer_role or "").strip()[:160]
+    if len(normalized_name) < 2:
+        return "Vul je volledige naam in."
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", normalized_email):
+        return "Vul een geldig e-mailadres in."
+    if str(request.form.get("agreement", "")).strip() != "1":
+        return "Bevestig dat je akkoord gaat met de overeenkomst."
+    signature_png, signature_error = validate_contract_signature_data(signature_data)
+    if signature_png is None:
+        return signature_error
+    original_pdf = read_private_contract_file(contract.get("pdfStorageName"))
+    if original_pdf is None:
+        return "De overeenkomst is niet meer beschikbaar."
+
+    signed_at = utcnow_iso()
+    signed_pdf = create_signed_contract_pdf(
+        original_pdf,
+        signature_png,
+        contract,
+        normalized_name,
+        normalized_email,
+        normalized_role,
+        signed_at,
+    )
+    signature_storage_name = f"signature-{contract['id']}-{secrets.token_hex(12)}.png"
+    signed_storage_name = f"signed-contract-{contract['id']}-{secrets.token_hex(12)}.pdf"
+    stored_names: List[str] = []
+    try:
+        store_private_contract_file(signature_storage_name, signature_png)
+        stored_names.append(signature_storage_name)
+        store_private_contract_file(signed_storage_name, signed_pdf)
+        stored_names.append(signed_storage_name)
+    except Exception:
+        for storage_name in stored_names:
+            delete_private_contract_file(storage_name)
+        raise
+    client_ip = get_client_ip()
+    ip_hash = hmac.new(
+        str(settings.SECRET_KEY).encode("utf-8"),
+        client_ip.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    user_agent = str(request.headers.get("User-Agent", "") or "").strip()[:500]
+    try:
+        with get_db_connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE contracts
+                SET contract_status = 'signed', signed_pdf_storage_name = ?,
+                    signature_storage_name = ?, signer_name = ?, signer_email = ?,
+                    signer_role = ?, signed_at = ?, signing_ip_hash = ?,
+                    signing_user_agent = ?, updated_at = ?
+                WHERE id = ? AND COALESCE(signed_at, '') = ''
+                """,
+                (
+                    signed_storage_name,
+                    signature_storage_name,
+                    normalized_name,
+                    normalized_email,
+                    normalized_role,
+                    signed_at,
+                    ip_hash,
+                    user_agent,
+                    signed_at,
+                    contract["id"],
+                ),
+            )
+            was_updated = cursor.rowcount == 1
+            if was_updated:
+                connection.execute(
+                    "UPDATE contract_share_links SET used_at = ? WHERE id = ?",
+                    (signed_at, share_link["id"]),
+                )
+    except Exception:
+        for storage_name in stored_names:
+            delete_private_contract_file(storage_name)
+        raise
+    if not was_updated:
+        for storage_name in stored_names:
+            delete_private_contract_file(storage_name)
+        return "Deze overeenkomst is inmiddels al ondertekend."
+    clear_local_data_cache()
+    return ""
 
 
 def parse_contract_season_start_year(value: Any) -> Optional[int]:
@@ -26025,17 +26611,41 @@ def voorstellen_maker_training_counts_api():
     )
 
 
-@app.get("/overeenkomsten")
+@app.route("/overeenkomsten", methods=["GET", "POST"])
 def overeenkomsten_page() -> str:
     access_redirect = require_page_access("overeenkomsten")
     if access_redirect is not None:
         return access_redirect
 
+    error = request.args.get("error", "").strip()
+    if request.method == "POST":
+        action = request.form.get("action", "").strip()
+        if action == "upload_contract":
+            contract_id, error = create_uploaded_contract(
+                request.files.get("contract_pdf"),
+                request.form.get("club_name", ""),
+                request.form.get("season", ""),
+            )
+            if contract_id is not None:
+                return redirect(
+                    url_for(
+                        "overeenkomsten_edit_page",
+                        contract_id=contract_id,
+                        success="Overeenkomst geüpload.",
+                    )
+                )
+
+    contracts = load_uploaded_contracts()
     return render_template(
         "overeenkomsten.html",
         active_page="overeenkomsten",
-        contracts=load_contracts(),
+        contracts=contracts,
+        clubs=sorted({contract["clubName"] for contract in contracts if contract["clubName"]}, key=str.lower),
+        seasons=sorted({contract["season"] for contract in contracts if contract["season"]}, reverse=True),
         success=request.args.get("success", "").strip(),
+        error=error,
+        upload_modal_open=bool(error or request.args.get("upload", "").strip() == "1"),
+        contract_pdf_max_upload_mb=CONTRACT_PDF_MAX_UPLOAD_MB,
     )
 
 
@@ -26044,35 +26654,7 @@ def overeenkomsten_new_page() -> str:
     access_redirect = require_page_access("overeenkomsten")
     if access_redirect is not None:
         return access_redirect
-
-    if request.method == "POST":
-        contract = build_contract_from_form()
-        if not contract["clubName"]:
-            return render_template(
-                "overeenkomsten_form.html",
-                active_page="overeenkomsten",
-                contract=contract,
-                previous_contracts=load_contracts(),
-                agenda_attachment_options=build_contract_agenda_attachment_options(contract),
-                form_action=url_for("overeenkomsten_new_page"),
-                page_mode="new",
-                success="",
-                error="Vul minimaal een clubnaam in.",
-            )
-        contract_id = save_contract(contract)
-        return redirect(url_for("overeenkomsten_edit_page", contract_id=contract_id, success="Overeenkomst opgeslagen."))
-
-    return render_template(
-        "overeenkomsten_form.html",
-        active_page="overeenkomsten",
-        contract=normalize_contract(None),
-        previous_contracts=load_contracts(),
-        agenda_attachment_options=build_contract_agenda_attachment_options(normalize_contract(None)),
-        form_action=url_for("overeenkomsten_new_page"),
-        page_mode="new",
-        success=request.args.get("success", "").strip(),
-        error=request.args.get("error", "").strip(),
-    )
+    return redirect(url_for("overeenkomsten_page", upload="1"))
 
 
 @app.route("/overeenkomsten/<int:contract_id>", methods=["GET", "POST"])
@@ -26082,11 +26664,49 @@ def overeenkomsten_edit_page(contract_id: int) -> str:
         return access_redirect
 
     contract = load_contract(contract_id)
-    if contract is None:
-        return redirect(url_for("overeenkomsten_page"))
+    if contract is None or not contract.get("pdfStorageName"):
+        return redirect(url_for("overeenkomsten_page", error="Deze overeenkomst bestaat niet meer."))
 
     if request.method == "POST":
-        action = request.form.get("action", "save").strip() or "save"
+        action = request.form.get("action", "").strip()
+        if action in {"create_view_link", "create_sign_link"}:
+            link_type = "sign" if action == "create_sign_link" else "view"
+            if link_type == "sign" and contract.get("signedAt"):
+                return redirect(
+                    url_for(
+                        "overeenkomsten_edit_page",
+                        contract_id=contract_id,
+                        error="Deze overeenkomst is al ondertekend.",
+                    )
+                )
+            share_url, share_details = create_contract_share_link(
+                contract_id,
+                link_type,
+                request.form.get("expiry_days", "30"),
+            )
+            session["latest_contract_share"] = {
+                "contractId": contract_id,
+                "url": share_url,
+                **share_details,
+            }
+            return redirect(
+                url_for(
+                    "overeenkomsten_edit_page",
+                    contract_id=contract_id,
+                    success=f"{share_details['typeLabel'].capitalize()} aangemaakt.",
+                )
+            )
+        if action == "revoke_share_link":
+            share_id = request.form.get("share_id", type=int)
+            if share_id:
+                revoke_contract_share_link(contract_id, share_id)
+            return redirect(
+                url_for(
+                    "overeenkomsten_edit_page",
+                    contract_id=contract_id,
+                    success="Deellink ingetrokken.",
+                )
+            )
         if action == "delete":
             if not delete_confirmation_is_valid("contract", contract_id):
                 return redirect(
@@ -26096,39 +26716,146 @@ def overeenkomsten_edit_page(contract_id: int) -> str:
                         error="Verwijderen is niet bevestigd; de overeenkomst is behouden.",
                     )
                 )
+            storage_names = [
+                contract.get("pdfStorageName"),
+                contract.get("signedPdfStorageName"),
+                contract.get("signatureStorageName"),
+            ]
             with get_db_connection() as connection:
+                connection.execute("DELETE FROM contract_share_links WHERE contract_id = ?", (contract_id,))
                 connection.execute("DELETE FROM contracts WHERE id = ?", (contract_id,))
+            for storage_name in storage_names:
+                delete_private_contract_file(storage_name)
             clear_local_data_cache()
             return redirect(url_for("overeenkomsten_page", success="Overeenkomst verwijderd."))
 
-        updated_contract = build_contract_from_form()
-        if not updated_contract["clubName"]:
-            contract.update(updated_contract)
-            return render_template(
-                "overeenkomsten_form.html",
-                active_page="overeenkomsten",
-                contract=contract,
-                previous_contracts=[item for item in load_contracts() if item["id"] != contract_id],
-                agenda_attachment_options=build_contract_agenda_attachment_options(contract),
-                form_action=url_for("overeenkomsten_edit_page", contract_id=contract_id),
-                page_mode="edit",
-                success="",
-                error="Vul minimaal een clubnaam in.",
-            )
-        save_contract(updated_contract, contract_id=contract_id)
-        return redirect(url_for("overeenkomsten_edit_page", contract_id=contract_id, success="Overeenkomst opgeslagen."))
+    latest_share = session.pop("latest_contract_share", None)
+    if not isinstance(latest_share, dict) or int(latest_share.get("contractId") or 0) != contract_id:
+        latest_share = None
 
     return render_template(
         "overeenkomsten_form.html",
         active_page="overeenkomsten",
         contract=contract,
-        previous_contracts=[item for item in load_contracts() if item["id"] != contract_id],
-        agenda_attachment_options=build_contract_agenda_attachment_options(contract),
-        form_action=url_for("overeenkomsten_edit_page", contract_id=contract_id),
-        page_mode="edit",
+        share_links=load_contract_share_links(contract_id),
+        latest_share=latest_share,
         success=request.args.get("success", "").strip(),
         error=request.args.get("error", "").strip(),
     )
+
+
+@app.get("/overeenkomsten/<int:contract_id>/bestand")
+def overeenkomsten_file(contract_id: int):
+    access_redirect = require_page_access("overeenkomsten")
+    if access_redirect is not None:
+        return access_redirect
+    contract = load_contract(contract_id)
+    if contract is None or not contract.get("pdfStorageName"):
+        abort(404)
+    pdf_bytes = read_private_contract_file(contract["pdfStorageName"])
+    if pdf_bytes is None:
+        abort(404)
+    return contract_pdf_response(pdf_bytes, contract.get("originalFilename") or "overeenkomst.pdf")
+
+
+@app.get("/overeenkomsten/<int:contract_id>/ondertekend-bestand")
+def overeenkomsten_signed_file(contract_id: int):
+    access_redirect = require_page_access("overeenkomsten")
+    if access_redirect is not None:
+        return access_redirect
+    contract = load_contract(contract_id)
+    if contract is None or not contract.get("signedPdfStorageName"):
+        abort(404)
+    pdf_bytes = read_private_contract_file(contract["signedPdfStorageName"])
+    if pdf_bytes is None:
+        abort(404)
+    filename = f"ondertekend-{contract.get('originalFilename') or 'overeenkomst.pdf'}"
+    return contract_pdf_response(pdf_bytes, filename)
+
+
+@app.route("/gedeelde-overeenkomst/<share_token>", methods=["GET", "POST"])
+def contract_public_share_page(share_token: str):
+    share_link = load_contract_share_by_token(share_token)
+    if share_link is None or not share_link["isActive"]:
+        return (
+            render_template(
+                "contract_share.html",
+                contract=None,
+                share_link=None,
+                share_token="",
+                unavailable=True,
+                error="Deze deellink is ongeldig, verlopen of ingetrokken.",
+                completed=False,
+            ),
+            410,
+            contract_public_response_headers(),
+        )
+    contract = load_contract(share_link["contractId"])
+    if contract is None or read_private_contract_file(contract.get("pdfStorageName")) is None:
+        return (
+            render_template(
+                "contract_share.html",
+                contract=None,
+                share_link=None,
+                share_token="",
+                unavailable=True,
+                error="Deze overeenkomst is niet meer beschikbaar.",
+                completed=False,
+            ),
+            404,
+            contract_public_response_headers(),
+        )
+
+    error = ""
+    if request.method == "POST":
+        if share_link["type"] != "sign" or contract.get("signedAt"):
+            return redirect(url_for("contract_public_share_page", share_token=share_token))
+        error = complete_contract_signature(
+            contract,
+            share_link,
+            request.form.get("signer_name", ""),
+            request.form.get("signer_email", ""),
+            request.form.get("signer_role", ""),
+            request.form.get("signature_data", ""),
+        )
+        if not error:
+            return redirect(
+                url_for("contract_public_share_page", share_token=share_token, completed="1")
+            )
+        contract = load_contract(share_link["contractId"]) or contract
+
+    return (
+        render_template(
+            "contract_share.html",
+            contract=contract,
+            share_link=share_link,
+            share_token=share_token,
+            unavailable=False,
+            error=error,
+            completed=request.args.get("completed", "").strip() == "1",
+        ),
+        200,
+        contract_public_response_headers(),
+    )
+
+
+@app.get("/gedeelde-overeenkomst/<share_token>/pdf")
+def contract_public_pdf(share_token: str):
+    share_link = load_contract_share_by_token(share_token)
+    if share_link is None or not share_link["isActive"]:
+        abort(404)
+    contract = load_contract(share_link["contractId"])
+    if contract is None:
+        abort(404)
+    use_signed_pdf = share_link["type"] == "sign" and bool(contract.get("signedPdfStorageName"))
+    storage_name = contract.get("signedPdfStorageName") if use_signed_pdf else contract.get("pdfStorageName")
+    pdf_bytes = read_private_contract_file(storage_name)
+    if pdf_bytes is None:
+        abort(404)
+    filename = contract.get("originalFilename") or "overeenkomst.pdf"
+    if use_signed_pdf:
+        filename = f"ondertekend-{filename}"
+    return contract_pdf_response(pdf_bytes, filename)
 
 
 @app.get("/overeenkomsten/<int:contract_id>/export-pdf")
@@ -26140,6 +26867,11 @@ def overeenkomsten_export_pdf(contract_id: int):
     contract = load_contract(contract_id)
     if contract is None:
         return redirect(url_for("overeenkomsten_page"))
+    if contract.get("pdfStorageName"):
+        pdf_bytes = read_private_contract_file(contract["pdfStorageName"])
+        if pdf_bytes is None:
+            abort(404)
+        return contract_pdf_response(pdf_bytes, contract.get("originalFilename") or "overeenkomst.pdf")
     try:
         pdf_bytes = create_contract_pdf(contract)
     except RuntimeError as exc:
@@ -26164,6 +26896,14 @@ def overeenkomsten_export_docx(contract_id: int):
     contract = load_contract(contract_id)
     if contract is None:
         return redirect(url_for("overeenkomsten_page"))
+    if contract.get("pdfStorageName"):
+        return redirect(
+            url_for(
+                "overeenkomsten_edit_page",
+                contract_id=contract_id,
+                error="Geüploade overeenkomsten zijn alleen als PDF beschikbaar.",
+            )
+        )
     try:
         docx_bytes = create_contract_docx(contract)
     except RuntimeError as exc:

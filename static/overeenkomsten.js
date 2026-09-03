@@ -1,189 +1,173 @@
-const contractLineRows = document.querySelector("#contractLineRows");
-const contractLineTemplate = document.querySelector("#contractLineRowTemplate");
-const addContractLineButton = document.querySelector("#addContractLine");
-const contractCostRows = document.querySelector("#contractCostRows");
-const contractCostTemplate = document.querySelector("#contractCostRowTemplate");
-const addContractCostLineButton = document.querySelector("#addContractCostLine");
-const previousContractsNode = document.querySelector("#previousContracts");
-const contractAgendaAttachmentSearch = document.querySelector("#contractAgendaAttachmentSearch");
-const contractAgendaAttachmentOptions = document.querySelector("#contractAgendaAttachmentOptions");
+(() => {
+  const uploadModal = document.querySelector("#contractUploadModal");
+  const uploadFileInput = document.querySelector("[data-contract-file-input]");
+  const uploadFileLabel = document.querySelector("[data-contract-file-label]");
 
-let previousContracts = [];
-try {
-  previousContracts = JSON.parse(previousContractsNode?.textContent || "[]");
-} catch (error) {
-  previousContracts = [];
-}
+  const setUploadModalOpen = (isOpen) => {
+    if (!uploadModal) return;
+    uploadModal.hidden = !isOpen;
+    document.body.classList.toggle("contract-modal-open", isOpen);
+    if (isOpen) {
+      window.setTimeout(() => uploadFileInput?.focus(), 30);
+    }
+  };
 
-const parseMoney = (value) => {
-  const cleaned = String(value || "")
-    .replace(/[^0-9,.-]/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".");
-  const parsed = Number.parseFloat(cleaned);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const formatMoney = (value) => value.toFixed(2).replace(".", ",");
-
-const setFieldValue = (name, value) => {
-  const field = document.querySelector(`[name="${name}"]`);
-  if (field) {
-    field.value = value ?? "";
-    field.dispatchEvent(new Event("input", { bubbles: true }));
+  document.querySelectorAll("[data-open-contract-upload]").forEach((button) => {
+    button.addEventListener("click", () => setUploadModalOpen(true));
+  });
+  uploadModal?.querySelectorAll("[data-close-contract-upload]").forEach((button) => {
+    button.addEventListener("click", () => setUploadModalOpen(false));
+  });
+  if (uploadModal && !uploadModal.hidden) {
+    document.body.classList.add("contract-modal-open");
   }
-};
-
-const refreshRemoveButtons = () => {
-  const rows = Array.from(contractLineRows?.querySelectorAll("[data-contract-line-row]") || []);
-  rows.forEach((row) => {
-    const button = row.querySelector("[data-remove-contract-row]");
-    if (button) {
-      button.disabled = rows.length <= 1;
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && uploadModal && !uploadModal.hidden) {
+      setUploadModalOpen(false);
     }
   });
-  const costRows = Array.from(contractCostRows?.querySelectorAll("[data-contract-cost-row]") || []);
-  costRows.forEach((row) => {
-    const button = row.querySelector("[data-remove-contract-cost-row]");
-    if (button) {
-      button.disabled = costRows.length <= 1;
+
+  uploadFileInput?.addEventListener("change", () => {
+    const selectedFile = uploadFileInput.files?.[0];
+    if (uploadFileLabel) {
+      uploadFileLabel.textContent = selectedFile?.name || "Kies een PDF-bestand";
     }
   });
-};
 
-const appendContractLine = (line = {}) => {
-  const row = contractLineTemplate?.content.firstElementChild.cloneNode(true);
-  if (!row || !contractLineRows) {
-    return;
-  }
-  row.querySelector('input[name="line_day"]').value = line.day || "";
-  row.querySelector('input[name="line_time"]').value = line.time || "";
-  row.querySelector('input[name="line_team"]').value = line.team || "";
-  row.querySelector('input[name="line_training_type"]').value = line.trainingType || "";
-  contractLineRows.append(row);
-  refreshRemoveButtons();
-};
+  const searchInput = document.querySelector("#contractSearch");
+  const seasonFilter = document.querySelector("#contractSeasonFilter");
+  const clubFilter = document.querySelector("#contractClubFilter");
+  const contractTiles = Array.from(document.querySelectorAll("[data-contract-tile]"));
+  const visibleCount = document.querySelector("#contractVisibleCount");
+  const countSuffix = document.querySelector("#contractCountSuffix");
+  const emptyState = document.querySelector("#contractEmptyState");
+  const emptyTitle = emptyState?.querySelector("[data-contract-empty-title]");
+  const emptyCopy = emptyState?.querySelector("[data-contract-empty-copy]");
+  const resetFilters = document.querySelector("[data-reset-contract-filters]");
 
-const replaceContractLines = (lines) => {
-  contractLineRows?.querySelectorAll("[data-contract-line-row]").forEach((row) => row.remove());
-  const safeLines = Array.isArray(lines) && lines.length ? lines : [{}];
-  safeLines.forEach((line) => appendContractLine(line));
-  updateCountFromRows();
-};
+  const normalize = (value) => String(value || "").trim().toLocaleLowerCase("nl-NL");
+  const applyFilters = () => {
+    if (!contractTiles.length) return;
+    const query = normalize(searchInput?.value);
+    const season = normalize(seasonFilter?.value);
+    const club = normalize(clubFilter?.value);
+    let count = 0;
+    contractTiles.forEach((tile) => {
+      const matchesSearch = !query || normalize(tile.dataset.search).includes(query);
+      const matchesSeason = !season || normalize(tile.dataset.season) === season;
+      const matchesClub = !club || normalize(tile.dataset.club) === club;
+      const visible = matchesSearch && matchesSeason && matchesClub;
+      tile.hidden = !visible;
+      if (visible) count += 1;
+    });
+    if (visibleCount) visibleCount.textContent = String(count);
+    if (countSuffix) countSuffix.textContent = count === 1 ? "" : "en";
+    if (emptyState) emptyState.hidden = count !== 0;
+    if (emptyTitle) emptyTitle.textContent = "Geen overeenkomsten gevonden";
+    if (emptyCopy) emptyCopy.textContent = "Pas je zoekopdracht of filters aan.";
+    if (resetFilters) resetFilters.hidden = !(query || season || club);
+  };
 
-const updateCostLineTotal = (row) => {
-  const priceInput = row?.querySelector("[data-contract-cost-price]");
-  const countInput = row?.querySelector("[data-contract-cost-count]");
-  const totalInput = row?.querySelector("[data-contract-cost-total]");
-  if (!priceInput || !countInput || !totalInput) {
-    return;
-  }
-  const total = parseMoney(priceInput.value) * Number(countInput.value || 0);
-  if (total > 0) {
-    totalInput.value = formatMoney(total);
-  }
-};
-
-const appendContractCostLine = (line = {}) => {
-  const row = contractCostTemplate?.content.firstElementChild.cloneNode(true);
-  if (!row || !contractCostRows) {
-    return;
-  }
-  row.querySelector('input[name="cost_description"]').value = line.description || "";
-  row.querySelector('input[name="cost_price_per_training"]').value = line.pricePerTraining || "";
-  row.querySelector('input[name="cost_training_count"]').value = line.trainingCount || "";
-  row.querySelector('input[name="cost_total_amount"]').value = line.totalAmount || "";
-  contractCostRows.append(row);
-  updateCostLineTotal(row);
-  refreshRemoveButtons();
-};
-
-const replaceContractCostLines = (lines) => {
-  contractCostRows?.querySelectorAll("[data-contract-cost-row]").forEach((row) => row.remove());
-  const safeLines = Array.isArray(lines) && lines.length ? lines : [{}];
-  safeLines.forEach((line) => appendContractCostLine(line));
-};
-
-const updateCountFromRows = () => {
-  contractCostRows?.querySelectorAll("[data-contract-cost-row]").forEach((row) => updateCostLineTotal(row));
-};
-
-addContractLineButton?.addEventListener("click", () => {
-  appendContractLine();
-});
-
-addContractCostLineButton?.addEventListener("click", () => {
-  appendContractCostLine();
-});
-
-contractLineRows?.addEventListener("click", (event) => {
-  const removeButton = event.target.closest("[data-remove-contract-row]");
-  if (!removeButton) {
-    return;
-  }
-  const row = removeButton.closest("[data-contract-line-row]");
-  row?.remove();
-  refreshRemoveButtons();
-  updateCountFromRows();
-});
-
-contractCostRows?.addEventListener("click", (event) => {
-  const removeButton = event.target.closest("[data-remove-contract-cost-row]");
-  if (!removeButton) {
-    return;
-  }
-  const row = removeButton.closest("[data-contract-cost-row]");
-  row?.remove();
-  refreshRemoveButtons();
-});
-
-contractLineRows?.addEventListener("input", () => {
-  updateCountFromRows();
-});
-
-contractCostRows?.addEventListener("input", (event) => {
-  const row = event.target.closest("[data-contract-cost-row]");
-  updateCostLineTotal(row);
-});
-
-document.querySelectorAll("[data-reuse-contract]").forEach((select) => {
-  select.addEventListener("change", () => {
-    const contract = previousContracts.find((item) => String(item.id) === select.value);
-    if (!contract) {
-      return;
-    }
-    if (select.dataset.reuseContract === "trainingLines") {
-      replaceContractLines(contract.trainingLines || []);
-    }
-    if (select.dataset.reuseContract === "meta") {
-      setFieldValue("title", contract.title || "");
-      setFieldValue("club_address", contract.clubAddress || "");
-      setFieldValue("season", contract.season || "");
-      setFieldValue("start_date", contract.startDate || "");
-      setFieldValue("end_date", contract.endDate || "");
-    }
-    if (select.dataset.reuseContract === "costs") {
-      replaceContractCostLines(contract.costLines || []);
-      setFieldValue("notice_period", contract.noticePeriod || "");
-    }
-    if (select.dataset.reuseContract === "trainingExecution") {
-      setFieldValue("training_execution_summary", contract.trainingExecutionSummary || "");
-      setFieldValue("training_execution_details", contract.trainingExecutionDetails || "");
-    }
-    if (select.dataset.reuseContract === "extraActivities") {
-      setFieldValue("extra_activities", contract.extraActivities || "");
-    }
-    select.value = "";
+  [searchInput, seasonFilter, clubFilter].forEach((field) => {
+    field?.addEventListener(field === searchInput ? "input" : "change", applyFilters);
   });
-});
-
-contractAgendaAttachmentSearch?.addEventListener("input", () => {
-  const query = contractAgendaAttachmentSearch.value.trim().toLowerCase();
-  contractAgendaAttachmentOptions?.querySelectorAll("[data-contract-agenda-option]").forEach((option) => {
-    const haystack = option.dataset.search || option.textContent?.toLowerCase() || "";
-    option.hidden = Boolean(query) && !haystack.includes(query);
+  resetFilters?.addEventListener("click", () => {
+    if (searchInput) searchInput.value = "";
+    if (seasonFilter) seasonFilter.value = "";
+    if (clubFilter) clubFilter.value = "";
+    applyFilters();
+    searchInput?.focus();
   });
-});
 
-refreshRemoveButtons();
-updateCountFromRows();
+  const shareUrlInput = document.querySelector("[data-share-url]");
+  const copyShareButton = document.querySelector("[data-copy-share-url]");
+  const copyFeedback = document.querySelector("[data-copy-feedback]");
+  copyShareButton?.addEventListener("click", async () => {
+    if (!shareUrlInput) return;
+    try {
+      await navigator.clipboard.writeText(shareUrlInput.value);
+    } catch (error) {
+      shareUrlInput.select();
+      document.execCommand("copy");
+    }
+    copyShareButton.textContent = "Gekopieerd";
+    if (copyFeedback) copyFeedback.textContent = "De link staat op je klembord.";
+    window.setTimeout(() => {
+      copyShareButton.textContent = "Kopieer link";
+    }, 2200);
+  });
+
+  const signatureCanvas = document.querySelector("[data-signature-canvas]");
+  const signatureForm = document.querySelector("[data-contract-sign-form]");
+  const signatureDataInput = document.querySelector("[data-signature-data]");
+  const signatureError = document.querySelector("[data-signature-error]");
+  const clearSignatureButton = document.querySelector("[data-clear-signature]");
+  if (signatureCanvas instanceof HTMLCanvasElement && signatureForm && signatureDataInput) {
+    const context = signatureCanvas.getContext("2d");
+    let drawing = false;
+    let hasInk = false;
+
+    const pointFromEvent = (event) => {
+      const rect = signatureCanvas.getBoundingClientRect();
+      return {
+        x: ((event.clientX - rect.left) / rect.width) * signatureCanvas.width,
+        y: ((event.clientY - rect.top) / rect.height) * signatureCanvas.height,
+      };
+    };
+    const startDrawing = (event) => {
+      if (!context) return;
+      drawing = true;
+      const point = pointFromEvent(event);
+      context.beginPath();
+      context.moveTo(point.x, point.y);
+      signatureCanvas.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    };
+    const draw = (event) => {
+      if (!drawing || !context) return;
+      const point = pointFromEvent(event);
+      context.lineWidth = 4;
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.strokeStyle = "#151515";
+      context.lineTo(point.x, point.y);
+      context.stroke();
+      hasInk = true;
+      if (signatureError) signatureError.textContent = "";
+      event.preventDefault();
+    };
+    const stopDrawing = (event) => {
+      drawing = false;
+      if (event?.pointerId !== undefined) {
+        signatureCanvas.releasePointerCapture?.(event.pointerId);
+      }
+    };
+    signatureCanvas.addEventListener("pointerdown", startDrawing);
+    signatureCanvas.addEventListener("pointermove", draw);
+    signatureCanvas.addEventListener("pointerup", stopDrawing);
+    signatureCanvas.addEventListener("pointercancel", stopDrawing);
+    signatureCanvas.addEventListener("pointerleave", stopDrawing);
+
+    clearSignatureButton?.addEventListener("click", () => {
+      context?.clearRect(0, 0, signatureCanvas.width, signatureCanvas.height);
+      hasInk = false;
+      signatureDataInput.value = "";
+      if (signatureError) signatureError.textContent = "";
+    });
+
+    signatureForm.addEventListener("submit", (event) => {
+      if (!hasInk) {
+        event.preventDefault();
+        if (signatureError) signatureError.textContent = "Zet eerst je handtekening in het tekenveld.";
+        signatureCanvas.focus();
+        return;
+      }
+      signatureDataInput.value = signatureCanvas.toDataURL("image/png");
+      const submitButton = signatureForm.querySelector('button[type="submit"]');
+      if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent = "Ondertekening opslaan…";
+      }
+    });
+  }
+})();

@@ -58,6 +58,8 @@ De app gebruikt nu een SQLite-database op `data/app.db` voor:
 - agenda-trainings
 - trainerprofielen
 
+Geüploade en ondertekende overeenkomsten worden privé opgeslagen onder `DATA_DIR/contracts/` en uitsluitend via een ingelogde sessie of een geldige, intrekbare deellink aangeboden. Neem deze map samen met `app.db` op in de back-ups.
+
 Bestaande data uit `data/dashboard_events.json` en `data/agenda_trainings.json` wordt door `python manage.py init_storage` naar SQLite gemigreerd als de database nog leeg is. Initialisatie gebeurt bewust niet meer tijdens een gewone module-import.
 
 Vóór iedere muterende opslaginitialisatie maakt het commando met SQLite's online backup-API een consistente, atomisch gepubliceerde snapshot in `DATA_DIR/backups/`. Standaard blijven de laatste zeven snapshots staan; pas dit zo nodig aan met `STORAGE_BACKUP_RETENTION` (1–30). Deze lokale snapshots zijn een extra vangnet en vervangen geen externe serverbackup.

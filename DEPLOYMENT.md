@@ -14,6 +14,7 @@ Deze app gebruikt:
 
 - Python 3.13.15 en Django 5.2 LTS
 - SQLite database: `data/app.db`
+- Privé-overeenkomsten en ondertekende PDF's: standaard `DATA_DIR/contracts/`
 - Templates: `templates/`
 - Static files: `static/`
 - Persistente lokale uploads: `/var/lib/overzicht/uploads/` via `LOCAL_UPLOAD_ROOT`
@@ -32,6 +33,8 @@ DJANGO_DEBUG=0
 DJANGO_ALLOWED_HOSTS=www.workspace.hwsvoetbalschool.nl
 DJANGO_CSRF_TRUSTED_ORIGINS=https://www.workspace.hwsvoetbalschool.nl
 DATA_DIR=/var/lib/overzicht/data
+# Optioneel; standaard wordt DATA_DIR/contracts gebruikt:
+# CONTRACT_STORAGE_ROOT=/var/lib/overzicht/contracts
 LOCAL_UPLOAD_ROOT=/var/lib/overzicht/uploads
 SQLITE_BUSY_TIMEOUT_MS=30000
 STORAGE_BACKUP_RETENTION=7

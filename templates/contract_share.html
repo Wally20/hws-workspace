@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ legacy_csrf_token }}">
+    <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
+    <meta name="referrer" content="no-referrer">
+    <title>{% if contract %}Overeenkomst {{ contract.clubName }}{% else %}Overeenkomst niet beschikbaar{% endif %} | HWS Voetbalschool</title>
+    <link rel="icon" type="image/png" href="/static/assets/hws-logo.png">
+    <link rel="stylesheet" href="/static/styles.css?v={{ asset_version }}">
+  </head>
+  <body class="contract-share-body">
+    <main class="contract-share-shell">
+      <header class="contract-share-header">
+        <a href="https://www.hwsvoetbalschool.nl" class="contract-share-brand" aria-label="HWS Voetbalschool">
+          <img src="/static/assets/hws-logo.png" alt="HWS Voetbalschool">
+          <span>HWS Voetbalschool</span>
+        </a>
+        {% if share_link %}<span class="contract-share-security">Beveiligde {{ "ondertekenlink" if share_link.type == "sign" else "weergavelink" }}</span>{% endif %}
+      </header>
+
+      {% if unavailable %}
+        <section class="contract-public-unavailable">
+          <div class="contract-empty-icon" aria-hidden="true">PDF</div>
+          <h1>Overeenkomst niet beschikbaar</h1>
+          <p>{{ error }}</p>
+        </section>
+      {% else %}
+        <section class="contract-public-heading">
+          <div>
+            <p class="page-kicker">Overeenkomst · {{ contract.season }}</p>
+            <h1>{{ contract.clubName }}</h1>
+            <p>{{ contract.originalFilename }}</p>
+          </div>
+          <span class="contract-status contract-status-{{ contract.status }}">{{ contract.statusLabel }}</span>
+        </section>
+
+        {% if completed %}
+          <section class="contract-public-success">
+            <span aria-hidden="true">✓</span>
+            <div>
+              <h2>Overeenkomst ondertekend</h2>
+              <p>Bedankt. De ondertekende PDF is opgeslagen en hieronder beschikbaar.</p>
+            </div>
+          </section>
+        {% endif %}
+        {% if error %}<section class="notice trainers-notice trainers-notice-error">{{ error }}</section>{% endif %}
+
+        <section class="contract-public-document">
+          <div class="contract-panel-heading">
+            <div>
+              <p class="page-kicker">Document</p>
+              <h2>{{ "Ondertekende overeenkomst" if contract.signedAt and share_link.type == "sign" else "Conceptovereenkomst" }}</h2>
+            </div>
+            <a href="/gedeelde-overeenkomst/{{ share_token }}/pdf" target="_blank" rel="noopener" class="subtle-button">Open PDF apart</a>
+          </div>
+          <iframe class="contract-pdf-frame contract-public-pdf" src="/gedeelde-overeenkomst/{{ share_token }}/pdf#toolbar=1&navpanes=0" title="Overeenkomst van {{ contract.clubName }}"></iframe>
+        </section>
+
+        {% if share_link.type == "sign" and not contract.signedAt %}
+          <section class="contract-sign-section" id="ondertekenen">
+            <div class="contract-sign-intro">
+              <p class="page-kicker">Ondertekenen</p>
+              <h2>Akkoord met de overeenkomst?</h2>
+              <p>Lees de volledige PDF hierboven. Vul daarna je gegevens in en plaats je handtekening.</p>
+            </div>
+            <form method="post" action="/gedeelde-overeenkomst/{{ share_token }}" class="contract-sign-form" data-contract-sign-form>
+              <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+              <input type="hidden" name="signature_data" value="" data-signature-data>
+              <div class="contract-signer-fields">
+                <label class="field">
+                  <span>Volledige naam</span>
+                  <input type="text" name="signer_name" maxlength="160" autocomplete="name" required>
+                </label>
+                <label class="field">
+                  <span>E-mailadres</span>
+                  <input type="email" name="signer_email" maxlength="254" autocomplete="email" required>
+                </label>
+                <label class="field">
+                  <span>Functie bij de club <small>(optioneel)</small></span>
+                  <input type="text" name="signer_role" maxlength="160" autocomplete="organization-title">
+                </label>
+              </div>
+              <div class="contract-signature-field">
+                <div class="contract-signature-head">
+                  <label for="contractSignatureCanvas">Handtekening</label>
+                  <button type="button" data-clear-signature>Opnieuw</button>
+                </div>
+                <canvas id="contractSignatureCanvas" width="900" height="260" data-signature-canvas tabindex="0" aria-label="Tekenveld voor handtekening"></canvas>
+                <p>Teken met je muis, trackpad of vinger.</p>
+              </div>
+              <label class="contract-agreement-check">
+                <input type="checkbox" name="agreement" value="1" required>
+                <span>Ik heb de volledige overeenkomst gelezen, ben bevoegd om namens de club te ondertekenen en ga akkoord met de inhoud.</span>
+              </label>
+              <p class="contract-sign-error" data-signature-error aria-live="polite"></p>
+              <button type="submit" class="refresh-button contract-sign-submit">Overeenkomst ondertekenen</button>
+            </form>
+          </section>
+        {% elif share_link.type == "view" %}
+          <p class="contract-public-expiry">Deze weergavelink is geldig tot {{ share_link.expiresAtLabel }}.</p>
+        {% endif %}
+      {% endif %}
+    </main>
+    <script nonce="{{ csp_nonce }}" src="/static/overeenkomsten.js?v={{ asset_version }}" defer></script>
+  </body>
+</html>

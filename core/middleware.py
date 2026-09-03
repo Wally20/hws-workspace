@@ -39,8 +39,9 @@ class LegacyResponseHeadersMiddleware:
             request.csp_nonce = secrets.token_urlsafe(16)
         response = self.get_response(request)
         is_public_invite = request.path.startswith("/uitnodiging/")
+        is_public_contract = request.path.startswith("/gedeelde-overeenkomst/")
 
-        if is_public_invite:
+        if is_public_invite or is_public_contract:
             response["Cache-Control"] = "no-store, max-age=0"
             response["Pragma"] = "no-cache"
             response["Expires"] = "0"
@@ -80,7 +81,7 @@ class LegacyResponseHeadersMiddleware:
         response.setdefault("X-Frame-Options", "DENY")
         response.setdefault("Permissions-Policy", "camera=(), geolocation=(), microphone=()")
         response.setdefault("Cross-Origin-Opener-Policy", "same-origin")
-        if is_public_invite:
+        if is_public_invite or is_public_contract:
             response["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
             response["Referrer-Policy"] = "no-referrer"
         if request.is_secure():

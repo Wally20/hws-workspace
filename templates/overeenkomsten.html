@@ -3,54 +3,128 @@
 {% block title %}Overeenkomsten | HWS Voetbalschool Workspace{% endblock %}
 
 {% block content %}
-  <header class="page-header football-days-header">
+  <header class="page-header contract-library-header">
     <div>
+      <p class="page-kicker">Documenten</p>
       <h1>Overeenkomsten</h1>
-      <p class="welcome-line">Maak per club een overeenkomst op basis van het standaard Word-template.</p>
+      <p class="welcome-line">Bewaar, vind en deel overeenkomsten vanuit één overzicht.</p>
     </div>
-    <div class="football-days-actions">
-      <a href="/overeenkomsten/nieuw" class="refresh-button">Nieuw</a>
-    </div>
+    <button type="button" class="refresh-button" data-open-contract-upload>Overeenkomst uploaden</button>
   </header>
 
   {% if success %}
     <section class="notice trainers-notice trainers-notice-success">{{ success }}</section>
   {% endif %}
+  {% if error %}
+    <section class="notice trainers-notice trainers-notice-error">{{ error }}</section>
+  {% endif %}
 
-  <section class="football-playbook-grid">
+  <section class="contract-toolbar" aria-label="Overeenkomsten zoeken en filteren">
+    <label class="contract-search-field">
+      <span class="sr-only">Zoeken</span>
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="11" cy="11" r="6.5"></circle>
+        <path d="m16 16 4 4"></path>
+      </svg>
+      <input type="search" id="contractSearch" placeholder="Zoek op club, seizoen of bestandsnaam" autocomplete="off">
+    </label>
+    <label class="contract-filter-field">
+      <span>Seizoen</span>
+      <select id="contractSeasonFilter">
+        <option value="">Alle seizoenen</option>
+        {% for season in seasons %}<option value="{{ season|lower }}">{{ season }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="contract-filter-field">
+      <span>Club</span>
+      <select id="contractClubFilter">
+        <option value="">Alle clubs</option>
+        {% for club in clubs %}<option value="{{ club|lower }}">{{ club }}</option>{% endfor %}
+      </select>
+    </label>
+  </section>
+
+  <div class="contract-results-summary">
+    <p><strong id="contractVisibleCount">{{ contracts|length }}</strong> overeenkomst<span id="contractCountSuffix">{{ "en" if contracts|length != 1 else "" }}</span></p>
+    <button type="button" class="contract-reset-filters" data-reset-contract-filters hidden>Filters wissen</button>
+  </div>
+
+  <section class="contract-tile-grid" id="contractTileGrid">
     {% for contract in contracts %}
-      <article class="summary-card old-function-tile football-playbook-tile">
-        <a href="/overeenkomsten/{{ contract.id }}" class="football-playbook-link">
-          <div class="feature-record-head">
-            <div>
-              <h2>{{ contract.clubName }}</h2>
-              <p class="feature-record-meta">
-                {{ contract.season or "Geen seizoen" }}
-                {% if contract.startDate %} · vanaf {{ contract.startDate }}{% endif %}
-              </p>
-            </div>
-            <span class="pill">{{ contract.trainingCount or 0 }} trainingen</span>
+      <article
+        class="contract-document-tile"
+        data-contract-tile
+        data-search="{{ (contract.clubName ~ ' ' ~ contract.season ~ ' ' ~ contract.originalFilename)|lower }}"
+        data-season="{{ contract.season|lower }}"
+        data-club="{{ contract.clubName|lower }}"
+      >
+        <a href="/overeenkomsten/{{ contract.id }}" class="contract-document-link" aria-label="Open overeenkomst van {{ contract.clubName }}">
+          <div class="contract-document-preview">
+            <svg viewBox="0 0 64 76" fill="none" aria-hidden="true">
+              <path d="M13 3h25l13 13v57H13z"></path>
+              <path d="M38 3v14h13"></path>
+              <path d="M21 34h22M21 44h22M21 54h15"></path>
+            </svg>
+            <span class="contract-status contract-status-{{ contract.status }}">{{ contract.statusLabel }}</span>
           </div>
-          <div class="compact-stat-list">
-            <div class="compact-stat-row">
-              <span>Tarief</span>
-              <span class="compact-stat-value">€{{ contract.pricePerTraining or "-" }}</span>
-            </div>
-            <div class="compact-stat-row">
-              <span>Totaal</span>
-              <span class="compact-stat-value">€{{ contract.totalAmount or "-" }}</span>
-            </div>
-            <div class="compact-stat-row">
-              <span>Schema regels</span>
-              <span class="compact-stat-value">{{ contract.trainingLines|length }}</span>
+          <div class="contract-document-body">
+            <p class="contract-document-season">{{ contract.season }}</p>
+            <h2>{{ contract.clubName }}</h2>
+            <p class="contract-document-filename">{{ contract.originalFilename }}</p>
+            <div class="contract-document-meta">
+              <span>{{ contract.pdfFileSizeLabel }}</span>
+              <span>{{ contract.updatedAt[:10] }}</span>
             </div>
           </div>
+          <span class="contract-document-open" aria-hidden="true">Openen →</span>
         </a>
-      </article>
-    {% else %}
-      <article class="summary-card old-function-tile">
-        <div class="empty-state">Er zijn nog geen overeenkomsten opgeslagen.</div>
       </article>
     {% endfor %}
   </section>
+
+  <section class="summary-card contract-empty-state" id="contractEmptyState" {% if contracts %}hidden{% endif %}>
+    <div class="contract-empty-icon" aria-hidden="true">PDF</div>
+    <h2 data-contract-empty-title>{% if contracts %}Geen overeenkomsten gevonden{% else %}Nog geen overeenkomsten{% endif %}</h2>
+    <p data-contract-empty-copy>{% if contracts %}Pas je zoekopdracht of filters aan.{% else %}Upload de eerste PDF-overeenkomst om te beginnen.{% endif %}</p>
+    {% if not contracts %}<button type="button" class="refresh-button" data-open-contract-upload>PDF uploaden</button>{% endif %}
+  </section>
+
+  <div class="agenda-modal contract-upload-modal" id="contractUploadModal" {% if not upload_modal_open %}hidden{% endif %}>
+    <div class="agenda-modal-backdrop" data-close-contract-upload></div>
+    <section class="agenda-modal-dialog contract-upload-dialog" role="dialog" aria-modal="true" aria-labelledby="contractUploadTitle">
+      <div class="agenda-modal-header">
+        <div>
+          <p class="page-kicker">Nieuwe overeenkomst</p>
+          <h2 id="contractUploadTitle">PDF uploaden</h2>
+        </div>
+        <button type="button" class="team-modal-close" data-close-contract-upload aria-label="Sluiten">×</button>
+      </div>
+      <form method="post" action="/overeenkomsten" enctype="multipart/form-data" class="contract-upload-form">
+        <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+        <input type="hidden" name="action" value="upload_contract">
+        <label class="contract-file-drop" data-contract-file-drop>
+          <input type="file" name="contract_pdf" accept="application/pdf,.pdf" required data-contract-file-input>
+          <span class="contract-file-drop-icon">PDF</span>
+          <strong data-contract-file-label>Kies een PDF-bestand</strong>
+          <small>Maximaal {{ contract_pdf_max_upload_mb }} MB</small>
+        </label>
+        <div class="contract-upload-fields">
+          <label class="field">
+            <span>Club</span>
+            <input type="text" name="club_name" maxlength="160" placeholder="Bijvoorbeeld VV Voorst" required>
+          </label>
+          <label class="field">
+            <span>Seizoen</span>
+            <input type="text" name="season" maxlength="40" placeholder="Bijvoorbeeld 2026/2027" required>
+          </label>
+        </div>
+        <div class="contract-modal-actions">
+          <button type="button" class="subtle-button" data-close-contract-upload>Annuleren</button>
+          <button type="submit" class="refresh-button">Overeenkomst opslaan</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <script nonce="{{ csp_nonce }}" src="/static/overeenkomsten.js?v={{ asset_version }}" defer></script>
 {% endblock %}

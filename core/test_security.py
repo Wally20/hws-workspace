@@ -393,7 +393,11 @@ class DestructiveActionSecurityTests(SimpleTestCase):
 
         with (
             patch.object(legacy, "get_user_by_id", return_value=admin_user),
-            patch.object(legacy, "load_contract", return_value={"id": 9, "clubName": "Veilige club"}),
+            patch.object(
+                legacy,
+                "load_contract",
+                return_value={"id": 9, "clubName": "Veilige club", "pdfStorageName": "veilig.pdf"},
+            ),
             patch.object(legacy, "get_db_connection") as database_connection,
         ):
             response = client.post(
