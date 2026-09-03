@@ -22,25 +22,43 @@
       <div class="feature-list-head">
         <div>
           <h2 class="panel-title">Totale voorraad</h2>
-          <p class="feature-list-subtitle">Voeg materiaalsoorten toe en vul in hoeveel je er totaal van hebt.</p>
+          <p class="feature-list-subtitle">De materialen staan per onderdeel en daarbinnen per kleur bij elkaar.</p>
         </div>
-        <button type="button" class="subtle-button action-small" data-add-material>Materiaal toevoegen</button>
+        <div class="materials-panel-actions">
+          <button type="button" class="subtle-button action-small" data-sort-materials>Op onderdeel sorteren</button>
+          <button type="button" class="subtle-button action-small" data-add-material>Materiaal toevoegen</button>
+        </div>
+      </div>
+
+      <div class="materials-category-legend" aria-label="Onderdelen">
+        {% for option in material_category_options if option.value != "overig" %}
+          <span class="materials-category-chip" data-material-category="{{ option.value }}">{{ option.label }}</span>
+        {% endfor %}
       </div>
 
       <div class="materials-table materials-total-table" data-material-list>
         <div class="materials-row materials-row-head" aria-hidden="true">
           <span>Materiaal</span>
+          <span>Onderdeel</span>
           <span>Totaal</span>
           <span>Bij clubs</span>
           <span>Opslag</span>
           <span></span>
         </div>
         {% for material in inventory.materials %}
-          <div class="materials-row" data-material-row data-material-key="{{ material.key }}">
+          <div class="materials-row" data-material-row data-material-key="{{ material.key }}" data-material-category="{{ material.category or 'overig' }}" data-material-color="{{ material.color or 'overig' }}">
             <input type="hidden" name="material_key" value="{{ material.key }}">
             <label>
               <span>Materiaal</span>
               <input type="text" name="material_name" value="{{ material.name }}" placeholder="Bijv. ballen">
+            </label>
+            <label>
+              <span>Onderdeel</span>
+              <select name="material_category" data-material-category-input aria-label="Onderdeel van {{ material.name or 'materiaal' }}">
+                {% for option in material_category_options %}
+                  <option value="{{ option.value }}" {% if (material.category or 'overig') == option.value %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+              </select>
             </label>
             <label>
               <span>Totaal</span>
@@ -100,7 +118,7 @@
                 <div class="materials-club-materials" data-club-materials>
                   {% for material in inventory.materials %}
                     {% set club_quantity = club.quantities.get(material.key, 0) %}
-                    <label class="materials-club-material-choice" data-club-material-field data-material-key="{{ material.key }}">
+                    <label class="materials-club-material-choice" data-club-material-field data-material-key="{{ material.key }}" data-material-category="{{ material.category or 'overig' }}" data-material-color="{{ material.color or 'overig' }}">
                       <span class="materials-choice-check">
                         <input
                           type="checkbox"
@@ -183,11 +201,19 @@
   </form>
 
   <template id="materialRowTemplate">
-    <div class="materials-row" data-material-row data-material-key="__MATERIAL_KEY__">
+    <div class="materials-row" data-material-row data-material-key="__MATERIAL_KEY__" data-material-category="overig" data-material-color="overig">
       <input type="hidden" name="material_key" value="__MATERIAL_KEY__">
       <label>
         <span>Materiaal</span>
         <input type="text" name="material_name" value="" placeholder="Bijv. ballen">
+      </label>
+      <label>
+        <span>Onderdeel</span>
+        <select name="material_category" data-material-category-input aria-label="Onderdeel van materiaal">
+          {% for option in material_category_options %}
+            <option value="{{ option.value }}" {% if option.value == "overig" %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
       </label>
       <label>
         <span>Totaal</span>

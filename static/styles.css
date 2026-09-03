@@ -1469,6 +1469,29 @@ body.checklist-modal-open {
   gap: 10px;
 }
 
+.materials-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.materials-category-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.materials-category-chip {
+  padding: 6px 10px;
+  border: 1px solid var(--materials-category-border, var(--line));
+  border-radius: 999px;
+  background: var(--materials-category-bg, #f4f4f4);
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
 .materials-all-clubs-pdf-button {
   border-color: #111111;
   background: #111111;
@@ -1488,29 +1511,72 @@ body.materials-modal-open {
 
 .materials-table {
   display: grid;
-  gap: 0;
+  gap: 2px;
   border-top: 1px solid var(--line);
 }
 
 .materials-row {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(120px, 170px) minmax(90px, 130px) minmax(90px, 130px) minmax(120px, 170px);
-  column-gap: 24px;
+  grid-template-columns: minmax(260px, 1fr) minmax(155px, 190px) minmax(105px, 140px) minmax(85px, 115px) minmax(85px, 115px) minmax(115px, 150px);
+  column-gap: 18px;
   row-gap: 8px;
   align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px solid #ececec;
-  background: transparent;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--materials-category-bg, transparent);
 }
 
 .materials-row-head {
-  padding: 10px 0 8px;
+  padding: 10px 10px 8px;
+  border: 0;
+  border-radius: 0;
   background: transparent;
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 800;
   text-transform: uppercase;
 }
+
+.materials-category-start {
+  margin-top: 8px;
+  border-top-color: var(--materials-category-border, var(--line));
+}
+
+[data-material-category="grote_hoedjes"] {
+  --materials-category-bg: #edf5ff;
+  --materials-category-border: #b9d7fa;
+}
+
+[data-material-category="kleine_hoedjes"] {
+  --materials-category-bg: #fff8dc;
+  --materials-category-border: #ead68a;
+}
+
+[data-material-category="loopladders"] {
+  --materials-category-bg: #eaf8ef;
+  --materials-category-border: #a9d9b8;
+}
+
+[data-material-category="trainerskleding"] {
+  --materials-category-bg: #f4edff;
+  --materials-category-border: #d0b9ef;
+}
+
+[data-material-category="overig"] {
+  --materials-category-bg: #f6f6f6;
+  --materials-category-border: #d8d8d8;
+}
+
+[data-material-color="wit"] { --materials-item-color: #c9c9c9; }
+[data-material-color="geel"] { --materials-item-color: #e2bd00; }
+[data-material-color="oranje"] { --materials-item-color: #ef8618; }
+[data-material-color="rood"] { --materials-item-color: #d43b32; }
+[data-material-color="lichtgroen"] { --materials-item-color: #82ce75; }
+[data-material-color="groen"] { --materials-item-color: #29984a; }
+[data-material-color="blauw"] { --materials-item-color: #397bd3; }
+[data-material-color="zwart"] { --materials-item-color: #222222; }
+[data-material-color="overig"] { --materials-item-color: #a4a4a4; }
 
 .materials-row label,
 .materials-club-head label,
@@ -1539,21 +1605,27 @@ body.materials-modal-open {
 }
 
 .materials-row-head span:nth-child(3),
-.materials-row output[data-material-allocated] {
+.materials-row label:nth-of-type(3) {
   grid-column: 3;
 }
 
 .materials-row-head span:nth-child(4),
-.materials-row output[data-material-available] {
+.materials-row output[data-material-allocated] {
   grid-column: 4;
 }
 
 .materials-row-head span:nth-child(5),
-.materials-row [data-remove-material] {
+.materials-row output[data-material-available] {
   grid-column: 5;
 }
 
+.materials-row-head span:nth-child(6),
+.materials-row [data-remove-material] {
+  grid-column: 6;
+}
+
 .materials-row input,
+.materials-row select,
 .materials-club-head input,
 .materials-club-materials input {
   width: 100%;
@@ -1566,6 +1638,15 @@ body.materials-modal-open {
   font: inherit;
   font-size: 0.9rem;
   padding: 0 10px;
+}
+
+.materials-row input[name="material_name"] {
+  border-left: 5px solid var(--materials-item-color, #a4a4a4);
+  padding-left: 8px;
+}
+
+.materials-row select {
+  appearance: auto;
 }
 
 .materials-row output,
@@ -1772,10 +1853,10 @@ body.materials-modal-open {
   gap: 14px;
   align-items: center;
   min-width: 0;
-  padding: 10px 0;
+  padding: 10px;
   border: 0;
-  border-bottom: 1px solid #ececec;
-  background: transparent;
+  border-bottom: 1px solid var(--materials-category-border, #ececec);
+  background: var(--materials-category-bg, transparent);
 }
 
 .materials-club-material-choice[hidden] {
@@ -1795,6 +1876,15 @@ body.materials-modal-open {
   font-size: 0.88rem;
   font-weight: 800;
   text-transform: none;
+}
+
+.materials-choice-check::before {
+  width: 8px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--materials-item-color, #a4a4a4);
+  content: "";
 }
 
 .materials-choice-check input {
@@ -1868,6 +1958,16 @@ body.materials-modal-open {
     grid-template-columns: 1fr 1fr;
   }
 
+  .materials-row:not(.materials-row-head) > label,
+  .materials-row:not(.materials-row-head) > output,
+  .materials-row:not(.materials-row-head) > button {
+    grid-column: auto;
+  }
+
+  .materials-row label > span {
+    display: block;
+  }
+
   .materials-row-head {
     display: none;
   }
@@ -1884,6 +1984,16 @@ body.materials-modal-open {
 
   .materials-row {
     grid-template-columns: 1fr;
+  }
+
+  .materials-panel-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .materials-panel-actions .subtle-button {
+    width: 100%;
   }
 
   .materials-club-list,

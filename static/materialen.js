@@ -10,6 +10,19 @@
   const clubTemplate = document.getElementById("clubRowTemplate");
   const clubExportModal = form.querySelector("[data-club-export-modal]");
 
+  const categoryOrder = ["grote_hoedjes", "kleine_hoedjes", "loopladders", "trainerskleding", "overig"];
+  const colorTerms = [
+    ["oranje", ["oranje"]],
+    ["geel", ["gele", "geel"]],
+    ["rood", ["rode", "rood"]],
+    ["lichtgroen", ["licht groene", "lichtgroene", "lichtgroen"]],
+    ["groen", ["groene", "groen"]],
+    ["blauw", ["blauwe", "blauw"]],
+    ["wit", ["witte", "wit"]],
+    ["zwart", ["zwarte", "zwart"]],
+  ];
+  const colorOrder = ["oranje", "geel", "rood", "blauw", "wit", "lichtgroen", "groen", "zwart"];
+
   const parseCount = (value) => {
     const number = Number.parseInt(String(value || "0"), 10);
     return Number.isFinite(number) && number > 0 ? number : 0;
@@ -31,6 +44,47 @@
   };
 
   const normalizeSearch = (value) => String(value || "").trim().toLowerCase();
+
+  const detectMaterialColor = (name) => {
+    const normalizedName = normalizeSearch(name).replaceAll("-", " ");
+    const match = colorTerms.find(([, terms]) => terms.some((term) => normalizedName.includes(term)));
+    return match ? match[0] : "overig";
+  };
+
+  const getMaterialCategory = (materialRow) => {
+    const input = materialRow.querySelector("[data-material-category-input]");
+    return categoryOrder.includes(input?.value) ? input.value : "overig";
+  };
+
+  const syncMaterialPresentation = (materialRow) => {
+    materialRow.dataset.materialCategory = getMaterialCategory(materialRow);
+    materialRow.dataset.materialColor = detectMaterialColor(getMaterialName(materialRow));
+  };
+
+  const sortMaterialRows = () => {
+    const rows = getMaterialRows();
+    rows.forEach(syncMaterialPresentation);
+    rows.sort((first, second) => {
+      const categoryDifference = categoryOrder.indexOf(first.dataset.materialCategory) - categoryOrder.indexOf(second.dataset.materialCategory);
+      if (categoryDifference) {
+        return categoryDifference;
+      }
+      const firstColorIndex = colorOrder.includes(first.dataset.materialColor) ? colorOrder.indexOf(first.dataset.materialColor) : colorOrder.length;
+      const secondColorIndex = colorOrder.includes(second.dataset.materialColor) ? colorOrder.indexOf(second.dataset.materialColor) : colorOrder.length;
+      const colorDifference = firstColorIndex - secondColorIndex;
+      if (colorDifference) {
+        return colorDifference;
+      }
+      return getMaterialName(first).localeCompare(getMaterialName(second), "nl", { sensitivity: "base", numeric: true });
+    });
+
+    let previousCategory = "";
+    rows.forEach((row) => {
+      row.classList.toggle("materials-category-start", row.dataset.materialCategory !== previousCategory);
+      previousCategory = row.dataset.materialCategory;
+      materialList.appendChild(row);
+    });
+  };
 
   const setModalOpen = (clubRow, isOpen) => {
     const modal = clubRow.querySelector("[data-club-modal]");
@@ -96,7 +150,8 @@
     clubRow.querySelectorAll("[data-club-material-field]").forEach((field) => {
       const label = field.querySelector("[data-club-material-label]");
       const materialName = normalizeSearch(label ? label.textContent : "");
-      field.hidden = Boolean(query) && !materialName.includes(query);
+      const category = normalizeSearch(field.dataset.materialCategory).replaceAll("_", " ");
+      field.hidden = Boolean(query) && !materialName.includes(query) && !category.includes(query);
     });
   };
 
@@ -117,11 +172,13 @@
     }
   };
 
-  const buildClubMaterialField = (clubKey, materialKey, materialName) => {
+  const buildClubMaterialField = (clubKey, materialKey, materialName, materialCategory, materialColor) => {
     const label = document.createElement("label");
     label.className = "materials-club-material-choice";
     label.setAttribute("data-club-material-field", "");
     label.dataset.materialKey = materialKey;
+    label.dataset.materialCategory = materialCategory;
+    label.dataset.materialColor = materialColor;
 
     const checkWrap = document.createElement("span");
     checkWrap.className = "materials-choice-check";
@@ -158,6 +215,8 @@
     const materials = getMaterialRows().map((row) => ({
       key: row.dataset.materialKey,
       name: getMaterialName(row),
+      category: getMaterialCategory(row),
+      color: detectMaterialColor(getMaterialName(row)),
     }));
 
     getClubRows().forEach((clubRow) => {
@@ -176,9 +235,11 @@
       materials.forEach((material) => {
         let field = fieldsWrap.querySelector(`[data-club-material-field][data-material-key="${CSS.escape(material.key)}"]`);
         if (!field) {
-          field = buildClubMaterialField(clubKey, material.key, material.name);
-          fieldsWrap.appendChild(field);
+          field = buildClubMaterialField(clubKey, material.key, material.name, material.category, material.color);
         }
+        fieldsWrap.appendChild(field);
+        field.dataset.materialCategory = material.category;
+        field.dataset.materialColor = material.color;
 
         const label = field.querySelector("[data-club-material-label]");
         if (label) {
@@ -202,6 +263,7 @@
   };
 
   const recalculate = () => {
+    getMaterialRows().forEach(syncMaterialPresentation);
     syncClubMaterialFields();
     const availableByMaterial = new Map();
 
@@ -285,6 +347,7 @@
 
   form.addEventListener("click", (event) => {
     const addMaterialButton = event.target.closest("[data-add-material]");
+    const sortMaterialsButton = event.target.closest("[data-sort-materials]");
     const addClubButton = event.target.closest("[data-add-club]");
     const removeMaterialButton = event.target.closest("[data-remove-material]");
     const removeClubButton = event.target.closest("[data-remove-club]");
@@ -298,6 +361,11 @@
 
     if (addMaterialButton) {
       addMaterial();
+      return;
+    }
+    if (sortMaterialsButton) {
+      sortMaterialRows();
+      recalculate();
       return;
     }
     if (addClubButton) {
@@ -370,6 +438,11 @@
       updateClubExportSelection();
       return;
     }
+    if (event.target.matches("[data-material-category-input]") || event.target.matches('input[name="material_name"]')) {
+      sortMaterialRows();
+      recalculate();
+      return;
+    }
     const checkbox = event.target.closest("[data-club-material-toggle]");
     if (!checkbox) {
       return;
@@ -410,6 +483,7 @@
     }
   });
 
+  sortMaterialRows();
   recalculate();
   applyAllClubMaterialFilters();
   updateClubExportSelection();

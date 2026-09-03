@@ -4971,6 +4971,7 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 total_count INTEGER NOT NULL DEFAULT 0,
+                category TEXT NOT NULL DEFAULT '',
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -5266,6 +5267,13 @@ def init_db() -> None:
             connection.execute("ALTER TABLE agenda_trainings ADD COLUMN training_type TEXT NOT NULL DEFAULT 'samenwerkende_amateurclub'")
         if "status" not in agenda_training_columns:
             connection.execute("ALTER TABLE agenda_trainings ADD COLUMN status TEXT NOT NULL DEFAULT 'gepland'")
+
+        material_item_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(material_items)").fetchall()
+        }
+        if "category" not in material_item_columns:
+            connection.execute("ALTER TABLE material_items ADD COLUMN category TEXT NOT NULL DEFAULT ''")
 
         budget_line_columns = {
             row["name"]
@@ -15235,11 +15243,84 @@ def parse_non_negative_int(value: Any) -> int:
     return max(0, number)
 
 
+MATERIAL_CATEGORY_OPTIONS = (
+    {"value": "grote_hoedjes", "label": "Grote hoedjes"},
+    {"value": "kleine_hoedjes", "label": "Kleine hoedjes"},
+    {"value": "loopladders", "label": "Loopladders"},
+    {"value": "trainerskleding", "label": "Trainerskleding"},
+    {"value": "overig", "label": "Overig"},
+)
+MATERIAL_CATEGORY_ORDER = {
+    option["value"]: index
+    for index, option in enumerate(MATERIAL_CATEGORY_OPTIONS)
+}
+MATERIAL_COLOR_TERMS = (
+    ("oranje", ("oranje",)),
+    ("geel", ("gele", "geel")),
+    ("rood", ("rode", "rood")),
+    ("lichtgroen", ("licht groene", "lichtgroene", "lichtgroen")),
+    ("groen", ("groene", "groen")),
+    ("blauw", ("blauwe", "blauw")),
+    ("wit", ("witte", "wit")),
+    ("zwart", ("zwarte", "zwart")),
+)
+MATERIAL_COLOR_ORDER = {
+    color: index
+    for index, color in enumerate(("oranje", "geel", "rood", "blauw", "wit", "lichtgroen", "groen", "zwart"))
+}
+
+
+def infer_material_category(name: Any) -> str:
+    normalized_name = str(name or "").strip().casefold()
+    compact_name = normalized_name.replace("-", " ").replace("_", " ")
+    if "loopladder" in compact_name or "loop ladder" in compact_name:
+        return "loopladders"
+    if any(term in compact_name for term in ("trainerskleding", "trainer kleding", "trainingskleding")):
+        return "trainerskleding"
+    if any(term in compact_name for term in ("shirt", "polo", "broek", "jas", "jack", "sweater", "hoodie", "kleding", "trainingspak")):
+        return "trainerskleding"
+    if any(term in compact_name for term in ("hoed", "pion", "marker", "markeer")):
+        if any(term in compact_name for term in ("groot", "grote", "pion")):
+            return "grote_hoedjes"
+        return "kleine_hoedjes"
+    return "overig"
+
+
+def normalize_material_category(value: Any, name: Any = "") -> str:
+    normalized_value = str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
+    if normalized_value in MATERIAL_CATEGORY_ORDER:
+        return normalized_value
+    return infer_material_category(name)
+
+
+def detect_material_color(name: Any) -> str:
+    normalized_name = str(name or "").strip().casefold().replace("-", " ")
+    for color, terms in MATERIAL_COLOR_TERMS:
+        if any(term in normalized_name for term in terms):
+            return color
+    return "overig"
+
+
+def material_sort_key(material: Dict[str, Any]) -> Tuple[int, int, str]:
+    category = normalize_material_category(material.get("category"), material.get("name"))
+    color = detect_material_color(material.get("name"))
+    return (
+        MATERIAL_CATEGORY_ORDER.get(category, len(MATERIAL_CATEGORY_ORDER)),
+        MATERIAL_COLOR_ORDER.get(color, len(MATERIAL_COLOR_ORDER)),
+        str(material.get("name") or "").casefold(),
+    )
+
+
 def load_materials_inventory() -> Dict[str, Any]:
     with get_db_connection() as connection:
+        material_columns = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(material_items)").fetchall()
+        }
+        category_expression = "category" if "category" in material_columns else "'' AS category"
         material_rows = connection.execute(
-            """
-            SELECT id, name, total_count
+            f"""
+            SELECT id, name, total_count, {category_expression}
             FROM material_items
             ORDER BY sort_order ASC, id ASC
             """
@@ -15280,11 +15361,15 @@ def load_materials_inventory() -> Dict[str, Any]:
             "id": material_id,
             "key": f"material-{material_id}",
             "name": str(row["name"] or "").strip(),
+            "category": normalize_material_category(row["category"], row["name"]),
+            "color": detect_material_color(row["name"]),
             "totalCount": total_count,
             "allocatedCount": allocated_count,
             "availableCount": total_count - allocated_count,
         }
         materials.append(material)
+
+    materials.sort(key=material_sort_key)
 
     for club in clubs:
         club["totalCount"] = 0
@@ -16596,6 +16681,7 @@ def build_materials_inventory_from_form() -> Dict[str, Any]:
     material_keys = request.form.getlist("material_key")
     material_names = request.form.getlist("material_name")
     material_totals = request.form.getlist("material_total")
+    material_categories = request.form.getlist("material_category")
     club_keys = request.form.getlist("club_key")
     club_names = request.form.getlist("club_name")
 
@@ -16613,9 +16699,15 @@ def build_materials_inventory_from_form() -> Dict[str, Any]:
             {
                 "key": str(material_key or f"material-{index}").strip(),
                 "name": name,
+                "category": normalize_material_category(
+                    material_categories[index] if index < len(material_categories) else "",
+                    name,
+                ),
                 "totalCount": parse_non_negative_int(material_totals[index] if index < len(material_totals) else 0),
             }
         )
+
+    materials.sort(key=material_sort_key)
 
     clubs = []
     seen_club_names = set()
@@ -16646,6 +16738,13 @@ def build_materials_inventory_from_form() -> Dict[str, Any]:
 def save_materials_inventory(inventory: Dict[str, Any]) -> None:
     now = utcnow_iso()
     with get_db_connection() as connection:
+        material_columns = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(material_items)").fetchall()
+        }
+        if "category" not in material_columns:
+            connection.execute("ALTER TABLE material_items ADD COLUMN category TEXT NOT NULL DEFAULT ''")
+
         connection.execute("DELETE FROM material_club_inventory")
         connection.execute("DELETE FROM material_items")
         connection.execute("DELETE FROM material_clubs")
@@ -16654,10 +16753,10 @@ def save_materials_inventory(inventory: Dict[str, Any]) -> None:
         for index, material in enumerate(inventory["materials"]):
             cursor = connection.execute(
                 """
-                INSERT INTO material_items (name, total_count, sort_order, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO material_items (name, total_count, category, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (material["name"], material["totalCount"], index, now, now),
+                (material["name"], material["totalCount"], material["category"], index, now, now),
             )
             material_id_by_key[material["key"]] = int(cursor.lastrowid)
 
@@ -23673,16 +23772,17 @@ def materialen_page() -> str:
     inventory = load_materials_inventory()
     if not inventory["materials"]:
         inventory["materials"] = [
-            {"id": "", "key": "material-new-1", "name": "Ballen", "totalCount": 0, "allocatedCount": 0, "availableCount": 0},
-            {"id": "", "key": "material-new-2", "name": "Hoedjes", "totalCount": 0, "allocatedCount": 0, "availableCount": 0},
-            {"id": "", "key": "material-new-3", "name": "Hesjes", "totalCount": 0, "allocatedCount": 0, "availableCount": 0},
-            {"id": "", "key": "material-new-4", "name": "Pionnen", "totalCount": 0, "allocatedCount": 0, "availableCount": 0},
+            {"id": "", "key": "material-new-1", "name": "Ballen", "category": "overig", "color": "overig", "totalCount": 0, "allocatedCount": 0, "availableCount": 0},
+            {"id": "", "key": "material-new-2", "name": "Hoedjes", "category": "kleine_hoedjes", "color": "overig", "totalCount": 0, "allocatedCount": 0, "availableCount": 0},
+            {"id": "", "key": "material-new-3", "name": "Hesjes", "category": "overig", "color": "overig", "totalCount": 0, "allocatedCount": 0, "availableCount": 0},
+            {"id": "", "key": "material-new-4", "name": "Pionnen", "category": "grote_hoedjes", "color": "overig", "totalCount": 0, "allocatedCount": 0, "availableCount": 0},
         ]
 
     return render_template(
         "materialen.html",
         active_page="materialen",
         inventory=inventory,
+        material_category_options=MATERIAL_CATEGORY_OPTIONS,
         saved=saved,
     )
 

@@ -148,6 +148,105 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertEqual(pdf_bytes.count(b"/Type /Page\n"), 1)
         self.assertIn(b"/MediaBox [ 0 0 841.8898 595.2756 ]", pdf_bytes)
 
+    def test_material_categories_are_inferred_and_sorted_by_category_and_color(self):
+        materials = [
+            {"name": "Blauwe hoedjes klein/merkloos", "category": "kleine_hoedjes"},
+            {"name": "Rode hoedjes groot/merkloos", "category": "grote_hoedjes"},
+            {"name": "Rode hoedjes klein/diamond", "category": "kleine_hoedjes"},
+            {"name": "Gele hoedjes klein/merkloos", "category": "kleine_hoedjes"},
+        ]
+
+        self.assertEqual(legacy.infer_material_category("Oranje hoedjes groot"), "grote_hoedjes")
+        self.assertEqual(legacy.infer_material_category("Loopladder 4 meter"), "loopladders")
+        self.assertEqual(legacy.infer_material_category("Trainingspak trainer"), "trainerskleding")
+        self.assertEqual(legacy.detect_material_color("Licht groene hoedjes"), "lichtgroen")
+
+        materials.sort(key=legacy.material_sort_key)
+        self.assertEqual(
+            [material["name"] for material in materials],
+            [
+                "Rode hoedjes groot/merkloos",
+                "Gele hoedjes klein/merkloos",
+                "Rode hoedjes klein/diamond",
+                "Blauwe hoedjes klein/merkloos",
+            ],
+        )
+
+    def test_material_form_preserves_club_quantities_when_category_sort_changes_order(self):
+        client = self.build_authenticated_client()
+        with (
+            patch.object(legacy, "require_page_access", return_value=None),
+            patch.object(legacy, "require_permission", return_value=None),
+            patch.object(legacy, "save_materials_inventory") as mocked_save,
+            patch.object(
+                legacy,
+                "load_materials_inventory",
+                return_value={"materials": [], "clubs": [], "totalCount": 0, "allocatedCount": 0, "availableCount": 0},
+            ),
+        ):
+            response = client.post(
+                "/materialen",
+                {
+                    "csrf_token": self.TEST_CSRF_TOKEN,
+                    "material_key": ["material-small", "material-large"],
+                    "material_name": ["Rode hoedjes klein", "Gele hoedjes groot"],
+                    "material_category": ["kleine_hoedjes", "grote_hoedjes"],
+                    "material_total": ["30", "20"],
+                    "club_key": ["club-test"],
+                    "club_name": ["VV Test"],
+                    "quantity__club-test__material-small": "12",
+                    "quantity__club-test__material-large": "8",
+                },
+                secure=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_save.assert_called_once()
+        inventory = mocked_save.call_args.args[0]
+
+        self.assertEqual(
+            [material["key"] for material in inventory["materials"]],
+            ["material-large", "material-small"],
+        )
+        self.assertEqual(inventory["materials"][0]["category"], "grote_hoedjes")
+        self.assertEqual(inventory["quantities"][("club-test", "material-small")], 12)
+        self.assertEqual(inventory["quantities"][("club-test", "material-large")], 8)
+
+    def test_materials_page_renders_category_controls_and_color_grouping(self):
+        inventory = {
+            "materials": [
+                {
+                    "id": 1,
+                    "key": "material-1",
+                    "name": "Rode hoedjes groot",
+                    "category": "grote_hoedjes",
+                    "color": "rood",
+                    "totalCount": 20,
+                    "allocatedCount": 0,
+                    "availableCount": 20,
+                }
+            ],
+            "clubs": [],
+            "totalCount": 20,
+            "allocatedCount": 0,
+            "availableCount": 20,
+        }
+        client = self.build_authenticated_client()
+
+        with (
+            patch.object(legacy, "require_page_access", return_value=None),
+            patch.object(legacy, "load_materials_inventory", return_value=inventory),
+        ):
+            response = client.get("/materialen", secure=True)
+
+        content = response.content.decode("utf-8")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('name="material_category"', content)
+        self.assertIn('value="grote_hoedjes" selected', content)
+        self.assertIn('data-material-category="grote_hoedjes"', content)
+        self.assertIn('data-material-color="rood"', content)
+        self.assertIn("Op onderdeel sorteren", content)
+
     def test_saved_materials_club_has_inline_pdf_export(self):
         inventory = {
             "materials": [
