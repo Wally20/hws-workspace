@@ -158,26 +158,43 @@
     }
   };
 
+  const applyShiftSelection = (checkbox) => {
+    if (!lastSelectionCheckbox || lastSelectionCheckbox === checkbox) {
+      return;
+    }
+    const visibleCheckboxes = [...list.querySelectorAll("[data-file-select]")].filter(
+      (candidate) => !candidate.closest("[data-download-row]")?.hidden,
+    );
+    const firstIndex = visibleCheckboxes.indexOf(lastSelectionCheckbox);
+    const secondIndex = visibleCheckboxes.indexOf(checkbox);
+    if (firstIndex === -1 || secondIndex === -1) {
+      return;
+    }
+    const startIndex = Math.min(firstIndex, secondIndex);
+    const endIndex = Math.max(firstIndex, secondIndex);
+    visibleCheckboxes.slice(startIndex, endIndex + 1).forEach((candidate) => {
+      candidate.checked = checkbox.checked;
+    });
+  };
+
   rows.forEach((row) => {
     const checkbox = row.querySelector("[data-file-select]");
+    const checkboxLabel = checkbox?.closest(".downloads-row-check");
+    let shiftSelectionRequested = false;
+    checkboxLabel?.addEventListener("pointerdown", (event) => {
+      shiftSelectionRequested = event.shiftKey;
+    });
     checkbox?.addEventListener("click", (event) => {
-      if (event.shiftKey && lastSelectionCheckbox && lastSelectionCheckbox !== checkbox) {
-        const visibleCheckboxes = [...list.querySelectorAll("[data-file-select]")].filter(
-          (candidate) => !candidate.closest("[data-download-row]")?.hidden,
-        );
-        const firstIndex = visibleCheckboxes.indexOf(lastSelectionCheckbox);
-        const secondIndex = visibleCheckboxes.indexOf(checkbox);
-        if (firstIndex !== -1 && secondIndex !== -1) {
-          const startIndex = Math.min(firstIndex, secondIndex);
-          const endIndex = Math.max(firstIndex, secondIndex);
-          visibleCheckboxes.slice(startIndex, endIndex + 1).forEach((candidate) => {
-            candidate.checked = checkbox.checked;
-          });
-        }
+      shiftSelectionRequested = shiftSelectionRequested || event.shiftKey;
+    });
+    checkbox?.addEventListener("change", () => {
+      if (shiftSelectionRequested) {
+        applyShiftSelection(checkbox);
       }
       lastSelectionCheckbox = checkbox;
+      shiftSelectionRequested = false;
+      updateSelection();
     });
-    checkbox?.addEventListener("change", updateSelection);
     const downloadLink = row.querySelector("[data-file-download]");
     downloadLink?.addEventListener("click", async (event) => {
       event.preventDefault();
