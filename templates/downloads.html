@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block title %}Downloads | HWS Voetbalschool Workspace{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="/static/downloads.css?v={{ asset_version }}">
+{% endblock %}
+
+{% block content %}
+  <div class="downloads-page" data-downloads-page>
+    <header class="page-header downloads-header">
+      <div>
+        <p class="downloads-kicker">Bestandenoverzicht</p>
+        <h1>Downloads</h1>
+        <p class="welcome-line">Zoek, filter en download alle opgeslagen documenten vanuit één overzicht.</p>
+      </div>
+      <div class="downloads-summary" aria-label="Samenvatting">
+        <span><strong data-total-count>{{ files|length }}</strong> bestanden</span>
+        <span><strong data-downloaded-count>{{ downloaded_count }}</strong> gedownload</span>
+      </div>
+    </header>
+
+    <section class="downloads-filter-card" aria-label="Downloads filteren">
+      <label class="downloads-search-field">
+        <span>Zoeken</span>
+        <span class="downloads-search-control">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m16 16 4 4"></path></svg>
+          <input type="search" placeholder="Zoek op naam, type of bestandsnaam" autocomplete="off" data-download-search>
+        </span>
+      </label>
+
+      <label>
+        <span>Soort bestand</span>
+        <select data-download-category>
+          <option value="">Alle soorten</option>
+          {% for category in categories %}
+            <option value="{{ category.value }}">{{ category.label }} ({{ category.count }})</option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        <span>Status</span>
+        <select data-download-status>
+          <option value="">Alles</option>
+          <option value="new">Nog niet gedownload</option>
+          <option value="downloaded">Gedownload</option>
+        </select>
+      </label>
+
+      <label>
+        <span>Vanaf</span>
+        <input type="date" data-download-from>
+      </label>
+
+      <label>
+        <span>Tot en met</span>
+        <input type="date" data-download-to>
+      </label>
+
+      <label>
+        <span>Volgorde</span>
+        <select data-download-sort>
+          <option value="newest">Nieuwste eerst</option>
+          <option value="oldest">Oudste eerst</option>
+          <option value="name">Naam A–Z</option>
+        </select>
+      </label>
+    </section>
+
+    <section class="downloads-selection-bar" aria-label="Selectieacties">
+      <div>
+        <button type="button" class="downloads-selection-link" data-select-visible>Selecteer zichtbare bestanden</button>
+        <button type="button" class="downloads-selection-link" data-clear-selection>Selectie wissen</button>
+      </div>
+      <div class="downloads-selection-action">
+        <span data-selection-count>0 geselecteerd</span>
+        <button type="button" class="refresh-button" data-download-selection disabled>
+          Download selectie als ZIP
+        </button>
+      </div>
+    </section>
+
+    <p class="downloads-feedback" role="status" aria-live="polite" data-download-feedback hidden></p>
+
+    {% if files %}
+      <section class="downloads-list-card" aria-label="Beschikbare downloads">
+        <div class="downloads-list-head" aria-hidden="true">
+          <span></span>
+          <span>Bestand</span>
+          <span>Soort</span>
+          <span>Formaat</span>
+          <span>Gewijzigd</span>
+          <span>Status</span>
+          <span>Acties</span>
+        </div>
+        <div class="downloads-list" data-download-list>
+          {% for file in files %}
+            <article
+              class="downloads-row{% if file.isDownloaded %} is-downloaded{% endif %}"
+              data-download-row
+              data-file-key="{{ file.key }}"
+              data-file-version="{{ file.version }}"
+              data-category="{{ file.category }}"
+              data-downloaded="{{ '1' if file.isDownloaded else '0' }}"
+              data-updated="{{ file.updatedAt }}"
+              data-title="{{ file.title|lower }}"
+              data-search-value="{{ (file.title ~ ' ' ~ file.filename ~ ' ' ~ file.categoryLabel ~ ' ' ~ file.format)|lower }}"
+            >
+              <label class="downloads-row-check">
+                <input type="checkbox" value="{{ file.key }}" aria-label="Selecteer {{ file.filename }}" data-file-select>
+                <span aria-hidden="true"></span>
+              </label>
+
+              <div class="downloads-file-cell">
+                <span class="downloads-file-icon downloads-file-icon-{{ file.extension }}" aria-hidden="true">{{ file.extension|upper }}</span>
+                <span class="downloads-file-copy">
+                  <strong>{{ file.title }}</strong>
+                  <small>{{ file.filename }}</small>
+                </span>
+              </div>
+
+              <span class="downloads-category">{{ file.categoryLabel }}</span>
+              <span><span class="downloads-format">{{ file.format }}</span></span>
+              <time datetime="{{ file.updatedAt }}">{{ file.updatedAtLabel }}</time>
+              <span class="downloads-status" data-file-status>
+                <span class="downloads-status-dot" aria-hidden="true"></span>
+                <span data-file-status-label>{{ "Gedownload" if file.isDownloaded else "Nieuw" }}</span>
+              </span>
+              <span class="downloads-row-actions">
+                <a href="{{ file.sourceUrl }}" class="downloads-open-link">Open</a>
+                <a href="{{ file.downloadUrl }}" class="downloads-download-link" data-file-download>Download</a>
+              </span>
+            </article>
+          {% endfor %}
+        </div>
+        <div class="downloads-no-results" data-download-no-results hidden>
+          Geen bestanden gevonden met deze zoekopdracht of filters.
+        </div>
+      </section>
+    {% else %}
+      <section class="empty-state">Er zijn nog geen bestanden om te downloaden.</section>
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script nonce="{{ csp_nonce }}" src="/static/downloads.js?v={{ asset_version }}" defer></script>
+{% endblock %}

@@ -6,11 +6,18 @@
   <header class="page-header">
     <div>
       <h1>Management</h1>
-      <p class="welcome-line">Beheer API-koppelingen, klanttevredenheid, materialen, voorstellen en overeenkomsten vanuit één overzicht.</p>
+      <p class="welcome-line">Beheer downloads, API-koppelingen, klanttevredenheid, materialen, voorstellen en overeenkomsten vanuit één overzicht.</p>
     </div>
   </header>
 
   <section class="training-home-grid oefenstof-home-grid management-home-grid" aria-label="Management">
+    {% if 'downloads' in visible_pages %}
+      <a class="summary-card training-home-tile" href="/downloads">
+        <span class="panel-title">Downloads</span>
+        <span class="feature-list-subtitle">Zoek, filter en download alle opgeslagen documenten afzonderlijk of als ZIP.</span>
+      </a>
+    {% endif %}
+
     {% if 'api' in visible_pages %}
       <a class="summary-card training-home-tile" href="/management/api">
         <span class="panel-title">API</span>

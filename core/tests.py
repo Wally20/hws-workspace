@@ -40,6 +40,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
             connection.execute("DELETE FROM dressing_room_sign_documents WHERE title LIKE 'Test kleedkamer%'")
             connection.execute("DELETE FROM trainers_information_documents WHERE title LIKE 'Test trainersinformatie%'")
             connection.execute("DELETE FROM planning_documents WHERE title LIKE 'Test planning%'")
+            connection.execute("DELETE FROM download_history")
         super().tearDown()
 
     def extract_csrf_token(self, response) -> str:
@@ -2044,7 +2045,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
     def test_admin_retains_sensitive_page_and_action_permissions(self):
         admin = {"id": "admin-123", "isAdmin": True, "systemRole": "Admin"}
 
-        for page_key in ("orders", "leads", "materialen", "trainers"):
+        for page_key in ("orders", "leads", "materialen", "trainers", "downloads"):
             self.assertTrue(legacy.user_can_access_page(admin, page_key))
         for permission in ("registrations.manage", "leads.manage", "materials.manage", "trainers.manage"):
             self.assertTrue(legacy.user_has_permission(admin, permission))
@@ -2397,13 +2398,14 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn('data-sold-count="12"', content)
         self.assertIn('id="eventsSummaryCard"', content)
 
-    def test_management_contains_only_the_five_requested_tiles(self):
+    def test_management_contains_downloads_and_existing_management_tiles(self):
         response = self.build_authenticated_client().get("/management", secure=True)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             self.extract_training_home_tiles(response),
             [
+                ("/downloads", "Downloads"),
                 ("/management/api", "API"),
                 ("/management/klanttevredenheid", "Klanttevredenheid"),
                 ("/materialen", "Materialen"),
@@ -2411,6 +2413,82 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 ("/overeenkomsten", "Overeenkomsten"),
             ],
         )
+
+    def test_downloads_page_lists_files_and_tracks_single_and_zip_downloads(self):
+        playbook_id = legacy.save_football_days_playbook(
+            {
+                "title": "Test draaiboek downloadsoverzicht",
+                "eventDate": "2026-08-16",
+                "location": "VV Test",
+                "staff": [{"name": "Trainer Test", "role": "Trainer", "setupTask": ""}],
+                "program": [
+                    {
+                        "startTime": "09:00",
+                        "endTime": "09:30",
+                        "activity": "Ontvangst",
+                        "icon": "clipboard",
+                    }
+                ],
+                "contingencies": "Regen: naar binnen",
+            },
+            playbook_type="voetbaldagen",
+        )
+        client = self.build_authenticated_client()
+        admin_profile = next(profile for profile in legacy.load_trainer_profiles() if profile.get("isAdmin"))
+        pdf_key = f"playbook:voetbaldagen:{playbook_id}:pdf"
+        pptx_key = f"playbook:voetbaldagen:{playbook_id}:pptx"
+
+        page_response = client.get("/downloads", secure=True)
+        page_content = page_response.content.decode("utf-8")
+
+        self.assertEqual(page_response.status_code, 200)
+        self.assertIn("Test draaiboek downloadsoverzicht", page_content)
+        self.assertIn(f'data-file-key="{pdf_key}"', page_content)
+        self.assertIn(f'data-file-key="{pptx_key}"', page_content)
+        self.assertIn('data-download-search', page_content)
+        self.assertIn('data-download-from', page_content)
+        self.assertIn('data-download-selection', page_content)
+        self.assertIn('href="/static/downloads.css?', page_content)
+        self.assertIn('src="/static/downloads.js?', page_content)
+
+        file_response = client.get(f"/downloads/bestand/{pdf_key}", secure=True)
+        self.assertEqual(file_response.status_code, 200)
+        self.assertEqual(file_response["Content-Type"], "application/pdf")
+        self.assertTrue(file_response.content.startswith(b"%PDF-"))
+
+        archive_response = client.post(
+            "/downloads/selectie",
+            data=json.dumps({"keys": [pdf_key, pptx_key]}),
+            content_type="application/json",
+            secure=True,
+            HTTP_X_CSRF_TOKEN=self.TEST_CSRF_TOKEN,
+        )
+        self.assertEqual(archive_response.status_code, 200)
+        self.assertEqual(archive_response["Content-Type"], "application/zip")
+        with zipfile.ZipFile(BytesIO(archive_response.content), "r") as archive:
+            self.assertIsNone(archive.testzip())
+            self.assertEqual(len(archive.namelist()), 2)
+            self.assertTrue(any(name.endswith(".pdf") for name in archive.namelist()))
+            self.assertTrue(any(name.endswith(".pptx") for name in archive.namelist()))
+
+        catalog = {
+            item["key"]: item
+            for item in legacy.build_download_catalog(str(admin_profile["id"]))
+        }
+        self.assertTrue(catalog[pdf_key]["isDownloaded"])
+        self.assertTrue(catalog[pptx_key]["isDownloaded"])
+
+    def test_downloads_page_is_not_available_to_trainers(self):
+        trainer = {
+            "id": "trainer-123",
+            "fullName": "Test Trainer",
+            "isAdmin": False,
+            "systemRole": "Trainer",
+        }
+        with patch.object(legacy, "get_current_user", return_value=trainer):
+            response = Client().get("/downloads", secure=True)
+
+        self.assertRedirects(response, "/", fetch_redirect_response=False)
 
     def test_moved_pages_belong_to_their_new_main_navigation_roots(self):
         admin = {"id": "admin-123", "isAdmin": True, "systemRole": "Admin"}

@@ -12,6 +12,9 @@ urlpatterns = [
     path("logout", views.logout_page, name="logout_page"),
     path("", views.index, name="index"),
     path("management", views.management_page, name="management_page"),
+    path("downloads", views.downloads_page, name="downloads_page"),
+    path("downloads/bestand/<path:file_key>", views.download_catalog_file, name="download_catalog_file"),
+    path("downloads/selectie", views.download_catalog_selection, name="download_catalog_selection"),
     path(
         "management/klanttevredenheid",
         views.customer_satisfaction_page,

@@ -572,6 +572,7 @@ RATE_LIMIT_RULES = (
     (re.compile(r"^/api/dashboard-events$"), 20, 300, "dashboard-events"),
     (re.compile(r"^/content(?:/\d+)?$"), 20, 300, "content"),
     (re.compile(r"^/trainers$"), 20, 300, "trainers"),
+    (re.compile(r"^/downloads/selectie$"), 20, 300, "downloads"),
 )
 PROPOSAL_MIN_SEASON_START_YEAR = 2026
 
@@ -671,6 +672,14 @@ WORKSPACE_SEARCH_PAGES = (
         "section": "Management",
         "description": "Startpunt voor API, klanttevredenheid, materialen, voorstellen en overeenkomsten.",
         "keywords": ("beheer", "admin", "api", "materialen", "overeenkomsten"),
+    },
+    {
+        "key": "downloads",
+        "title": "Downloads",
+        "path": "/downloads",
+        "section": "Management",
+        "description": "Zoek, filter en download opgeslagen documenten afzonderlijk of als ZIP-bestand.",
+        "keywords": ("bestanden", "download", "pdf", "powerpoint", "zip", "archief"),
     },
     {
         "key": "planning",
@@ -4852,6 +4861,14 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS download_history (
+                user_id TEXT NOT NULL,
+                file_key TEXT NOT NULL,
+                file_version TEXT NOT NULL,
+                downloaded_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, file_key)
+            );
+
             CREATE TABLE IF NOT EXISTS contracts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -5561,6 +5578,12 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_trainers_information_documents_updated
             ON trainers_information_documents (updated_at DESC, id DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_download_history_user_downloaded
+            ON download_history (user_id, downloaded_at DESC)
             """
         )
         connection.execute(
@@ -10003,6 +10026,7 @@ def normalize_football_days_export_payload(
     playbook_type: str = "voetbaldagen",
     *,
     allow_registration_mutations: bool = True,
+    refresh_registration_count: bool = True,
 ) -> Dict[str, Any]:
     data = payload if isinstance(payload, dict) else {}
     context = get_football_playbook_context(data.get("playbookType") or playbook_type)
@@ -10025,7 +10049,7 @@ def normalize_football_days_export_payload(
         include_program = True
     if not context["supportsStaffSetupTasks"]:
         include_staff_setup_tasks = True
-    if product_id or product_name or product_sku:
+    if refresh_registration_count and (product_id or product_name or product_sku):
         try:
             orders_payload = fetch_ecwid_orders_for_registration_counts(
                 allow_mutations=allow_registration_mutations,
@@ -15123,6 +15147,7 @@ ADMIN_PAGE_KEYS = frozenset(
         "kleedkamerbordjes",
         "samenwerkende-amateurclubs",
         "management",
+        "downloads",
         "planning",
         "api",
         "customer-satisfaction",
@@ -23519,6 +23544,402 @@ def api_planning_export_png():
         {
             "Content-Type": "image/png",
             "Content-Disposition": f'attachment; filename="{planning_png_filename(planning)}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+DOWNLOAD_MAX_SELECTION = 250
+DOWNLOAD_MIME_TYPES = {
+    "pdf": "application/pdf",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "png": "image/png",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+
+def build_download_file_version(file_key: str, updated_at: str, filename: str) -> str:
+    payload = f"{file_key}\0{updated_at}\0{filename}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:24]
+
+
+def load_download_history(user_id: str) -> Dict[str, Dict[str, str]]:
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        return {}
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT file_key, file_version, downloaded_at
+            FROM download_history
+            WHERE user_id = ?
+            """,
+            (normalized_user_id,),
+        ).fetchall()
+    return {
+        str(row["file_key"]): {
+            "version": str(row["file_version"] or ""),
+            "downloadedAt": str(row["downloaded_at"] or ""),
+        }
+        for row in rows
+    }
+
+
+def mark_downloaded_files(user_id: str, items: List[Dict[str, Any]]) -> None:
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id or not items:
+        return
+    downloaded_at = utcnow_iso()
+    with get_db_connection() as connection:
+        connection.executemany(
+            """
+            INSERT INTO download_history (user_id, file_key, file_version, downloaded_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id, file_key) DO UPDATE SET
+                file_version = excluded.file_version,
+                downloaded_at = excluded.downloaded_at
+            """,
+            [
+                (normalized_user_id, item["key"], item["version"], downloaded_at)
+                for item in items
+            ],
+        )
+
+
+def build_download_catalog(user_id: str) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+
+    def add_item(
+        *,
+        file_key: str,
+        title: str,
+        filename: str,
+        category: str,
+        category_label: str,
+        file_format: str,
+        updated_at: str,
+        source_url: str,
+    ) -> None:
+        normalized_filename = sanitize_upload_filename(filename)
+        normalized_updated_at = str(updated_at or "").strip()
+        items.append(
+            {
+                "key": file_key,
+                "title": re.sub(r"\s+", " ", str(title or normalized_filename)).strip(),
+                "filename": normalized_filename,
+                "category": category,
+                "categoryLabel": category_label,
+                "format": file_format.upper(),
+                "extension": file_format.lower(),
+                "updatedAt": normalized_updated_at,
+                "updatedAtLabel": format_datetime_display(normalized_updated_at),
+                "sourceUrl": source_url,
+                "downloadUrl": f"/downloads/bestand/{file_key}",
+                "version": build_download_file_version(file_key, normalized_updated_at, normalized_filename),
+            }
+        )
+
+    playbook_categories = {
+        "voetbaldagen": ("voetbaldag", "Draaiboek voetbaldag"),
+        "samenwerkende-amateurclubs": ("amateurclub", "Draaiboek amateurclub"),
+    }
+    for playbook_type, (category, category_label) in playbook_categories.items():
+        for playbook in load_football_days_playbooks(playbook_type):
+            preview_data = dict(playbook)
+            preview_data["playbookType"] = playbook_type
+            preview_data["clubName"] = clean_football_days_club_name(
+                playbook.get("ecwidProductName") or playbook.get("location") or playbook.get("title")
+            )
+            pdf_filename = football_days_pdf_filename(preview_data)
+            source_url = f"{get_football_playbook_context(playbook_type)['editPathPrefix']}/{playbook['id']}"
+            for file_format, filename in (("pdf", pdf_filename), ("pptx", football_days_pptx_filename(preview_data))):
+                add_item(
+                    file_key=f"playbook:{playbook_type}:{playbook['id']}:{file_format}",
+                    title=playbook["title"],
+                    filename=filename,
+                    category=category,
+                    category_label=category_label,
+                    file_format=file_format,
+                    updated_at=playbook["updatedAt"],
+                    source_url=source_url,
+                )
+
+    for planning in load_planning_documents():
+        for file_format, filename in (("pdf", planning_pdf_filename(planning)), ("png", planning_png_filename(planning))):
+            add_item(
+                file_key=f"planning:{planning['id']}:{file_format}",
+                title=planning["title"],
+                filename=filename,
+                category="planning",
+                category_label="Planning",
+                file_format=file_format,
+                updated_at=planning["updatedAt"],
+                source_url=f"/planning/{planning['id']}",
+            )
+
+    for checklist in load_checklist_documents():
+        add_item(
+            file_key=f"checklist:{checklist['sourceType']}:{checklist['sourceId']}:pdf",
+            title=checklist["title"],
+            filename=f"checklist-{slugify_value(checklist['title'])}.pdf",
+            category="checklist",
+            category_label="Checklist",
+            file_format="pdf",
+            updated_at=checklist["updatedAt"],
+            source_url=checklist["detailUrl"],
+        )
+
+    for document in load_dressing_room_sign_documents():
+        add_item(
+            file_key=f"dressing-room:{document['id']}:pdf",
+            title=document["title"],
+            filename=f"kleedkamerbordjes-{slugify_value(document['title'])}.pdf",
+            category="kleedkamerbordjes",
+            category_label="Kleedkamerbordjes",
+            file_format="pdf",
+            updated_at=document["updatedAt"],
+            source_url=document["detailUrl"],
+        )
+
+    for document in load_trainers_information_documents():
+        add_item(
+            file_key=f"trainers-information:{document['id']}:pdf",
+            title=document["title"],
+            filename=f"trainers-informatie-{slugify_value(document['title'])}.pdf",
+            category="trainers-informatie",
+            category_label="Trainers informatie",
+            file_format="pdf",
+            updated_at=document["updatedAt"],
+            source_url=document["detailUrl"],
+        )
+
+    for contract in load_contracts():
+        contract_id = int(contract["id"])
+        source_url = f"/overeenkomsten/{contract_id}"
+        pdf_filename = contract.get("originalFilename") or contract_filename(contract, "pdf")
+        add_item(
+            file_key=f"contract:{contract_id}:pdf",
+            title=contract["title"],
+            filename=pdf_filename,
+            category="overeenkomst",
+            category_label="Overeenkomst",
+            file_format="pdf",
+            updated_at=contract["updatedAt"],
+            source_url=source_url,
+        )
+        if not contract.get("pdfStorageName"):
+            add_item(
+                file_key=f"contract:{contract_id}:docx",
+                title=contract["title"],
+                filename=contract_filename(contract, "docx"),
+                category="overeenkomst",
+                category_label="Overeenkomst",
+                file_format="docx",
+                updated_at=contract["updatedAt"],
+                source_url=source_url,
+            )
+        if contract.get("signedPdfStorageName"):
+            add_item(
+                file_key=f"contract:{contract_id}:signed-pdf",
+                title=f"Ondertekend · {contract['title']}",
+                filename=f"ondertekend-{pdf_filename}",
+                category="overeenkomst",
+                category_label="Overeenkomst",
+                file_format="pdf",
+                updated_at=contract.get("signedAt") or contract["updatedAt"],
+                source_url=source_url,
+            )
+
+    history = load_download_history(user_id)
+    for item in items:
+        history_item = history.get(item["key"], {})
+        item["isDownloaded"] = history_item.get("version") == item["version"]
+        item["downloadedAt"] = history_item.get("downloadedAt", "") if item["isDownloaded"] else ""
+        item["downloadedAtLabel"] = format_datetime_display(item["downloadedAt"], fallback="")
+    items.sort(key=lambda item: (item["updatedAt"], item["key"]), reverse=True)
+    return items
+
+
+def create_catalog_download_file(file_key: str) -> bytes:
+    parts = str(file_key or "").split(":")
+    if len(parts) == 4 and parts[0] == "playbook":
+        _, playbook_type, raw_id, file_format = parts
+        playbook = load_football_days_playbook(int(raw_id), playbook_type)
+        if playbook is None or file_format not in {"pdf", "pptx"}:
+            raise ValueError("Dit draaiboek bestaat niet meer.")
+        attach_football_days_registration_counts([playbook], cached_only=True, allow_mutations=False)
+        export_data = normalize_football_days_export_payload(
+            playbook,
+            playbook_type,
+            allow_registration_mutations=False,
+            refresh_registration_count=False,
+        )
+        return create_football_days_pdf(export_data) if file_format == "pdf" else create_football_days_pptx(export_data)
+
+    if len(parts) == 3 and parts[0] == "planning":
+        _, raw_id, file_format = parts
+        planning = load_planning_document(int(raw_id))
+        if planning is None or file_format not in {"pdf", "png"}:
+            raise ValueError("Deze planning bestaat niet meer.")
+        return create_planning_pdf(planning) if file_format == "pdf" else create_planning_png(planning)
+
+    if len(parts) == 4 and parts[0] == "checklist":
+        _, source_type, raw_id, file_format = parts
+        if file_format != "pdf":
+            raise ValueError("Ongeldig bestandsformaat.")
+        document = load_checklist_document(int(raw_id), source_type)
+        if document is None:
+            raise ValueError("Deze checklist bestaat niet meer.")
+        selected_source = find_checklist_source(source_type, int(raw_id))
+        if selected_source is not None:
+            document = synchronize_existing_checklist_document(source_type, selected_source, document) or document
+        return create_checklist_pdf(document)
+
+    if len(parts) == 3 and parts[0] == "dressing-room":
+        _, raw_id, file_format = parts
+        document = load_dressing_room_sign_document(int(raw_id))
+        if document is None or file_format != "pdf":
+            raise ValueError("Deze kleedkamerbordjes bestaan niet meer.")
+        return create_dressing_room_signs_pdf(document)
+
+    if len(parts) == 3 and parts[0] == "trainers-information":
+        _, raw_id, file_format = parts
+        document = load_trainers_information_document(int(raw_id))
+        if document is None or file_format != "pdf":
+            raise ValueError("Deze Trainers Informatie bestaat niet meer.")
+        return create_trainers_information_pdf(document["playbook"], document["dressingRoomDocument"])
+
+    if len(parts) == 3 and parts[0] == "contract":
+        _, raw_id, file_format = parts
+        contract = load_contract(int(raw_id))
+        if contract is None:
+            raise ValueError("Deze overeenkomst bestaat niet meer.")
+        if file_format == "signed-pdf":
+            file_bytes = read_private_contract_file(contract.get("signedPdfStorageName"))
+        elif file_format == "pdf" and contract.get("pdfStorageName"):
+            file_bytes = read_private_contract_file(contract["pdfStorageName"])
+        elif file_format == "pdf":
+            file_bytes = create_contract_pdf(contract)
+        elif file_format == "docx" and not contract.get("pdfStorageName"):
+            file_bytes = create_contract_docx(contract)
+        else:
+            file_bytes = None
+        if not file_bytes:
+            raise ValueError("Het overeenkomstbestand is niet beschikbaar.")
+        return file_bytes
+
+    raise ValueError("Dit bestand bestaat niet meer.")
+
+
+def unique_zip_path(category_label: str, filename: str, used_paths: Set[str]) -> str:
+    folder = sanitize_upload_filename(category_label) or "Bestanden"
+    safe_filename = sanitize_upload_filename(filename)
+    path = f"{folder}/{safe_filename}"
+    if path not in used_paths:
+        used_paths.add(path)
+        return path
+    stem, extension = os.path.splitext(safe_filename)
+    suffix = 2
+    while f"{folder}/{stem}-{suffix}{extension}" in used_paths:
+        suffix += 1
+    path = f"{folder}/{stem}-{suffix}{extension}"
+    used_paths.add(path)
+    return path
+
+
+@app.get("/downloads")
+def downloads_page() -> str:
+    access_redirect = require_page_access("downloads")
+    if access_redirect is not None:
+        return access_redirect
+    user = get_current_user() or {}
+    files = build_download_catalog(str(user.get("id") or ""))
+    categories = []
+    for category in sorted({item["category"] for item in files}):
+        category_items = [item for item in files if item["category"] == category]
+        categories.append(
+            {
+                "value": category,
+                "label": category_items[0]["categoryLabel"],
+                "count": len(category_items),
+            }
+        )
+    return render_template(
+        "downloads.html",
+        active_page="downloads",
+        files=files,
+        categories=categories,
+        downloaded_count=sum(1 for item in files if item["isDownloaded"]),
+    )
+
+
+@app.get("/downloads/bestand/<path:file_key>")
+def download_catalog_file(file_key: str):
+    access_redirect = require_page_access("downloads")
+    if access_redirect is not None:
+        return access_redirect
+    user = get_current_user() or {}
+    catalog = {item["key"]: item for item in build_download_catalog(str(user.get("id") or ""))}
+    item = catalog.get(file_key)
+    if item is None:
+        abort(404)
+    try:
+        file_bytes = create_catalog_download_file(file_key)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return jsonify({"error": str(exc) or "Het bestand kon niet worden gemaakt."}), 500
+    mark_downloaded_files(str(user.get("id") or ""), [item])
+    return (
+        file_bytes,
+        200,
+        {
+            "Content-Type": DOWNLOAD_MIME_TYPES[item["extension"]],
+            "Content-Disposition": f'attachment; filename="{item["filename"]}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.post("/downloads/selectie")
+def download_catalog_selection():
+    access_redirect = require_page_access("downloads")
+    if access_redirect is not None:
+        return access_redirect
+    payload = request.get_json(silent=True) or {}
+    requested_keys = payload.get("keys") if isinstance(payload.get("keys"), list) else []
+    requested_keys = list(dict.fromkeys(str(key or "").strip() for key in requested_keys if str(key or "").strip()))
+    if not requested_keys:
+        return jsonify({"error": "Selecteer minimaal één bestand."}), 400
+    if len(requested_keys) > DOWNLOAD_MAX_SELECTION:
+        return jsonify({"error": f"Selecteer maximaal {DOWNLOAD_MAX_SELECTION} bestanden per download."}), 400
+
+    user = get_current_user() or {}
+    user_id = str(user.get("id") or "")
+    catalog = {item["key"]: item for item in build_download_catalog(user_id)}
+    selected_items = [catalog[key] for key in requested_keys if key in catalog]
+    if len(selected_items) != len(requested_keys):
+        return jsonify({"error": "Een of meer geselecteerde bestanden bestaan niet meer. Vernieuw de pagina."}), 404
+
+    archive = BytesIO()
+    used_paths: Set[str] = set()
+    try:
+        with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zip_archive:
+            for item in selected_items:
+                file_bytes = create_catalog_download_file(item["key"])
+                zip_archive.writestr(
+                    unique_zip_path(item["categoryLabel"], item["filename"], used_paths),
+                    file_bytes,
+                )
+    except (OSError, RuntimeError, ValueError, zipfile.BadZipFile) as exc:
+        return jsonify({"error": str(exc) or "De ZIP-download kon niet worden gemaakt."}), 500
+    mark_downloaded_files(user_id, selected_items)
+    archive.seek(0)
+    filename = datetime.now(ZoneInfo("Europe/Amsterdam")).strftime("hws-downloads-%Y-%m-%d-%H%M.zip")
+    return (
+        archive.read(),
+        200,
+        {
+            "Content-Type": "application/zip",
+            "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "no-store",
         },
     )
