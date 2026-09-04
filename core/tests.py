@@ -2448,6 +2448,7 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn('data-download-search', page_content)
         self.assertIn('data-download-from', page_content)
         self.assertIn('data-download-selection', page_content)
+        self.assertIn("Shift + klik selecteert een hele reeks", page_content)
         self.assertIn('href="/static/downloads.css?', page_content)
         self.assertIn('src="/static/downloads.js?', page_content)
 

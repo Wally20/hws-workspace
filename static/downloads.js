@@ -21,6 +21,7 @@
   const noResults = page.querySelector("[data-download-no-results]");
   const feedback = page.querySelector("[data-download-feedback]");
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+  let lastSelectionCheckbox = null;
 
   const normalizeText = (value) =>
     String(value || "")
@@ -158,7 +159,25 @@
   };
 
   rows.forEach((row) => {
-    row.querySelector("[data-file-select]")?.addEventListener("change", updateSelection);
+    const checkbox = row.querySelector("[data-file-select]");
+    checkbox?.addEventListener("click", (event) => {
+      if (event.shiftKey && lastSelectionCheckbox && lastSelectionCheckbox !== checkbox) {
+        const visibleCheckboxes = [...list.querySelectorAll("[data-file-select]")].filter(
+          (candidate) => !candidate.closest("[data-download-row]")?.hidden,
+        );
+        const firstIndex = visibleCheckboxes.indexOf(lastSelectionCheckbox);
+        const secondIndex = visibleCheckboxes.indexOf(checkbox);
+        if (firstIndex !== -1 && secondIndex !== -1) {
+          const startIndex = Math.min(firstIndex, secondIndex);
+          const endIndex = Math.max(firstIndex, secondIndex);
+          visibleCheckboxes.slice(startIndex, endIndex + 1).forEach((candidate) => {
+            candidate.checked = checkbox.checked;
+          });
+        }
+      }
+      lastSelectionCheckbox = checkbox;
+    });
+    checkbox?.addEventListener("change", updateSelection);
     const downloadLink = row.querySelector("[data-file-download]");
     downloadLink?.addEventListener("click", async (event) => {
       event.preventDefault();
@@ -203,6 +222,7 @@
         checkbox.checked = true;
       }
     });
+    lastSelectionCheckbox = null;
     updateSelection();
   });
 
@@ -213,6 +233,7 @@
         checkbox.checked = false;
       }
     });
+    lastSelectionCheckbox = null;
     updateSelection();
   });
 
@@ -246,6 +267,7 @@
           checkbox.checked = false;
         }
       });
+      lastSelectionCheckbox = null;
       updateSelection();
       updateDownloadedCount();
       applyFilters();

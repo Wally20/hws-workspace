@@ -146,6 +146,12 @@
   text-decoration: underline;
 }
 
+.downloads-selection-hint {
+  color: #64748b;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
 .downloads-selection-action > span {
   color: var(--muted);
   font-size: 0.74rem;
