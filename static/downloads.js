@@ -177,23 +177,27 @@
     });
   };
 
+  const completeCheckboxSelection = (checkbox, shiftKey) => {
+    if (shiftKey) {
+      applyShiftSelection(checkbox);
+    }
+    lastSelectionCheckbox = checkbox;
+    updateSelection();
+  };
+
   rows.forEach((row) => {
     const checkbox = row.querySelector("[data-file-select]");
     const checkboxLabel = checkbox?.closest(".downloads-row-check");
-    let shiftSelectionRequested = false;
-    checkboxLabel?.addEventListener("pointerdown", (event) => {
-      shiftSelectionRequested = event.shiftKey;
-    });
     checkbox?.addEventListener("click", (event) => {
-      shiftSelectionRequested = shiftSelectionRequested || event.shiftKey;
+      completeCheckboxSelection(checkbox, event.shiftKey);
     });
-    checkbox?.addEventListener("change", () => {
-      if (shiftSelectionRequested) {
-        applyShiftSelection(checkbox);
+    checkboxLabel?.addEventListener("click", (event) => {
+      if (event.target === checkbox) {
+        return;
       }
-      lastSelectionCheckbox = checkbox;
-      shiftSelectionRequested = false;
-      updateSelection();
+      event.preventDefault();
+      checkbox.checked = !checkbox.checked;
+      completeCheckboxSelection(checkbox, event.shiftKey);
     });
     const downloadLink = row.querySelector("[data-file-download]");
     downloadLink?.addEventListener("click", async (event) => {

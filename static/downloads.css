@@ -237,18 +237,24 @@
 }
 
 .downloads-row-check {
+  position: relative;
   display: grid;
   width: 21px;
   height: 21px;
   place-items: center;
   cursor: pointer;
+  user-select: none;
 }
 
 .downloads-row-check input {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   opacity: 0;
+  cursor: pointer;
 }
 
 .downloads-row-check span {
