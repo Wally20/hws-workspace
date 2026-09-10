@@ -7,7 +7,7 @@
 {% block content %}
   {% macro agenda_trainer_picker(field_id) -%}
     <div class="field agenda-trainer-field">
-      <span id="{{ field_id }}Label">Trainer(s)</span>
+      <span id="{{ field_id }}Label">Trainers (één of meerdere)</span>
       <div class="agenda-trainer-picker" data-agenda-trainer-picker>
         <select
           name="trainer_ids"
@@ -29,7 +29,7 @@
           {% endfor %}
         </select>
         <small class="field-hint agenda-trainer-help" id="{{ field_id }}Help" data-agenda-trainer-help>
-          Zoek op naam en klik op een trainer om deze te koppelen.
+          Kies één of meerdere trainers. Klik op elke trainer die je wilt koppelen.
         </small>
       </div>
     </div>

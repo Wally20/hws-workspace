@@ -6043,6 +6043,12 @@ body.sidebar-collapsed #footballFieldWizardModal {
   overflow: auto;
 }
 
+#agendaModal,
+#agendaBulkModal,
+#agendaEditModal {
+  z-index: 10030;
+}
+
 .agenda-modal-backdrop {
   position: absolute;
   inset: 0;
@@ -6436,7 +6442,7 @@ body.sidebar-collapsed #footballFieldWizardModal {
   display: grid;
   place-items: center;
   border: 1px solid #d7d7d7;
-  border-radius: 999px;
+  border-radius: 6px;
   background: #ffffff;
   color: transparent;
   font-size: 0.78rem;

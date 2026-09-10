@@ -34,6 +34,13 @@ const agendaWeekJumpInput = document.querySelector("#agendaWeekJumpInput");
 const agendaClubOptionsByTrainingTypeNode = document.querySelector("#agendaClubOptionsByTrainingType");
 const agendaTrainerPickerInstances = [];
 
+// Keep dialogs above the navigation, outside the main content's stacking context.
+[agendaModal, agendaBulkModal, agendaEditModal].forEach((modal) => {
+  if (modal) {
+    document.body.appendChild(modal);
+  }
+});
+
 document.addEventListener("DOMContentLoaded", () => {
   const shouldUseWideAgendaLayout = window.innerWidth > 980 && window.innerWidth <= 1280;
   if (shouldUseWideAgendaLayout && window.HwsSidebar && !window.HwsSidebar.isCollapsed()) {
@@ -153,7 +160,7 @@ function initAgendaTrainerPicker(root, pickerIndex) {
   searchInput.id = searchId;
   searchInput.className = "agenda-trainer-search-input";
   searchInput.type = "search";
-  searchInput.placeholder = "Zoek en koppel een trainer...";
+  searchInput.placeholder = "Zoek trainers op naam...";
   searchInput.autocomplete = "off";
   searchInput.spellcheck = false;
   searchInput.setAttribute("role", "combobox");
@@ -188,7 +195,7 @@ function initAgendaTrainerPicker(root, pickerIndex) {
   panelHeading.className = "agenda-trainer-panel-heading";
 
   const panelTitle = document.createElement("strong");
-  panelTitle.textContent = "Kies trainer(s)";
+  panelTitle.textContent = "Kies één of meerdere trainers";
 
   const resultCount = document.createElement("span");
   resultCount.className = "agenda-trainer-result-count";
@@ -308,7 +315,7 @@ function initAgendaTrainerPicker(root, pickerIndex) {
       const selectedCount = selectedOptions.length;
       help.textContent = selectedCount
         ? `${selectedCount} ${selectedCount === 1 ? "trainer" : "trainers"} gekoppeld. Zoek op naam om nog iemand toe te voegen.`
-        : "Zoek op naam en klik op een trainer om deze te koppelen.";
+        : "Kies één of meerdere trainers. Klik op elke trainer die je wilt koppelen.";
     }
   }
 
@@ -349,7 +356,14 @@ function initAgendaTrainerPicker(root, pickerIndex) {
   optionRows.forEach(({ option, row }) => {
     row.addEventListener("click", () => {
       option.selected = !option.selected;
+      const continueSearch = option.selected && Boolean(searchInput.value);
+      if (continueSearch) {
+        searchInput.value = "";
+      }
       select.dispatchEvent(new Event("change", { bubbles: true }));
+      if (continueSearch) {
+        searchInput.focus({ preventScroll: true });
+      }
     });
     row.addEventListener("keydown", (event) => {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
