@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Teams | HWS Voetbalschool Workspace{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/amateur-teams.css?v={{ asset_version }}">{% endblock %}
+{% block content %}
+<div class="club-teams">
+  <header class="page-header">
+    <div><h1>Teams</h1><p class="welcome-line">Teams en trainingen bij samenwerkende amateurclubs. Klik op een team om het te wijzigen.</p></div>
+    <div class="teams-actions">
+      <a class="subtle-button" href="/samenwerkende-amateurclubs">Terug</a>
+      <button class="team-primary-button teams-add" type="button" id="addTeam" aria-label="Nieuw team toevoegen"><span aria-hidden="true">+</span> Team toevoegen</button>
+    </div>
+  </header>
+  {% if saved %}<div class="notice" role="status">Team opgeslagen.</div>{% endif %}
+  <section class="summary-card teams-panel" aria-label="Teamoverzicht">
+    <div class="teams-filters">
+      <label>Zoeken<input id="teamSearch" type="search" placeholder="Team, club of trainer…"></label>
+      <label>Seizoen<select id="seasonFilter"><option value="">Alle seizoenen</option>{% for season in teams|map(attribute='season')|unique %}<option>{{ season }}</option>{% endfor %}</select></label>
+      <p id="teamCount" role="status">{{ teams|length }} teams</p>
+    </div>
+    <div class="teams-table-scroll">
+      <table class="teams-table">
+        <thead><tr><th>Team</th><th>Club</th><th>Soort training</th><th>Trainingsmomenten / trainer</th><th>Niveau per fase</th><th>Spelers</th><th>Opmerking</th></tr></thead>
+        <tbody>
+        {% for team in teams %}
+          <tr data-team-id="{{ team.id }}" data-season="{{ team.season }}">
+            <td><button type="button" class="teams-edit" data-edit-team="{{ team.id }}" aria-label="{{ team.name }} bij {{ team.club }} wijzigen">{{ team.name }}</button><small>{{ team.age_category }} · {{ team.season }}</small></td>
+            <td>{{ team.club }}</td><td>{{ team.team_type }}</td>
+            <td>{% for schedule in team.schedules %}<div class="teams-slot"><strong>{{ schedule.day }} {{ schedule.start }}–{{ schedule.end }}</strong><small>{{ trainer_names.get(schedule.trainer, 'Trainer niet meer beschikbaar') if schedule.trainer else 'Trainer nog toe te wijzen' }}</small></div>{% endfor %}</td>
+            <td>{% for level in team.levels %}<div class="teams-level"><span>Fase {{ loop.index }}</span> {{ level or 'Nog niet ingevuld' }}</div>{% endfor %}</td>
+            <td>{{ team.players|length }}</td><td class="teams-notes">{{ team.notes or '—' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p id="teamsEmpty" class="teams-empty" {% if teams %}hidden{% endif %}>{% if teams %}Geen teams gevonden met deze filters.{% else %}Er zijn nog geen teams. Voeg je eerste team toe met de + knop.{% endif %}</p>
+  </section>
+  <noscript><p>Schakel JavaScript in om teams toe te voegen en te wijzigen.</p></noscript>
+  <dialog id="teamDialog" class="teams-dialog" aria-labelledby="teamDialogTitle">
+    <form method="post" action="/samenwerkende-amateurclubs/teams" id="teamForm">
+      <input type="hidden" name="csrf_token" value="{{ legacy_csrf_token }}">
+      <input type="hidden" name="id"><input type="hidden" name="version">
+      <div class="teams-dialog-head"><div><h2 id="teamDialogTitle">Team toevoegen</h2><p>Je kunt alle gegevens tijdens het seizoen aanpassen.</p></div><button class="subtle-button" type="button" data-close-team aria-label="Venster sluiten">Sluiten</button></div>
+      {% if error %}<p class="teams-error" role="alert" id="teamError">{{ error }}</p>{% endif %}
+      <div class="teams-form-grid">
+        <label>Teamnaam<input name="name" required maxlength="120" placeholder="Bijv. JO10-1" autocomplete="off"></label>
+        <label>Club<input name="club" list="teamClubs" required maxlength="120" placeholder="Kies of typ een club"></label>
+        <label>Seizoen<input name="season" required pattern="[0-9]{4}/[0-9]{4}" maxlength="9" placeholder="2026/2027"></label>
+        <label>Leeftijdscategorie<select name="age_category" required><option value="">Kies een leeftijdscategorie</option>{% for age in age_phases %}<option>{{ age }}</option>{% endfor %}</select></label>
+        <label class="teams-full">Soort training<input name="team_type" list="teamTypes" required maxlength="120" placeholder="Bijv. teamtraining of techniektraining"></label>
+      </div>
+      <fieldset><legend>Trainingsmomenten</legend><p class="feature-list-subtitle">Vul per training de dag, begin- en eindtijd en trainer in.</p><div id="teamSchedules"></div><button type="button" id="addSchedule" class="subtle-button">+ Trainingsmoment</button></fieldset>
+      <fieldset><legend>Niveau per fase</legend><p id="phaseHint" class="feature-list-subtitle">Kies eerst een leeftijdscategorie.</p><div id="teamLevels" class="teams-form-grid"></div></fieldset>
+      <fieldset><legend>Spelers <span id="teamPlayersCount">(0)</span></legend><p class="feature-list-subtitle">Het toevoegen en beheren van spelers komt in een volgende uitbreiding.</p></fieldset>
+      <label>Opmerking / bijzonderheden<textarea name="notes" rows="4" maxlength="5000" placeholder="Bijzonderheden over dit team"></textarea></label>
+      <div class="teams-dialog-footer"><button type="button" class="subtle-button" data-close-team>Annuleren</button><button class="team-primary-button" type="submit" id="saveTeam">Team opslaan</button></div>
+    </form>
+  </dialog>
+  <datalist id="teamClubs">{% for club in clubs %}<option value="{{ club }}">{% endfor %}</datalist>
+  <datalist id="teamTypes"><option value="Teamtraining"><option value="Techniektraining"><option value="Keeperstraining"><option value="Gasttraining"></datalist>
+  <template id="scheduleTemplate"><div class="teams-schedule">
+    <label>Dag<select name="day" required><option value="">Kies een dag</option>{% for day in days %}<option>{{ day }}</option>{% endfor %}</select></label>
+    <label>Begintijd<input type="time" name="start" required></label><label>Eindtijd<input type="time" name="end" required></label>
+    <label>Trainer<select name="trainer"><option value="">Nog toe te wijzen</option>{% for trainer in trainers %}<option value="{{ trainer.id }}">{{ trainer.name }}</option>{% endfor %}</select></label>
+    <button type="button" class="subtle-button teams-remove" aria-label="Trainingsmoment verwijderen">Verwijderen</button>
+  </div></template>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="application/json" id="teamsData" nonce="{{ csp_nonce }}">{{ {'teams': teams, 'submitted': submitted, 'agePhases': age_phases, 'defaultSeason': default_season}|tojson }}</script>
+<script src="/static/amateur-teams.js?v={{ asset_version }}" nonce="{{ csp_nonce }}" defer></script>
+{% endblock %}

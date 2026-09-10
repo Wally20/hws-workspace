@@ -116,6 +116,7 @@ urlpatterns = [
         views.amateur_clubs_page,
         name="amateur_clubs_page",
     ),
+    path("samenwerkende-amateurclubs/teams", views.amateur_clubs_teams_page, name="amateur_clubs_teams_page"),
     path("samenwerkende-amateurclubs/nieuw", views.amateur_clubs_new_page, name="amateur_clubs_new_page"),
     path(
         "samenwerkende-amateurclubs/<int:playbook_id>/dupliceren",

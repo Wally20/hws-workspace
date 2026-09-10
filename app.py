@@ -659,6 +659,14 @@ WORKSPACE_SEARCH_PAGES = (
     },
     {
         "key": "samenwerkende-amateurclubs",
+        "title": "Teams",
+        "path": "/samenwerkende-amateurclubs/teams",
+        "section": "Samenwerkende Amateurclubs",
+        "description": "Teams, trainingsmomenten, trainers en niveaus per fase beheren.",
+        "keywords": ("teams", "club", "niveau", "fase", "leeftijd", "trainingen"),
+    },
+    {
+        "key": "samenwerkende-amateurclubs",
         "title": "Nieuwe samenwerkende amateurclub",
         "path": "/samenwerkende-amateurclubs/nieuw",
         "section": "Samenwerkende Amateurclubs",
@@ -4684,7 +4692,10 @@ def sync_seed_workspace_data() -> None:
 
 
 def init_db() -> None:
+    from core.amateur_teams import init_teams_storage
+
     with get_db_connection() as connection:
+        init_teams_storage(connection)
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS dashboard_events (
@@ -26859,6 +26870,13 @@ def amateur_clubs_home_page() -> str:
         "samenwerkende_amateurclubs_overzicht.html",
         active_page="samenwerkende-amateurclubs",
     )
+
+
+@app.route("/samenwerkende-amateurclubs/teams", methods=["GET", "POST"])
+def amateur_clubs_teams_page():
+    from core.amateur_teams import teams_page
+
+    return teams_page()
 
 
 @app.get("/samenwerkende-amateurclubs/draaiboeken")

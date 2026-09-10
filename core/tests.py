@@ -3456,7 +3456,8 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
                 (
                     "/samenwerkende-amateurclubs/draaiboeken",
                     "Samenwerkende amateurclubs",
-                )
+                ),
+                ("/samenwerkende-amateurclubs/teams", "Teams"),
             ],
         )
         self.assertEqual(overview.status_code, 200)

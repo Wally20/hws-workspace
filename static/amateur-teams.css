@@ -1,0 +1,51 @@
+.club-teams { --teams-border: #e4e7ec; min-width: 0; }
+.club-teams .page-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 24px; }
+.club-teams [hidden] { display: none !important; }
+.teams-actions, .teams-dialog-head, .teams-dialog-footer { display: flex; align-items: center; gap: 12px; }
+.teams-actions { flex-wrap: wrap; }
+.teams-add { display: inline-flex; align-items: center; gap: 9px; white-space: nowrap; }
+.teams-add span { font-size: 24px; line-height: 1; }
+.teams-panel { margin-top: 24px; min-width: 0; }
+.teams-filters { display: flex; align-items: end; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+.teams-filters label:first-child { flex: 1; min-width: 180px; }
+.club-teams label { display: flex; flex-direction: column; gap: 7px; font-weight: 600; font-size: 14px; }
+.club-teams input, .club-teams select, .club-teams textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 11px 12px; border: 1px solid #cdd3dc; border-radius: 9px; background: #fff; color: #171c26; font: inherit; font-weight: 400; }
+.club-teams textarea { resize: vertical; }
+.club-teams :is(button, input, select, textarea):focus-visible { outline: 3px solid #387bcb; outline-offset: 2px; }
+.teams-table-scroll { overflow-x: auto; }
+.teams-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.teams-table th { text-align: left; color: #596273; font-size: 12px; background: #f7f8fa; }
+.teams-table th, .teams-table td { padding: 15px 12px; border-bottom: 1px solid var(--teams-border); vertical-align: top; }
+.teams-table tbody tr { cursor: pointer; }
+.teams-table tbody tr:hover, .teams-table tbody tr:focus-within { background: #f3f7fb; }
+.teams-table small { display: block; color: #626b79; margin-top: 5px; white-space: nowrap; }
+.teams-edit { padding: 0; border: 0; background: none; text-align: left; font: inherit; font-weight: 700; color: #172333; cursor: pointer; }
+.teams-slot + .teams-slot { margin-top: 12px; }
+.teams-slot strong { font-size: 13px; white-space: nowrap; }
+.teams-level { margin-bottom: 5px; min-width: 155px; }
+.teams-level span { color: #626b79; margin-right: 7px; }
+.teams-notes { min-width: 150px; max-width: 280px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.teams-empty { text-align: center; padding: 30px 12px; color: #626b79; }
+.teams-dialog { box-sizing: border-box; width: min(880px, calc(100vw - 24px)); max-height: 90vh; max-height: 90dvh; margin: auto; border: 0; border-radius: 18px; padding: 28px; color: #171c26; background: white; box-shadow: 0 24px 80px #0004; overflow: auto; }
+.teams-dialog::backdrop { background: #11182799; }
+body:has(.teams-dialog[open]) { overflow: hidden; }
+.teams-dialog-head { justify-content: space-between; align-items: start; margin-bottom: 24px; }
+.teams-dialog h2 { margin: 0; }
+.teams-dialog-head p { margin: 8px 0 0; color: #626b79; font-size: 14px; }
+.teams-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.teams-full { grid-column: 1 / -1; }
+.teams-dialog fieldset { min-width: 0; padding: 20px 0; margin: 24px 0 0; border: 0; border-top: 1px solid var(--teams-border); }
+.teams-dialog legend { padding-right: 12px; font-weight: 700; }
+.teams-dialog fieldset > p { margin: 0 0 16px; }
+.teams-schedule { display: grid; grid-template-columns: 1.1fr .8fr .8fr 1.3fr auto; align-items: end; gap: 10px; margin-bottom: 16px; }
+.teams-remove { font-size: 12px; padding: 12px 8px; }
+.teams-dialog-footer { justify-content: end; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--teams-border); }
+.teams-error { padding: 14px; border-radius: 9px; background: #fff0ef; color: #9c231b; }
+.club-teams button:disabled { cursor: default; opacity: .5; }
+@media (max-width: 700px) {
+  .club-teams .page-header { flex-direction: column; align-items: start; gap: 16px; }
+  .teams-dialog { padding: 20px; }
+  .teams-schedule { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-bottom: 16px; border-bottom: 1px solid var(--teams-border); }
+  .teams-schedule label:first-child { grid-column: 1 / -1; }
+}
+@media (max-width: 430px) { .teams-form-grid { grid-template-columns: 1fr; } }
