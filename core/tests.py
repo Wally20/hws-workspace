@@ -4557,6 +4557,28 @@ class LegacyDjangoSmokeTests(SimpleTestCase):
         self.assertIn("<li>Neem voetbalschoenen mee</li>", rendered_body)
         self.assertIn("<li>Neem <strong>water</strong> mee</li>", rendered_body)
 
+    def test_registration_email_body_renders_numbered_lists_and_switches_list_types(self):
+        rendered_body = legacy.render_registration_email_body_html(
+            "Data:\n1. **Vrijdag**\n2. *Zaterdag*\n- Neem water mee\n1. Meld je aan\n\nTot dan!"
+        )
+
+        self.assertEqual(
+            rendered_body,
+            "<p>Data:</p>\n<ol><li><strong>Vrijdag</strong></li><li><em>Zaterdag</em></li></ol>\n"
+            "<ul><li>Neem water mee</li></ul>\n<ol><li>Meld je aan</li></ol>\n<p>Tot dan!</p>",
+        )
+
+    def test_registration_email_numbering_preserves_start_and_escapes_html(self):
+        rendered_body = legacy.render_registration_email_body_html(
+            "3. <script>alert('test')</script>\n4. Water & fruit\n\n1. Nieuwe lijst"
+        )
+
+        self.assertIn('<ol start="3">', rendered_body)
+        self.assertNotIn("<script>", rendered_body)
+        self.assertIn("&lt;script&gt;", rendered_body)
+        self.assertIn("<li>Water &amp; fruit</li>", rendered_body)
+        self.assertTrue(rendered_body.endswith("<ol><li>Nieuwe lijst</li></ol>"))
+
     def test_registration_email_html_appends_hws_signature(self):
         rendered_body = legacy.render_registration_email_html("Beste ouder,\n\nBedankt voor je inschrijving.")
 

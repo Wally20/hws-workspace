@@ -424,21 +424,31 @@ function formatRegistrationEmailSelection(format) {
     return;
   }
 
-  if (format === "bullet") {
-    const lineStart = value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
-    const lineEnd = end;
+  if (format === "bullet" || format === "numbered") {
+    const lineStart = start === 0 ? 0 : value.lastIndexOf("\n", start - 1) + 1;
+    const selectionEnd = end > start && value[end - 1] === "\n" ? end - 1 : end;
+    const nextNewline = value.indexOf("\n", selectionEnd);
+    const lineEnd = nextNewline === -1 ? value.length : nextNewline;
     const selectedLines = value.slice(lineStart, lineEnd);
     const sourceLines = selectedLines ? selectedLines.split("\n") : [""];
+    let number = 1;
+    if (format === "numbered" && lineStart > 0) {
+      const previousLine = value.slice(0, lineStart - 1).split("\n").pop();
+      const previousNumber = previousLine.match(/^\s*(\d+)\.\s+/);
+      if (previousNumber) {
+        number = Number(previousNumber[1]) + 1;
+      }
+    }
     const formattedLines = sourceLines
       .map((line) => {
         const trimmedLine = line.trimStart();
-        if (!trimmedLine) {
-          return "- ";
-        }
-        if (/^([-*]|&bull;|•)\s+/.test(trimmedLine)) {
+        if (!trimmedLine && sourceLines.length > 1) {
+          number = 1;
           return line;
         }
-        return `${line.slice(0, line.length - trimmedLine.length)}- ${trimmedLine}`;
+        const content = trimmedLine.replace(/^(?:[-*]|&bull;|•|\d+\.)\s+/, "");
+        const marker = format === "numbered" ? `${number++}. ` : "- ";
+        return `${line.slice(0, line.length - trimmedLine.length)}${marker}${content}`;
       })
       .join("\n");
     const nextValue = `${value.slice(0, lineStart)}${formattedLines}${value.slice(lineEnd)}`;

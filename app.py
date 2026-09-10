@@ -2824,6 +2824,8 @@ def render_registration_email_body_html(body: str) -> str:
     html_parts: List[str] = []
     paragraph_lines: List[str] = []
     list_items: List[str] = []
+    list_tag = "ul"
+    list_start = 1
 
     def flush_paragraph() -> None:
         if paragraph_lines:
@@ -2832,15 +2834,24 @@ def render_registration_email_body_html(body: str) -> str:
 
     def flush_list() -> None:
         if list_items:
-            html_parts.append(f"<ul>{''.join(list_items)}</ul>")
+            start_attribute = f' start="{list_start}"' if list_tag == "ol" and list_start != 1 else ""
+            html_parts.append(f"<{list_tag}{start_attribute}>{''.join(list_items)}</{list_tag}>")
             list_items.clear()
 
     for raw_line in lines:
         stripped_line = raw_line.strip()
         bullet_match = re.match(r"^(?:[-*]|•|&bull;)\s+(.+)$", stripped_line)
-        if bullet_match:
+        numbered_match = re.match(r"^(\d{1,9})\.\s+(.+)$", stripped_line)
+        if bullet_match or numbered_match:
             flush_paragraph()
-            list_items.append(f"<li>{render_registration_email_inline_html(bullet_match.group(1))}</li>")
+            next_tag = "ol" if numbered_match else "ul"
+            if next_tag != list_tag:
+                flush_list()
+            if not list_items:
+                list_start = int(numbered_match.group(1)) if numbered_match else 1
+            list_tag = next_tag
+            item_text = numbered_match.group(2) if numbered_match else bullet_match.group(1)
+            list_items.append(f"<li>{render_registration_email_inline_html(item_text)}</li>")
             continue
         if not stripped_line:
             flush_paragraph()
