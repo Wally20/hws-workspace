@@ -1,4 +1,7 @@
 const leadsSearchInput = document.querySelector("#leadsProductSearch");
+const clearLeadsSearchButton = document.querySelector("#clearLeadsSearchButton");
+const leadsSearchStatus = document.querySelector("#leadsSearchStatus");
+const leadsSearchEmpty = document.querySelector("#leadsSearchEmpty");
 const leadsProductList = document.querySelector("#leadsProductList");
 const leadsProductCards = Array.from(document.querySelectorAll(".leads-product-card"));
 const copyLeadEmailsButton = document.querySelector("#copyLeadEmailsButton");
@@ -108,11 +111,31 @@ function filterProducts() {
     }
   });
 
-  rankedCards
-    .sort((left, right) => left.matchScore - right.matchScore || left.originalIndex - right.originalIndex)
-    .forEach(({ card }) => {
-      leadsProductList?.appendChild(card);
+  rankedCards.sort((left, right) => left.matchScore - right.matchScore || left.originalIndex - right.originalIndex);
+  if (leadsProductList) {
+    const orderedCards = [
+      ...rankedCards.map(({ card }) => card),
+      ...leadsProductCards.filter((card) => card.hidden),
+    ];
+    orderedCards.forEach((card, index) => {
+      // A search-field blur also filters. Moving the clicked card at that point
+      // would interrupt its pending click, so leave correctly ordered nodes in place.
+      const currentCard = leadsProductList.children[index];
+      if (currentCard !== card) {
+        leadsProductList.insertBefore(card, currentCard || null);
+      }
     });
+  }
+
+  if (leadsSearchStatus) {
+    leadsSearchStatus.textContent = `${rankedCards.length} van ${leadsProductCards.length} tegels zichtbaar`;
+  }
+  if (leadsSearchEmpty) {
+    leadsSearchEmpty.hidden = rankedCards.length > 0 || leadsProductCards.length === 0;
+  }
+  if (clearLeadsSearchButton) {
+    clearLeadsSearchButton.disabled = !query;
+  }
 }
 
 function parseCardEmails(card) {
@@ -340,6 +363,13 @@ leadsProductCards.forEach((card) => {
 leadsSearchInput?.addEventListener("input", filterProducts);
 leadsSearchInput?.addEventListener("search", filterProducts);
 leadsSearchInput?.addEventListener("change", filterProducts);
+clearLeadsSearchButton?.addEventListener("click", () => {
+  if (leadsSearchInput) {
+    leadsSearchInput.value = "";
+    filterProducts();
+    leadsSearchInput.focus();
+  }
+});
 copyLeadEmailsButton?.addEventListener("click", copyLeadEmails);
 clearLeadSelectionsButton?.addEventListener("click", clearLeadSelections);
 leadBlockedEmailsInput?.addEventListener("input", handleBlockedEmailsInput);

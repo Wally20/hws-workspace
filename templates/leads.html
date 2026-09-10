@@ -54,15 +54,6 @@
     </div>
 
     <div class="registrations-actions leads-actions">
-      <label class="field registrations-search-field registrations-search-field-wide leads-search-field">
-        <span>Zoek product</span>
-        <input
-          type="search"
-          id="leadsProductSearch"
-          placeholder="Zoek op productnaam of SKU"
-          autocomplete="off"
-        >
-      </label>
       <button type="button" class="team-primary-button" id="copyLeadEmailsButton" disabled>
         Kopieer e-mailadressen
       </button>
@@ -105,6 +96,29 @@
         <span class="registrations-copy-feedback" id="leadBlockedEmailsFeedback" aria-live="polite"></span>
       </div>
     </section>
+
+    <div class="leads-search-toolbar">
+      <div class="registrations-actions leads-actions">
+        <label class="field registrations-search-field registrations-search-field-wide leads-search-field">
+          <span>Zoek tussen de tegels</span>
+          <input
+            type="search"
+            id="leadsProductSearch"
+            placeholder="Zoek op productnaam, locatie of SKU"
+            autocomplete="off"
+            aria-controls="leadsProductList"
+            aria-describedby="leadsSearchHint"
+          >
+        </label>
+        <button type="button" class="team-secondary-button" id="clearLeadsSearchButton" disabled>
+          Wis zoekopdracht
+        </button>
+      </div>
+      <p class="section-subtitle" id="leadsSearchHint">Je geselecteerde en uitgesloten tegels blijven onthouden tijdens het zoeken. Zoek gerust verder om meer tegels te selecteren.</p>
+      <p class="section-subtitle" id="leadsSearchStatus" role="status" aria-live="polite" aria-atomic="true"></p>
+    </div>
+
+    <div class="empty-state" id="leadsSearchEmpty" hidden>Geen tegels gevonden. Pas je zoekopdracht aan; je selectie blijft behouden.</div>
 
     <div class="registrations-product-list registrations-product-grid" id="leadsProductList">
       {% for product in products %}

@@ -10908,6 +10908,15 @@ body.customer-satisfaction-email-modal-open {
   margin-bottom: 0;
 }
 
+.leads-search-toolbar {
+  display: grid;
+  gap: 8px;
+}
+
+#leadsSearchEmpty[hidden] {
+  display: none;
+}
+
 .leads-legend {
   display: flex;
   flex-wrap: wrap;
